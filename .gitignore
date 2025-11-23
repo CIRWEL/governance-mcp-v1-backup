@@ -33,6 +33,21 @@ data/locks/
 data/processes/
 *.log
 
+# Session history files (archived, not tracked)
+data/*history*.json
+data/*history*.csv
+data/claude_*.json
+data/claude_*.csv
+data/composer_*.json
+data/composer_*.csv
+data/cursor_*.json
+data/cursor_*.csv
+data/hackathon_*.json
+data/hackathon_*.csv
+data/portal_*.json
+data/portal_*.csv
+data/archive/
+
 # IDE
 .vscode/
 .idea/
