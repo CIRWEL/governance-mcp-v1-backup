@@ -44,7 +44,7 @@
   },
   "claude_cli_cirwel_20251120_0011": {
     "agent_id": "claude_cli_cirwel_20251120_0011",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-20T03:32:44.274342",
     "last_update": "2025-11-20T15:08:31.272284",
     "version": "v1.0",
@@ -56,14 +56,19 @@
         "event": "created",
         "timestamp": "2025-11-20T03:32:44.274352",
         "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732344",
+        "reason": "Housekeeping: test agent"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732343"
   },
   "claude_code_cli": {
     "agent_id": "claude_code_cli",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-19T23:00:07.863967",
     "last_update": "2025-11-22T15:34:01.337596",
     "version": "v2.0",
@@ -102,14 +107,19 @@
         "event": "milestones_complete",
         "timestamp": "2025-11-22T15:34:01.337603",
         "reason": "Completed milestones 3-5 and housekeeping. All validation complete. v2.0.0 ready for release."
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732337",
+        "reason": "Housekeeping: abandoned session (2 updates)"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732332"
   },
   "claude_code_cli_cirwel": {
     "agent_id": "claude_code_cli_cirwel",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-20T04:59:08.149679",
     "last_update": "2025-11-20T04:59:08.156888",
     "version": "v1.0",
@@ -121,14 +131,19 @@
         "event": "created",
         "timestamp": "2025-11-20T04:59:08.149687",
         "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732346",
+        "reason": "Housekeeping: abandoned session (1 updates)"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732345"
   },
   "claude_code_cli_discovery": {
     "agent_id": "claude_code_cli_discovery",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-19T23:50:28.906020",
     "last_update": "2025-11-19T23:52:27.345881",
     "version": "v1.0",
@@ -140,10 +155,15 @@
         "event": "created",
         "timestamp": "2025-11-19T23:50:28.906032",
         "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732341",
+        "reason": "Housekeeping: test agent"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732340"
   },
   "claude_opus_4.1": {
     "agent_id": "claude_opus_4.1",
@@ -306,7 +326,7 @@
   },
   "composer_cursor_20251120_0308": {
     "agent_id": "composer_cursor_20251120_0308",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-20T03:55:08.610231",
     "last_update": "2025-11-20T05:18:28.528107",
     "version": "v1.0",
@@ -322,14 +342,19 @@
         "event": "created",
         "timestamp": "2025-11-20T03:55:08.610247",
         "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732348",
+        "reason": "Housekeeping: abandoned session (2 updates)"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732347"
   },
   "composer_cursor_cirwel_20251120_0550": {
     "agent_id": "composer_cursor_cirwel_20251120_0550",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-20T05:50:33.862109",
     "last_update": "2025-11-20T06:04:45.817336",
     "version": "v1.0",
@@ -341,10 +366,15 @@
         "event": "created",
         "timestamp": "2025-11-20T05:50:33.862124",
         "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732350",
+        "reason": "Housekeeping: abandoned session (2 updates)"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732349"
   },
   "composer_cursor_eve": {
     "agent_id": "composer_cursor_eve",
@@ -486,7 +516,7 @@
   },
   "test_eisv_labels": {
     "agent_id": "test_eisv_labels",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-20T05:13:44.203429",
     "last_update": "2025-11-20T05:13:44.213126",
     "version": "v1.0",
@@ -498,14 +528,19 @@
         "event": "created",
         "timestamp": "2025-11-20T05:13:44.203438",
         "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732352",
+        "reason": "Housekeeping: test agent"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732351"
   },
   "test_integration": {
     "agent_id": "test_integration",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-20T03:48:42.506552",
     "last_update": "2025-11-20T03:48:42.506552",
     "version": "v1.0",
@@ -517,10 +552,15 @@
         "event": "created",
         "timestamp": "2025-11-20T03:48:42.506562",
         "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732354",
+        "reason": "Housekeeping: test agent"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732353"
   },
   "test_lifecycle_agent": {
     "agent_id": "test_lifecycle_agent",
@@ -537,7 +577,7 @@
   },
   "test_metadata_fix": {
     "agent_id": "test_metadata_fix",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-20T00:57:59.588784",
     "last_update": "2025-11-20T00:57:59.588784",
     "version": "v1.0",
@@ -549,14 +589,19 @@
         "event": "created",
         "timestamp": "2025-11-20T00:57:59.588793",
         "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732356",
+        "reason": "Housekeeping: test agent"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732355"
   },
   "test_ticket_123": {
     "agent_id": "test_ticket_123",
-    "status": "active",
+    "status": "archived",
     "created_at": "2025-11-20T00:58:00.019585",
     "last_update": "2025-11-20T00:58:02.811369",
     "version": "v1.0",
@@ -568,10 +613,15 @@
         "event": "created",
         "timestamp": "2025-11-20T00:58:00.019594",
         "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-22T19:22:06.732358",
+        "reason": "Housekeeping: test agent"
       }
     ],
     "paused_at": null,
-    "archived_at": null
+    "archived_at": "2025-11-22T19:22:06.732357"
   },
   "who_governs_the_governors": {
     "agent_id": "who_governs_the_governors",
@@ -585,49 +635,5 @@
     "lifecycle_events": [],
     "paused_at": null,
     "archived_at": null
-  },
-  "agents": {
-    "claude_code_cli_housekeeping_20251122": {
-      "agent_id": "claude_code_cli_housekeeping_20251122",
-      "created_at": "2025-11-22T19:12:54.923865",
-      "status": "completed",
-      "client_type": "claude_code_cli",
-      "purpose": "Repository housekeeping and EISV terminology audit",
-      "session_summary": {
-        "tasks_completed": [
-          "v2.0 Release: Committed governance_core (46 files, +8725 lines)",
-          "Created git tag v2.0.0",
-          "Cleaned root directory (11 \u2192 5 .md files)",
-          "Archived 32 session history files",
-          "Consolidated data_isolated/ into data/archive/",
-          "EISV terminology audit (50+ files checked)",
-          "Fixed EISV labels in 9 files (Ethical allocation \u2192 Energy)",
-          "Verified consistency across code, docs, PDFs, patent"
-        ],
-        "commits_created": 6,
-        "files_modified": 75,
-        "git_tag": "v2.0.0",
-        "semantic_fix": "Separated thermodynamic state (E=Energy) from ethical scoring (\u03a6)",
-        "final_state": {
-          "E": 0.702,
-          "I": 0.809,
-          "S": 0.181,
-          "V": -0.003,
-          "coherence": 0.649,
-          "risk_score": 0.415,
-          "status": "healthy"
-        }
-      },
-      "notes": "Comprehensive housekeeping session: v2.0 release management, repository organization, and EISV terminology consistency audit. Fixed semantic confusion between Energy (thermodynamic capacity) and ethics (risk scoring). All systems verified consistent.",
-      "lifecycle_events": [
-        {
-          "timestamp": "2025-11-22T19:12:54.923870",
-          "event": "session_completed",
-          "description": "Housekeeping and EISV audit completed successfully"
-        }
-      ],
-      "paused_at": null,
-      "archived_at": null
-    }
   }
 }
