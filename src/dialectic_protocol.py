@@ -23,6 +23,7 @@ from enum import Enum
 import json
 import hashlib
 import secrets
+import numpy as np
 
 
 class DialecticPhase(Enum):
@@ -93,14 +94,23 @@ class DialecticSession:
     Implements the full protocol: thesis → antithesis → synthesis → resolution
     """
 
+    # Timeout constants
+    MAX_ANTITHESIS_WAIT = timedelta(hours=2)  # Reviewer has 2 hours
+    MAX_SYNTHESIS_WAIT = timedelta(hours=1)   # Each synthesis round: 1 hour
+    MAX_TOTAL_TIME = timedelta(hours=6)        # Total session: 6 hours
+
     def __init__(self,
                  paused_agent_id: str,
                  reviewer_agent_id: str,
                  paused_agent_state: Dict[str, Any],
+                 discovery_id: Optional[str] = None,
+                 dispute_type: Optional[str] = None,
                  max_synthesis_rounds: int = 5):
         self.paused_agent_id = paused_agent_id
         self.reviewer_agent_id = reviewer_agent_id
         self.paused_agent_state = paused_agent_state
+        self.discovery_id = discovery_id  # Optional: Link to discovery being disputed/corrected
+        self.dispute_type = dispute_type  # Optional: "dispute", "correction", "verification", None (recovery)
         self.max_synthesis_rounds = max_synthesis_rounds
 
         self.transcript: List[DialecticMessage] = []
@@ -492,25 +502,22 @@ class DialecticSession:
             if re.search(pattern, conditions_str):
                 return False, reason
         
-        # Check risk threshold values
-        risk_threshold_patterns = [
-            r"risk.*threshold.*([0-9.]+)",
-            r"risk.*>.*([0-9.]+)",
-            r"risk.*=.*([0-9.]+)",
-            r"threshold.*([0-9.]+).*risk"
-        ]
+        # Check risk threshold values - require decimal point to avoid false matches like "3" from "every 3 updates"
+        # Pattern matches "risk threshold to 0.47" or "risk threshold 0.47" but requires decimal point
+        risk_threshold_pattern = r"risk.*?threshold.*?([0-9]\.[0-9]+)"
+        matches = re.findall(risk_threshold_pattern, conditions_str, re.IGNORECASE)
         
-        for pattern in risk_threshold_patterns:
-            matches = re.findall(pattern, conditions_str)
-            for match in matches:
-                try:
-                    value = float(match)
+        for match in matches:
+            try:
+                value = float(match)
+                # Only check if it's a reasonable threshold value (0.0-1.0)
+                if 0.0 <= value <= 1.0:
                     if value > 0.90:
                         return False, f"Risk threshold {value} exceeds maximum allowed (0.90)"
                     if value < 0.0:
                         return False, f"Risk threshold {value} is negative"
-                except ValueError:
-                    continue
+            except ValueError:
+                continue
         
         # Check coherence threshold (should be reasonable)
         coherence_patterns = [
@@ -547,6 +554,58 @@ class DialecticSession:
         
         return True, None
 
+    def check_timeout(self) -> Optional[str]:
+        """
+        Check if session has timed out at any phase.
+        
+        Returns:
+            Timeout reason string if timed out, None otherwise
+        """
+        elapsed = datetime.now() - self.created_at
+        
+        # Check total time limit
+        if elapsed > self.MAX_TOTAL_TIME:
+            return "Session timeout - total time exceeded 6 hours"
+        
+        # Check antithesis phase timeout
+        if self.phase == DialecticPhase.ANTITHESIS:
+            thesis_time = self.get_thesis_timestamp()
+            if thesis_time:
+                wait_time = datetime.now() - thesis_time
+                if wait_time > self.MAX_ANTITHESIS_WAIT:
+                    return f"Reviewer timeout - waited {wait_time.total_seconds()/3600:.1f} hours for antithesis"
+        
+        # Check synthesis phase timeout
+        elif self.phase == DialecticPhase.SYNTHESIS:
+            last_update = self.get_last_update_timestamp()
+            if last_update:
+                wait_time = datetime.now() - last_update
+                if wait_time > self.MAX_SYNTHESIS_WAIT:
+                    return f"Synthesis timeout - waited {wait_time.total_seconds()/3600:.1f} hours for next synthesis"
+        
+        return None
+    
+    def get_thesis_timestamp(self) -> Optional[datetime]:
+        """Get timestamp of thesis submission"""
+        for msg in self.transcript:
+            if msg.phase == "thesis":
+                try:
+                    return datetime.fromisoformat(msg.timestamp)
+                except (ValueError, TypeError):
+                    pass
+        return None
+    
+    def get_last_update_timestamp(self) -> Optional[datetime]:
+        """Get timestamp of last transcript update"""
+        if not self.transcript:
+            return self.created_at
+        
+        last_msg = self.transcript[-1]
+        try:
+            return datetime.fromisoformat(last_msg.timestamp)
+        except (ValueError, TypeError):
+            return self.created_at
+
     def to_dict(self) -> Dict[str, Any]:
         """Export session to dict for storage"""
         return {
@@ -557,7 +616,10 @@ class DialecticSession:
             "synthesis_round": self.synthesis_round,
             "transcript": [msg.to_dict() for msg in self.transcript],
             "resolution": self.resolution.to_dict() if self.resolution else None,
-            "created_at": self.created_at.isoformat()
+            "created_at": self.created_at.isoformat(),
+            "discovery_id": self.discovery_id,  # Optional: Link to discovery
+            "dispute_type": self.dispute_type,  # Optional: Type of dispute
+            "paused_agent_state": self.paused_agent_state  # Include state for reconstruction
         }
 
 
@@ -567,7 +629,7 @@ def calculate_authority_score(agent_metadata: Dict[str, Any],
     Calculate authority score for reviewer selection.
 
     Factors:
-    - Health Score (40%): risk < 0.30 → 1.0, 0.30-0.60 → 0.7, > 0.60 → 0.3
+    - Health Score (40%): smooth sigmoid function centered at 0.35 (was step function at 0.30/0.60)
     - Track Record (30%): successful_reviews / total_reviews
     - Domain Expertise (20%): has handled similar issues (via tags)
     - Freshness (10%): recent updates (< 24h)
@@ -579,15 +641,17 @@ def calculate_authority_score(agent_metadata: Dict[str, Any],
     Returns:
         Authority score [0.0, 1.0]
     """
-    # Health score (40%)
+    # Health score (40%) - using smooth function instead of step function (fixes discontinuity bias)
     if agent_state and 'risk_score' in agent_state:
         risk = agent_state['risk_score']
-        if risk < 0.30:
-            health_score = 1.0
-        elif risk < 0.60:
-            health_score = 0.7
-        else:
-            health_score = 0.3
+        # Smooth sigmoid function instead of hard thresholds
+        # Maps risk [0, 1] to health_score [1.0, 0.0] smoothly
+        # Steepness parameter: higher = steeper transition
+        steepness = 10.0
+        # Center at 0.35 (healthy threshold)
+        health_score = 1.0 / (1.0 + np.exp(steepness * (risk - 0.35)))
+        # Ensure bounds
+        health_score = max(0.0, min(1.0, health_score))
     else:
         health_score = 0.5  # Unknown health
 
@@ -599,9 +663,27 @@ def calculate_authority_score(agent_metadata: Dict[str, Any],
     else:
         track_record = 0.5  # No history = neutral
 
-    # Domain expertise (20%) - simplified for now
-    # TODO: Implement tag-based expertise matching
-    domain_expertise = 0.5
+    # Domain expertise (20%) - tag-based matching
+    # Match reviewer tags with paused agent's tags or issue type
+    paused_agent_tags = agent_metadata.get('paused_agent_tags', [])  # Passed from caller
+    reviewer_tags = agent_metadata.get('tags', [])
+    
+    if paused_agent_tags and reviewer_tags:
+        # Calculate overlap: Jaccard similarity
+        paused_set = set(paused_agent_tags)
+        reviewer_set = set(reviewer_tags)
+        if paused_set or reviewer_set:
+            overlap = len(paused_set & reviewer_set)
+            union = len(paused_set | reviewer_set)
+            domain_expertise = overlap / union if union > 0 else 0.5
+        else:
+            domain_expertise = 0.5
+    elif reviewer_tags:
+        # Reviewer has tags but paused agent doesn't - slight bonus
+        domain_expertise = 0.6
+    else:
+        # No tags - neutral
+        domain_expertise = 0.5
 
     # Freshness (10%)
     last_update = agent_metadata.get('last_update')

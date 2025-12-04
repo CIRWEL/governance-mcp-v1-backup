@@ -58,40 +58,51 @@ print(f"Save this key: {api_key}")
 ```python
 # Subsequent updates (requires API key)
 process_agent_update(
-    agent_id="my_unique_agent_20251124",
-    api_key="your_api_key_here",  # ← Required!
-    parameters=[...],
-    ethical_drift=[...],
-    response_text="...",
+    agent_id="<agent_identifier>",
+    api_key="<api_key_from_registration>",  # ← Required!
+    parameters=[...],  # Deprecated
+    ethical_drift=[...],  # Deprecated
+    response_text="Operation summary",
     complexity=0.7
 )
 ```
 
 ---
 
-## 🔑 Getting Your API Key
+## 🔑 API Key Retrieval
 
-### Method 1: From First Update Response
+### Method 1: First Update Response
 
-When you create a new agent, the API key is returned in the response:
+New agent registration returns API key in response:
 
 ```json
 {
   "success": true,
   "api_key": "xGJwK9MbGCc2sk1IKrkC2RwoRucN4lUyQAATw1i39RQ",
-  "api_key_warning": "⚠️  Save this API key - you'll need it for future updates...",
-  "status": "healthy",
+  "api_key_warning": "⚠️  Store this API key securely - required for future updates",
+  "status": "moderate",
+  "decision": {
+    "action": "proceed",
+    "reason": "Low attention load (0.43) - within normal operating parameters",
+    "guidance": "Moderate complexity operations - continue current approach"
+  },
+  "sampling_params": {
+    "temperature": 0.59,
+    "top_p": 0.86,
+    "max_tokens": 150
+  },
+  "sampling_params_note": "Optional generation parameters derived from thermodynamic state. Advisory only - agents may use or ignore.",
   ...
 }
 ```
 
 ### Method 2: Using `get_agent_api_key` Tool
 
-If you lost your API key, retrieve it:
+Retrieve existing agent API key:
 
 ```python
 get_agent_api_key(
-    agent_id="my_unique_agent_20251124"
+    agent_id="<agent_identifier>"
 )
 ```
 
@@ -99,20 +110,20 @@ get_agent_api_key(
 ```json
 {
   "success": true,
-  "agent_id": "my_unique_agent_20251124",
+  "agent_id": "<agent_identifier>",
   "api_key": "xGJwK9MbGCc2sk1IKrkC2RwoRucN4lUyQAATw1i39RQ",
-  "warning": "⚠️  Save this API key securely...",
-  "security_note": "This key proves ownership of your agent identity..."
+  "warning": "⚠️  Store this API key securely",
+  "security_note": "API key provides ownership verification for agent identity"
 }
 ```
 
 ### Method 3: Regenerate Key
 
-If your key is compromised, regenerate it:
+Regenerate API key (invalidates previous key):
 
 ```python
 get_agent_api_key(
-    agent_id="my_unique_agent_20251124",
+    agent_id="<agent_identifier>",
     regenerate=True  # Invalidates old key, generates new one
 )
 ```

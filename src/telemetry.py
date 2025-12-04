@@ -11,39 +11,80 @@ from pathlib import Path
 
 from src.audit_log import audit_logger
 from src.calibration import calibration_checker
+from src.telemetry_cache import get_telemetry_cache
 
 
 class TelemetryCollector:
-    """Collects and surfaces governance telemetry"""
+    """Collects and surfaces governance telemetry with caching"""
     
     def __init__(self):
         self.audit_logger = audit_logger
         self.calibration_checker = calibration_checker
+        self.cache = get_telemetry_cache()
     
     def get_skip_rate_metrics(self, agent_id: Optional[str] = None,
                              window_hours: int = 24) -> Dict:
-        """Get skip rate metrics from audit log"""
-        return self.audit_logger.get_skip_rate_metrics(agent_id, window_hours)
+        """
+        Get skip rate metrics from audit log (cached).
+        
+        Cache TTL: 30 seconds
+        Rationale: Skip rates change frequently as agents make decisions. Short TTL ensures
+        recent skip patterns are visible quickly. 30s balances freshness vs cache hit rate.
+        """
+        # Check cache first
+        cached = self.cache.get('skip_rate', agent_id, window_hours)
+        if cached is not None:
+            return cached
+        
+        # Fetch from audit log
+        result = self.audit_logger.get_skip_rate_metrics(agent_id, window_hours)
+        
+        # Cache result (shorter TTL for skip rates - 30s)
+        self.cache.set('skip_rate', result, agent_id, window_hours, ttl_seconds=30)
+        
+        return result
     
     def get_confidence_distribution(self, agent_id: Optional[str] = None,
                                     window_hours: int = 24) -> Dict:
-        """Get confidence distribution statistics"""
+        """
+        Get confidence distribution statistics (non-blocking optimized, cached).
+        
+        Cache TTL: 60 seconds
+        Rationale: Confidence distributions are more stable than skip rates but still change
+        as agents adapt. 60s provides good balance - fresh enough to see trends, cached long
+        enough to reduce file I/O. Error responses cached for 60s to avoid repeated failures.
+        """
+        # Check cache first
+        cached = self.cache.get('confidence_dist', agent_id, window_hours)
+        if cached is not None:
+            return cached
+        
         if not self.audit_logger.log_file.exists():
-            return {"error": "No audit log data"}
+            result = {"error": "No audit log data"}
+            self.cache.set('confidence_dist', result, agent_id, window_hours, ttl_seconds=60)
+            return result
         
         cutoff_time = datetime.now() - timedelta(hours=window_hours)
         
         confidences = []
         
         try:
+            # Optimize: Read file in chunks, early exit if possible
+            # For large files, this prevents blocking the event loop too long
             with open(self.audit_logger.log_file, 'r') as f:
-                for line in f:
+                # Read last N lines first (most recent data)
+                # This is a heuristic - most recent entries are at the end
+                lines = f.readlines()
+                # Process in reverse (newest first) for early exit optimization
+                for line in reversed(lines[-1000:]):  # Limit to last 1000 lines for performance
                     try:
                         entry_dict = json.loads(line.strip())
                         entry_time = datetime.fromisoformat(entry_dict['timestamp'])
                         
                         if entry_time < cutoff_time:
-                            continue
+                            # Since we're reading newest first, if we hit cutoff, we can stop
+                            # (older entries won't be in window)
+                            break
                         
                         if agent_id and entry_dict['agent_id'] != agent_id:
                             continue
@@ -53,15 +94,21 @@ class TelemetryCollector:
                     except (json.JSONDecodeError, KeyError):
                         continue
         except Exception as e:
-            return {"error": str(e)}
+            result = {"error": str(e)}
+            # Error responses cached for 30s to prevent repeated failures but allow recovery
+            self.cache.set('confidence_dist', result, agent_id, window_hours, ttl_seconds=30)
+            return result
         
         if not confidences:
-            return {"error": "No confidence data"}
+            result = {"error": "No confidence data"}
+            # Empty data cached for 60s (same as success case) - data won't appear instantly
+            self.cache.set('confidence_dist', result, agent_id, window_hours, ttl_seconds=60)
+            return result
         
         import numpy as np
         confidences_array = np.array(confidences)
         
-        return {
+        result = {
             "count": len(confidences),
             "mean": float(np.mean(confidences_array)),
             "median": float(np.median(confidences_array)),
@@ -78,6 +125,11 @@ class TelemetryCollector:
             "low_confidence_rate": float(np.mean(confidences_array < 0.8)),
             "high_confidence_rate": float(np.mean(confidences_array >= 0.8))
         }
+        
+        # Cache result (60s TTL for confidence distributions - see docstring for rationale)
+        self.cache.set('confidence_dist', result, agent_id, window_hours, ttl_seconds=60)
+        
+        return result
     
     def get_calibration_metrics(self) -> Dict:
         """Get calibration metrics"""

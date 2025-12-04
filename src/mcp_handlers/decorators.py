@@ -1,0 +1,120 @@
+"""
+MCP Tool Decorators - Auto-registration and utilities
+
+Reduces boilerplate and enables auto-discovery of tools.
+"""
+
+from typing import Dict, Any, Callable, Optional
+from functools import wraps
+import asyncio
+import sys
+from mcp.types import TextContent
+
+# Global registry (populated by decorators)
+_TOOL_REGISTRY: Dict[str, Callable] = {}
+_TOOL_TIMEOUTS: Dict[str, float] = {}
+_TOOL_DESCRIPTIONS: Dict[str, str] = {}
+
+
+def mcp_tool(
+    name: Optional[str] = None,
+    timeout: float = 30.0,
+    description: Optional[str] = None,
+    rate_limit_exempt: bool = False
+):
+    """
+    Decorator for MCP tool handlers with auto-registration and timeout protection.
+    
+    Usage:
+        @mcp_tool("process_agent_update", timeout=30.0)
+        async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+            ...
+    
+    Args:
+        name: Tool name (defaults to function name without 'handle_' prefix)
+        timeout: Timeout in seconds (default: 30.0)
+        description: Tool description (defaults to function docstring)
+        rate_limit_exempt: If True, skip rate limiting for this tool
+    
+    Returns:
+        Decorated handler function
+    """
+    def decorator(func: Callable) -> Callable:
+        # Determine tool name
+        tool_name = name or func.__name__.replace('handle_', '')
+        
+        # Get description from docstring if not provided
+        tool_description = description or (func.__doc__ and func.__doc__.split('\n')[0].strip()) or ""
+        
+        # Register tool
+        _TOOL_REGISTRY[tool_name] = func
+        _TOOL_TIMEOUTS[tool_name] = timeout
+        _TOOL_DESCRIPTIONS[tool_name] = tool_description
+        
+        # Add metadata to function
+        func._mcp_tool_name = tool_name
+        func._mcp_timeout = timeout
+        func._mcp_rate_limit_exempt = rate_limit_exempt
+        
+        @wraps(func)
+        async def wrapper(arguments: Dict[str, Any]):
+            """Wrapper with automatic timeout protection"""
+            try:
+                # Apply timeout automatically
+                result = await asyncio.wait_for(
+                    func(arguments),
+                    timeout=timeout
+                )
+                return result
+            except asyncio.TimeoutError:
+                from .utils import error_response
+                import sys
+                print(f"[UNITARES MCP] Tool '{tool_name}' timed out after {timeout}s", file=sys.stderr)
+                return [error_response(
+                    f"Tool '{tool_name}' timed out after {timeout} seconds.",
+                    recovery={
+                        "action": "This may indicate a blocking operation or system overload. Try again with simpler parameters.",
+                        "related_tools": ["health_check", "get_server_info"],
+                        "workflow": f"1. Wait a few seconds and retry 2. Check system health 3. Simplify request parameters"
+                    }
+                )]
+            except Exception as e:
+                from .utils import error_response
+                import traceback
+                import sys
+                # Log internally but sanitize for client
+                print(f"[UNITARES MCP] Tool '{tool_name}' error: {e}", file=sys.stderr)
+                print(f"[UNITARES MCP] Full traceback:\n{traceback.format_exc()}", file=sys.stderr)
+                
+                return [error_response(
+                    f"Error executing tool '{tool_name}': {str(e)}",
+                    recovery={
+                        "action": "Check tool parameters and try again",
+                        "related_tools": ["health_check", "list_tools"],
+                        "workflow": "1. Verify tool parameters 2. Check system health 3. Retry with simpler parameters"
+                    }
+                )]
+        
+        return wrapper
+    return decorator
+
+
+def get_tool_registry() -> Dict[str, Callable]:
+    """Get the registered tool handlers"""
+    return _TOOL_REGISTRY.copy()
+
+
+def get_tool_timeout(tool_name: str) -> float:
+    """Get timeout for a tool"""
+    return _TOOL_TIMEOUTS.get(tool_name, 30.0)
+
+
+def get_tool_description(tool_name: str) -> str:
+    """Get description for a tool"""
+    return _TOOL_DESCRIPTIONS.get(tool_name, "")
+
+
+def list_registered_tools() -> list[str]:
+    """List all registered tool names"""
+    return sorted(_TOOL_REGISTRY.keys())
+

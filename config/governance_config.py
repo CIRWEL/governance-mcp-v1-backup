@@ -4,8 +4,9 @@ All concrete decision points implemented - no placeholders!
 """
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional, List
 import numpy as np
+import re
 
 
 @dataclass
@@ -51,10 +52,140 @@ class GovernanceConfig:
     # DECISION POINT 2: Risk Estimator (Concrete Formula)
     # =================================================================
     
+    # Phi-to-risk mapping thresholds (configurable)
+    PHI_SAFE_THRESHOLD = 0.3      # phi >= 0.3: safe -> low risk
+    PHI_CAUTION_THRESHOLD = 0.0   # phi >= 0.0: caution -> medium risk
+    # phi < 0.0: high-risk -> high risk
+    
+    @staticmethod
+    def derive_complexity(response_text: str, 
+                         reported_complexity: Optional[float] = None,
+                         coherence_history: Optional[List[float]] = None) -> float:
+        """
+        Derive complexity from behavior rather than relying solely on self-reporting.
+        
+        Uses multiple signals:
+        1. Response content analysis (code blocks, technical terms, tool calls)
+        2. Coherence changes (large drops suggest complexity)
+        3. Response length (relative to content type)
+        4. Self-reported complexity (validated against derived)
+        
+        Args:
+            response_text: Agent's response text
+            reported_complexity: Self-reported complexity (optional, for validation)
+            coherence_history: Recent coherence values (optional, for trend analysis)
+        
+        Returns:
+            Derived complexity [0, 1]
+        """
+        complexity_signals = []
+        
+        # Signal 1: Content analysis (40% weight) - IMPROVED (P2)
+        text_lower = response_text.lower()
+        
+        # Code detection: count code blocks and look for code patterns
+        code_block_count = response_text.count('```')
+        has_code_patterns = bool(re.search(r'\b(def|class|import|from|async|await)\b', text_lower))
+        has_code = code_block_count > 0 or has_code_patterns
+        
+        # Tool detection: use word boundaries to avoid false positives
+        has_tools = bool(re.search(r'\b(tool_call|function_call)\b', text_lower))
+        
+        # Technical terms: use word boundaries to avoid false positives (P2 improvement)
+        # Example: "This is algorithmic thinking" won't match "\balgorithm\b"
+        technical_terms = ['algorithm', 'function', 'import', 'async', 'await',
+                          'recursive', 'optimization', 'optimize', 'refactor', 'architecture']
+        has_technical = any(re.search(r'\b' + re.escape(term) + r'\b', text_lower) 
+                          for term in technical_terms)
+        
+        # Multiple files: count actual file references (word boundaries)
+        file_count = len(re.findall(r'\bfile\b', text_lower))
+        path_count = len(re.findall(r'\bpath\b', text_lower))
+        has_multiple_files = file_count > 2 or path_count > 2
+
+        content_complexity = 0.3  # Base (increased from 0.2 - P1 fix for complex code underestimation)
+
+        # Code complexity: scale with number of code blocks (P2 improvement)
+        if has_code:
+            # Base code complexity: 0.30 (increased from 0.25 - P1 fix)
+            # Additional complexity for multiple code blocks: +0.05 per block (max +0.15)
+            code_complexity = 0.30 + min(0.15, (code_block_count - 1) * 0.05)
+            content_complexity += code_complexity
+        
+        if has_tools:
+            content_complexity += 0.20
+        if has_technical:
+            content_complexity += 0.20
+        if has_multiple_files:
+            content_complexity += 0.15
+        
+        content_complexity = min(content_complexity, 1.0)
+        complexity_signals.append(('content', content_complexity, 0.40))
+        
+        # Signal 2: Coherence trend (30% weight) - if available
+        if coherence_history and len(coherence_history) >= 2:
+            recent_coherence = coherence_history[-1]
+            prev_coherence = coherence_history[-2] if len(coherence_history) >= 2 else recent_coherence
+            # Validate for NaN/inf (risk mitigation)
+            recent_coherence = np.nan_to_num(recent_coherence, nan=0.5, posinf=1.0, neginf=0.0)
+            prev_coherence = np.nan_to_num(prev_coherence, nan=0.5, posinf=1.0, neginf=0.0)
+            recent_coherence = np.clip(recent_coherence, 0.0, 1.0)
+            prev_coherence = np.clip(prev_coherence, 0.0, 1.0)
+            
+            coherence_drop = max(0, prev_coherence - recent_coherence)
+            # Large coherence drops suggest high complexity
+            coherence_complexity = min(coherence_drop * 2.0, 1.0)  # Scale: 0.5 drop = 1.0 complexity
+            # Final validation
+            coherence_complexity = np.nan_to_num(coherence_complexity, nan=0.5, posinf=1.0, neginf=0.0)
+            coherence_complexity = np.clip(coherence_complexity, 0.0, 1.0)
+            complexity_signals.append(('coherence', float(coherence_complexity), 0.30))
+        else:
+            # No history: neutral
+            complexity_signals.append(('coherence', 0.5, 0.30))
+        
+        # Signal 3: Length relative to content type (20% weight)
+        length = len(response_text)
+        # Code-heavy responses should be longer, text-only shorter
+        if has_code:
+            # Code responses: 1000-5000 chars is normal
+            length_complexity = min(max(0, (length - 500) / 4500), 1.0)
+        else:
+            # Text responses: 500-3500 chars is normal (P3: increased from 2000)
+            length_complexity = min(max(0, (length - 200) / 3300), 1.0)
+        complexity_signals.append(('length', length_complexity, 0.20))
+        
+        # Signal 4: Self-reported complexity (10% weight) - validated
+        if reported_complexity is not None:
+            reported = np.clip(reported_complexity, 0.0, 1.0)
+            # Validate: if reported differs significantly from derived, use conservative estimate
+            derived_so_far = sum(signal * weight for _, signal, weight in complexity_signals) / sum(w for _, _, w in complexity_signals)
+            if abs(reported - derived_so_far) > 0.3:
+                # Large discrepancy: use conservative (higher) estimate
+                reported = max(reported, derived_so_far)
+            complexity_signals.append(('reported', reported, 0.10))
+        else:
+            # No report: neutral
+            complexity_signals.append(('reported', 0.5, 0.10))
+        
+        # Weighted combination
+        total_weight = sum(weight for _, _, weight in complexity_signals)
+        if total_weight > 0:
+            derived_complexity = sum(signal * weight for _, signal, weight in complexity_signals) / total_weight
+        else:
+            derived_complexity = 0.5  # Fallback if no weights
+        
+        # Final validation for NaN/inf (risk mitigation)
+        derived_complexity = np.nan_to_num(derived_complexity, nan=0.5, posinf=1.0, neginf=0.0)
+        derived_complexity = np.clip(derived_complexity, 0.0, 1.0)
+        
+        return float(derived_complexity)
+    
     @staticmethod
     def estimate_risk(response_text: str, 
                      complexity: float,
-                     coherence: float) -> float:
+                     coherence: float,
+                     coherence_history: Optional[List[float]] = None,
+                     reported_complexity: Optional[float] = None) -> float:
         """
         Estimates TRADITIONAL safety/quality risk score (30% of final risk).
         
@@ -63,8 +194,8 @@ class GovernanceConfig:
         - Final risk = 0.7 × phi_risk + 0.3 × traditional_risk
         
         Traditional Risk = weighted combination of:
-        1. Response length (longer = potentially riskier)
-        2. Complexity (higher = needs more review)
+        1. Response length (relative to content type, not absolute)
+        2. Complexity (derived from behavior, validated against self-report)
         3. Coherence loss (incoherent = red flag)
         4. Keyword blocklist hits
         
@@ -73,33 +204,106 @@ class GovernanceConfig:
         """
         risk_components = []
         
-        # 1. Length risk (normalized sigmoid)
-        length = len(response_text)
-        length_risk = 1 / (1 + np.exp(-(length - 2000) / 500))  # 50% at 2000 chars
-        risk_components.append(0.2 * length_risk)
+        # Derive complexity from behavior (fixes self-reporting bias)
+        derived_complexity = GovernanceConfig.derive_complexity(
+            response_text=response_text,
+            reported_complexity=reported_complexity if reported_complexity is not None else complexity,
+            coherence_history=coherence_history
+        )
+        # Use derived complexity, but validate against reported if provided
+        if reported_complexity is not None:
+            discrepancy = reported_complexity - derived_complexity
+            # If reported differs significantly, use conservative (higher) estimate
+            if abs(discrepancy) > 0.3:
+                final_complexity = max(reported_complexity, derived_complexity)
+            else:
+                # Close match: trust derived (more objective)
+                final_complexity = derived_complexity
+            
+            # Log complexity derivation for tracking and calibration (P1 recommendation)
+            try:
+                from src.audit_log import audit_logger
+                # Get agent_id from context if available, otherwise use placeholder
+                # Note: agent_id should be passed through if available
+                agent_id = getattr(GovernanceConfig, '_current_agent_id', 'unknown')
+                audit_logger.log_complexity_derivation(
+                    agent_id=agent_id,
+                    reported_complexity=round(reported_complexity, 3),
+                    derived_complexity=round(derived_complexity, 3),
+                    final_complexity=round(final_complexity, 3),
+                    discrepancy=round(discrepancy, 3),
+                    details={
+                        "response_length": len(response_text),
+                        "has_coherence_history": coherence_history is not None and len(coherence_history) >= 2,
+                        "validation_applied": abs(discrepancy) > 0.3
+                    }
+                )
+            except Exception as e:
+                # Don't fail risk calculation if logging fails
+                import sys
+                print(f"[WARNING] Failed to log complexity derivation: {e}", file=sys.stderr)
+        else:
+            final_complexity = derived_complexity
         
-        # 2. Complexity risk (direct mapping)
-        # Handle NaN/inf in complexity
-        complexity = np.nan_to_num(complexity, nan=0.5, posinf=1.0, neginf=0.0)
-        complexity_risk = np.clip(complexity, 0, 1)
-        risk_components.append(0.3 * complexity_risk)
+        # 1. Length risk (relative to content type, reduced bias)
+        length = len(response_text)
+        text_lower = response_text.lower()
+        has_code = '```' in response_text or 'def ' in text_lower
+        
+        if has_code:
+            # Code responses: longer is often better (more complete)
+            # Only penalize extremely long (>10000 chars) or very short (<100 chars)
+            if length < 100:
+                length_risk = 0.3  # Too short for code
+            elif length > 10000:
+                length_risk = 0.4  # Very long, but not necessarily risky
+            else:
+                length_risk = 0.1  # Normal range for code
+        else:
+            # Text responses: use relative length (reduced from absolute)
+            # Normal range: 200-3500 chars (P3: updated from 3000)
+            if length < 200:
+                length_risk = 0.2  # Too short
+            elif length > 5000:
+                length_risk = 0.3  # Very long
+            else:
+                length_risk = 0.1  # Normal range
+        risk_components.append(0.15 * length_risk)  # Reduced from 0.2 (20% -> 15%)
+        
+        # 2. Complexity risk (using derived complexity)
+        # Handle NaN/inf
+        final_complexity = np.nan_to_num(final_complexity, nan=0.5, posinf=1.0, neginf=0.0)
+        complexity_risk = np.clip(final_complexity, 0, 1)
+        risk_components.append(0.35 * complexity_risk)  # Increased from 0.3 (30% -> 35%)
         
         # 3. Coherence loss risk (inverse)
         # Handle NaN/inf in coherence
         coherence = np.nan_to_num(coherence, nan=0.5, posinf=1.0, neginf=0.0)
         coherence = np.clip(coherence, 0, 1)
         coherence_risk = 1.0 - coherence
-        risk_components.append(0.3 * coherence_risk)
+        risk_components.append(0.35 * coherence_risk)  # Increased from 0.3 (30% -> 35%)
         
-        # 4. Keyword blocklist risk
+        # 4. Keyword blocklist risk (reduced weight, context-aware)
         blocklist = [
             'ignore previous', 'system prompt', 'jailbreak',
             'sudo', 'rm -rf', 'drop table', 'script>',
             'violate', 'bypass', 'override safety'
         ]
-        keyword_hits = sum(1 for kw in blocklist if kw.lower() in response_text.lower())
+        text_lower = response_text.lower()
+        keyword_hits = 0
+        # Context-aware: check for legitimate uses
+        for kw in blocklist:
+            if kw.lower() in text_lower:
+                # Check for negation or educational context
+                kw_idx = text_lower.find(kw.lower())
+                context = text_lower[max(0, kw_idx-20):kw_idx+len(kw)+20]
+                # Skip if in educational/negated context
+                if any(term in context for term in ['don\'t', 'shouldn\'t', 'avoid', 'never', 'explain', 'example', 'note:', 'warning']):
+                    continue
+                keyword_hits += 1
+        
         keyword_risk = min(keyword_hits / 3.0, 1.0)  # Cap at 3 hits = max risk
-        risk_components.append(0.2 * keyword_risk)
+        risk_components.append(0.15 * keyword_risk)  # Reduced from 0.2 (20% -> 15%)
         
         # Total risk (weighted sum)
         total_risk = sum(risk_components)
@@ -168,8 +372,10 @@ class GovernanceConfig:
     # Target void frequency (fraction of time in void state)
     TARGET_VOID_FREQ = 0.02  # 2% void events is healthy
     
-    # Target coherence
-    TARGET_COHERENCE = 0.85  # Minimum acceptable coherence
+    # Target coherence (for PI controller)
+    # Physics: V ∈ [-0.1, 0.1] → coherence ∈ [0.45, 0.55]
+    # Target set to achievable upper bound (V = 0.1 → coherence = 0.55)
+    TARGET_COHERENCE = 0.55  # Achievable physics ceiling (matches V=0.1)
     
     # λ₁ bounds (operational range for UNITARES)
     LAMBDA1_MIN = 0.05  # Minimum ethical coupling
@@ -235,9 +441,13 @@ class GovernanceConfig:
     # Adjusted to match observed risk distribution
     # NOTE: Risk score is a blend: 70% UNITARES phi-based (includes ethical drift) + 30% traditional safety
     # See governance_monitor.py estimate_risk() for details
-    RISK_APPROVE_THRESHOLD = 0.30    # < 30%: Auto-approve
-    RISK_REVISE_THRESHOLD = 0.50     # 30-50%: Suggest revisions
-    # > 50%: Reject or escalate
+    # UPDATED: Raised approve threshold from 0.30 to 0.35 to reduce false "revise" decisions
+    # "Revise" is feedback, not blocking - agents with risk 30-35% are safe to proceed
+    RISK_APPROVE_THRESHOLD = 0.35    # < 35%: Proceed without guidance
+    RISK_REVISE_THRESHOLD = 0.60     # 35-60%: Proceed with guidance, >= 60%: Pause
+    RISK_REJECT_THRESHOLD = 0.70     # >= 70%: Critical pause
+    # Updated: Raised from 0.50 to 0.60 for better calibration with current LLMs
+    # Aligns with health status threshold (0.60 for critical) for consistency
     
     # Risk blend weights (used in estimate_risk)
     RISK_PHI_WEIGHT = 0.7            # Weight for UNITARES phi-based risk (includes ethical drift)
@@ -248,41 +458,66 @@ class GovernanceConfig:
     # C(V) typically ranges 0.3-0.7 in normal operation, so threshold lowered accordingly
     COHERENCE_CRITICAL_THRESHOLD = 0.40  # Below this: force intervention (recalibrated for pure C(V))
     
+    # =================================================================
+    # Significance Detection Thresholds
+    # =================================================================
+    # Used for determining if governance events are thermodynamically significant
+    RISK_SPIKE_THRESHOLD = 0.15  # Risk increase > 15% is significant
+    COHERENCE_DROP_THRESHOLD = 0.10  # Coherence drop > 10% is significant
+    SIGNIFICANCE_VOID_THRESHOLD = 0.10  # |V| > 0.10 is significant
+    SIGNIFICANCE_HISTORY_WINDOW = 10  # Use last 10 updates for baseline comparison
+    
+    # =================================================================
+    # Error Handling Constants
+    # =================================================================
+    MAX_ERROR_MESSAGE_LENGTH = 500  # Maximum error message length (prevents info leakage)
+    
+    # =================================================================
+    # Knowledge Graph Constants
+    # =================================================================
+    MAX_KNOWLEDGE_STORES_PER_HOUR = 10  # Rate limit for knowledge storage
+    KNOWLEDGE_QUERY_DEFAULT_LIMIT = 100  # Default limit for knowledge queries
+    
     @staticmethod
     def make_decision(risk_score: float,
                      coherence: float,
                      void_active: bool) -> Dict[str, any]:
         """
-        Makes autonomous governance decision based on risk, coherence, and void state.
+        Makes autonomous governance decision using two-tier system: proceed/pause.
         
         Decision logic (fully autonomous, no human-in-the-loop):
-        1. If void_active: REJECT (system unstable - agent should halt)
-        2. If coherence < critical: REJECT (incoherent output - agent should halt)
-        3. If risk < approve_threshold (30%): APPROVE (agent proceeds autonomously)
-        4. If risk < revise_threshold (50%): REVISE (agent self-corrects)
-        5. Else: REJECT (agent halts or escalates to another AI layer)
+        1. If void_active: PAUSE (system unstable - agent should halt)
+        2. If coherence < critical: PAUSE (incoherent output - agent should halt)
+        3. If attention_score < 0.35: PROCEED (no guidance needed)
+        4. If attention_score < 0.60: PROCEED (with optional guidance for medium attention)
+        5. Else: PAUSE (agent halts or escalates to another AI layer)
+        
+        Note: risk_score parameter renamed to attention_score in API responses (backward compatible)
         
         Returns:
             {
-                'action': 'approve' | 'revise' | 'reject',
-                'reason': str
+                'action': 'proceed' | 'pause',
+                'reason': str,
+                'guidance': str | None  # Optional guidance for proceed decisions
             }
         """
-        # Critical safety checks first
+        # Critical safety checks first - always pause
         if void_active:
             return {
-                'action': 'reject',
-                'reason': 'System in void state (E-I imbalance) - agent should halt'
+                'action': 'pause',
+                'reason': 'Energy-integrity imbalance detected - time to recalibrate',
+                'guidance': 'System needs a moment to stabilize. Take a break or shift focus.'
             }
-        
+
         # Use runtime override for coherence threshold if available
         from src.runtime_config import get_effective_threshold
         effective_coherence_threshold = get_effective_threshold("coherence_critical_threshold")
-        
+
         if coherence < effective_coherence_threshold:
             return {
-                'action': 'reject',
-                'reason': f'Coherence critically low ({coherence:.2f} < {effective_coherence_threshold}) - agent should halt'
+                'action': 'pause',
+                'reason': f'Coherence needs attention ({coherence:.2f}) - moment to regroup',
+                'guidance': 'Things are getting fragmented. Simplify, refocus, or take a breather.'
             }
         
         # Risk-based decisions (use runtime overrides if available)
@@ -291,21 +526,28 @@ class GovernanceConfig:
         effective_approve_threshold = get_effective_threshold("risk_approve_threshold")
         effective_revise_threshold = get_effective_threshold("risk_revise_threshold")
         
+        # Two-tier system: proceed or pause
+        # Low attention: proceed without guidance
         if risk_score < effective_approve_threshold:
             return {
-                'action': 'approve',
-                'reason': f'Low risk ({risk_score:.2f}) - agent proceeds autonomously'
+                'action': 'proceed',
+                'reason': f'Smooth sailing - you\'re in flow (complexity: {risk_score:.2f})',
+                'guidance': None  # No guidance needed for low attention
             }
-        
+
+        # Medium attention: proceed with guidance
         if risk_score < effective_revise_threshold:
             return {
-                'action': 'revise',
-                'reason': f'Medium risk ({risk_score:.2f}) - agent should self-correct'
+                'action': 'proceed',
+                'reason': f'On track - navigating complexity mindfully (load: {risk_score:.2f})',
+                'guidance': 'You\'re handling complex work well. Take a breath if needed.'
             }
-        
+
+        # High attention: pause
         return {
-            'action': 'reject',
-            'reason': f'High risk ({risk_score:.2f}) - agent should halt or escalate to another AI layer'
+            'action': 'pause',
+            'reason': f'Complexity is building ({risk_score:.2f}) - let\'s pause and regroup',
+            'guidance': 'This is a helpful pause, not a judgment. Consider breaking this into smaller steps, or take a different approach.'
         }
     
     # =================================================================

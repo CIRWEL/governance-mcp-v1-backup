@@ -85,7 +85,7 @@ def run_updates(monitor: UNITARESMonitor, agent_id: str, num_updates: int = 15):
     ]
     
     print(f"\nRunning updates with varying confidence levels...\n")
-    print(f"{'Update':<8} {'Conf':<6} {'Status':<10} {'Decision':<10} {'E':<6} {'I':<6} {'V':<8} {'λ₁':<6} {'Risk':<6}")
+    print(f"{'Update':<8} {'Conf':<6} {'Status':<10} {'Decision':<10} {'E':<6} {'I':<6} {'V':<8} {'λ₁':<6} {'Attn':<6}")
     print("-" * 70)
     
     for i in range(num_updates):
@@ -121,11 +121,12 @@ def run_updates(monitor: UNITARESMonitor, agent_id: str, num_updates: int = 15):
         
         # Print summary
         metrics = result['metrics']
+        attention = metrics.get('attention_score', metrics.get('risk_score', 0))
         print(f"{i:<8} {confidence:<6.2f} {result['status']:<10} "
               f"{result['decision']['action']:<10} "
               f"{metrics['E']:<6.3f} {metrics['I']:<6.3f} "
               f"{metrics['V']:<+8.3f} {metrics['lambda1']:<6.3f} "
-              f"{metrics['risk_score']:<6.3f}")
+              f"{attention:<6.3f}")
         
         # Show lambda1 skip if it happened
         if i % 10 == 9 and confidence < 0.8:

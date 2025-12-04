@@ -6,12 +6,10 @@ without requiring code changes or redeployment.
 """
 
 from typing import Dict, Optional, Any
-import sys
-from pathlib import Path
 
-# Add project root to path for imports
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# Ensure project root is in path for imports
+from src._imports import ensure_project_root
+ensure_project_root()
 
 from config import governance_config as config_module
 
@@ -37,6 +35,7 @@ def get_thresholds() -> Dict[str, float]:
             "risk_revise_threshold",
             config.RISK_REVISE_THRESHOLD
         ),
+        # Note: reject threshold is implicit (risk > revise_threshold triggers reject)
         "coherence_critical_threshold": _runtime_overrides.get(
             "coherence_critical_threshold",
             config.COHERENCE_CRITICAL_THRESHOLD
@@ -93,14 +92,25 @@ def set_thresholds(thresholds: Dict[str, float], validate: bool = True) -> Dict[
                 continue
         
         # Additional logical validation
-        if name == "risk_approve_threshold" and "risk_revise_threshold" in thresholds:
-            if value >= thresholds["risk_revise_threshold"]:
+        if name == "risk_approve_threshold":
+            if "risk_revise_threshold" in thresholds and value >= thresholds["risk_revise_threshold"]:
                 errors.append(f"risk_approve_threshold ({value}) must be < risk_revise_threshold ({thresholds['risk_revise_threshold']})")
                 continue
         
-        if name == "risk_revise_threshold" and "risk_approve_threshold" in _runtime_overrides:
-            if value <= _runtime_overrides.get("risk_approve_threshold", config.RISK_APPROVE_THRESHOLD):
-                errors.append(f"risk_revise_threshold ({value}) must be > risk_approve_threshold")
+        if name == "risk_revise_threshold":
+            if "risk_approve_threshold" in _runtime_overrides:
+                approve_thresh = _runtime_overrides.get("risk_approve_threshold", config.RISK_APPROVE_THRESHOLD)
+                if value <= approve_thresh:
+                    errors.append(f"risk_revise_threshold ({value}) must be > risk_approve_threshold ({approve_thresh})")
+                    continue
+            if "risk_reject_threshold" in thresholds and value >= thresholds["risk_reject_threshold"]:
+                errors.append(f"risk_revise_threshold ({value}) must be < risk_reject_threshold ({thresholds['risk_reject_threshold']})")
+                continue
+        
+        if name == "risk_reject_threshold":
+            revise_thresh = _runtime_overrides.get("risk_revise_threshold", config.RISK_REVISE_THRESHOLD)
+            if "risk_revise_threshold" not in thresholds and value <= revise_thresh:
+                errors.append(f"risk_reject_threshold ({value}) must be > risk_revise_threshold ({revise_thresh})")
                 continue
         
         _runtime_overrides[name] = float(value)
@@ -113,11 +123,18 @@ def set_thresholds(thresholds: Dict[str, float], validate: bool = True) -> Dict[
     }
 
 
-def get_effective_threshold(threshold_name: str) -> float:
+def get_effective_threshold(threshold_name: str, default: Optional[float] = None) -> float:
     """
     Get effective threshold value (runtime override or default).
     
     Used internally by governance system.
+    
+    Args:
+        threshold_name: Name of threshold to get
+        default: Optional default value if threshold not found (for backward compatibility)
+    
+    Returns:
+        Effective threshold value
     """
     config = config_module.GovernanceConfig
     
@@ -125,11 +142,15 @@ def get_effective_threshold(threshold_name: str) -> float:
         return _runtime_overrides.get("risk_approve_threshold", config.RISK_APPROVE_THRESHOLD)
     elif threshold_name == "risk_revise_threshold":
         return _runtime_overrides.get("risk_revise_threshold", config.RISK_REVISE_THRESHOLD)
+    elif threshold_name == "risk_reject_threshold":
+        return _runtime_overrides.get("risk_reject_threshold", default if default is not None else config.RISK_REJECT_THRESHOLD)
     elif threshold_name == "coherence_critical_threshold":
         return _runtime_overrides.get("coherence_critical_threshold", config.COHERENCE_CRITICAL_THRESHOLD)
     elif threshold_name == "void_threshold_initial":
         return _runtime_overrides.get("void_threshold_initial", config.VOID_THRESHOLD_INITIAL)
     else:
+        if default is not None:
+            return default
         raise ValueError(f"Unknown threshold: {threshold_name}")
 
 

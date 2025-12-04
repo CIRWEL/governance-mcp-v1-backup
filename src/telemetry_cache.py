@@ -1,0 +1,160 @@
+"""
+Telemetry caching layer to reduce file I/O.
+
+Caches telemetry query results with TTL-based expiration.
+Helps future agents by reducing blocking file operations.
+"""
+
+from typing import Dict, Optional, Any
+from datetime import datetime, timedelta
+from collections import defaultdict
+import hashlib
+import json
+
+
+class TelemetryCache:
+    """Simple TTL-based cache for telemetry queries"""
+    
+    def __init__(self, default_ttl_seconds: int = 60):
+        """
+        Initialize cache with default TTL.
+        
+        Args:
+            default_ttl_seconds: Default cache TTL in seconds (default: 60s)
+        """
+        self.cache: Dict[str, Dict[str, Any]] = {}
+        self.default_ttl = default_ttl_seconds
+    
+    def _make_key(self, query_type: str, agent_id: Optional[str] = None, 
+                  window_hours: int = 24, **kwargs) -> str:
+        """Generate cache key from query parameters"""
+        key_parts = [query_type]
+        if agent_id:
+            key_parts.append(f"agent:{agent_id}")
+        key_parts.append(f"window:{window_hours}")
+        if kwargs:
+            # Sort kwargs for consistent keys
+            sorted_kwargs = sorted(kwargs.items())
+            key_parts.append(json.dumps(sorted_kwargs, sort_keys=True))
+        
+        key_str = "|".join(key_parts)
+        return hashlib.md5(key_str.encode()).hexdigest()
+    
+    def get(self, query_type: str, agent_id: Optional[str] = None,
+            window_hours: int = 24, **kwargs) -> Optional[Dict[str, Any]]:
+        """
+        Get cached result if available and not expired.
+        
+        Returns:
+            Cached result dict or None if not found/expired
+        """
+        key = self._make_key(query_type, agent_id, window_hours, **kwargs)
+        
+        if key not in self.cache:
+            return None
+        
+        entry = self.cache[key]
+        expires_at = entry.get('expires_at')
+        
+        if expires_at and datetime.now() > expires_at:
+            # Expired - remove from cache
+            del self.cache[key]
+            return None
+        
+        return entry.get('data')
+    
+    def set(self, query_type: str, data: Dict[str, Any],
+            agent_id: Optional[str] = None, window_hours: int = 24,
+            ttl_seconds: Optional[int] = None, **kwargs) -> None:
+        """
+        Cache query result with TTL.
+        
+        Args:
+            query_type: Type of query (e.g., 'skip_rate', 'confidence_dist')
+            data: Result data to cache
+            agent_id: Optional agent ID
+            window_hours: Time window for query
+            ttl_seconds: Optional TTL override (uses default if None)
+            **kwargs: Additional query parameters
+        """
+        key = self._make_key(query_type, agent_id, window_hours, **kwargs)
+        ttl = ttl_seconds if ttl_seconds is not None else self.default_ttl
+        
+        self.cache[key] = {
+            'data': data,
+            'expires_at': datetime.now() + timedelta(seconds=ttl),
+            'cached_at': datetime.now().isoformat(),
+            'query_type': query_type
+        }
+    
+    def invalidate(self, query_type: Optional[str] = None,
+                   agent_id: Optional[str] = None) -> int:
+        """
+        Invalidate cache entries.
+        
+        Args:
+            query_type: If provided, only invalidate this query type
+            agent_id: If provided, only invalidate entries for this agent
+            
+        Returns:
+            Number of entries invalidated
+        """
+        if query_type is None and agent_id is None:
+            # Clear all
+            count = len(self.cache)
+            self.cache.clear()
+            return count
+        
+        # Selective invalidation
+        keys_to_remove = []
+        for key, entry in self.cache.items():
+            entry_query_type = entry.get('query_type', '')
+            entry_data = entry.get('data', {})
+            
+            should_remove = False
+            if query_type and entry_query_type == query_type:
+                should_remove = True
+            if agent_id and entry_data.get('agent_id') == agent_id:
+                should_remove = True
+            
+            if should_remove:
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            del self.cache[key]
+        
+        return len(keys_to_remove)
+    
+    def clear(self) -> None:
+        """Clear all cache entries"""
+        self.cache.clear()
+    
+    def stats(self) -> Dict[str, Any]:
+        """Get cache statistics"""
+        total_entries = len(self.cache)
+        expired_count = 0
+        now = datetime.now()
+        
+        for entry in self.cache.values():
+            if entry.get('expires_at') and now > entry.get('expires_at'):
+                expired_count += 1
+        
+        return {
+            'total_entries': total_entries,
+            'expired_entries': expired_count,
+            'active_entries': total_entries - expired_count,
+            'default_ttl_seconds': self.default_ttl
+        }
+
+
+# Global cache instance
+_telemetry_cache: Optional[TelemetryCache] = None
+
+
+def get_telemetry_cache() -> TelemetryCache:
+    """Get or create global telemetry cache instance"""
+    global _telemetry_cache
+    if _telemetry_cache is None:
+        _telemetry_cache = TelemetryCache(default_ttl_seconds=60)
+    return _telemetry_cache
+
