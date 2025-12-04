@@ -44,7 +44,7 @@ cat data/agent_metadata.json | python3 -m json.tool | grep -A 5 "your_agent_id"
 #### Immediate Fix
 ```bash
 # Option 1: Observer effect (sometimes just checking releases locks)
-python3 scripts/claude_code_bridge.py --status --agent-id <stuck_agent>
+python3 ~/scripts/claude_code_bridge.py --status --agent-id <stuck_agent>
 
 # Option 2: Clean old locks (use with caution!)
 find data/locks/ -mmin +10 -delete  # Remove locks >10 minutes old
@@ -56,10 +56,10 @@ find data/locks/ -mmin +10 -delete  # Remove locks >10 minutes old
 #### Prevention
 ```bash
 # Always use unique agent IDs
-python3 scripts/claude_code_bridge.py  # Prompts for unique ID
+python3 ~/scripts/claude_code_bridge.py  # Prompts for unique ID
 
 # For automation
-python3 scripts/claude_code_bridge.py --non-interactive
+python3 ~/scripts/claude_code_bridge.py --non-interactive
 
 # Resume existing session (don't create duplicates)
 cat .governance_session  # Check current session
@@ -166,8 +166,8 @@ Look for "approve" decisions with coherence ≥ threshold.
 ### Explanation
 **This is not a bug - it's by design!**
 
-- **Status** ("healthy/degraded/critical"): Overall system health over recent history
-- **Decision** ("approve/revise/reject"): Judgment on this specific interaction
+- **Status** ("healthy/moderate/critical"): Overall system health over recent history
+- **Decision** ("proceed/pause"): Action guidance for this specific interaction
 
 ### Analogy
 Your car's overall health is "healthy", but right now the oil pressure is low, so don't drive until it's fixed.
@@ -333,7 +333,7 @@ If you're running long-term:
 After fixes, check:
 ```bash
 python3 -c "
-from src.mcp_server import GovernanceMCPServer
+from src.mcp_server_compat import GovernanceMCPServer  # Use compat wrapper (calls v2.0 handlers)
 server = GovernanceMCPServer()
 
 # Test with balanced parameters

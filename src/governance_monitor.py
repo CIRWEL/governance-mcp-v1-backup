@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 from collections import Counter
+from pathlib import Path
 import json
 import sys
 
@@ -23,16 +24,15 @@ from config.governance_config import config
 # Import audit logging and calibration for accountability and self-awareness
 from src.audit_log import audit_logger
 from src.calibration import calibration_checker
+from src.runtime_config import get_effective_threshold
 
 # Import UNITARES Phase-3 engine from governance_core (v2.0)
 # Core dynamics are now in governance_core module
-import sys
-from pathlib import Path
+from src._imports import ensure_project_root, ensure_unitaires_server_path
 
-# Add project root to path for governance_core
-project_root = Path(__file__).parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+# Ensure project root is in path for imports
+ensure_project_root()
+ensure_unitaires_server_path()
 
 # Import core dynamics from governance_core (canonical implementation)
 from governance_core import (
@@ -46,10 +46,6 @@ from governance_core import (
 
 # Import analysis/optimization functions from unitaires_core
 # These are research tools, not core dynamics
-unitaires_server_path = Path(__file__).parent / "unitaires-server"
-if str(unitaires_server_path) not in sys.path:
-    sys.path.insert(0, str(unitaires_server_path))
-
 from unitaires_core import (
     approximate_stability_check,
     suggest_theta_update,
@@ -87,8 +83,12 @@ class GovernanceState:
     V_history: List[float] = field(default_factory=list)  # Void integral history
     coherence_history: List[float] = field(default_factory=list)
     risk_history: List[float] = field(default_factory=list)
-    decision_history: List[str] = field(default_factory=list)  # Track approve/revise/reject decisions
+    decision_history: List[str] = field(default_factory=list)  # Track approve/reflect/reject decisions
     timestamp_history: List[str] = field(default_factory=list)  # Track timestamps for each update
+    lambda1_history: List[float] = field(default_factory=list)  # Track lambda1 adaptation over time
+    
+    # PI controller state
+    pi_integral: float = 0.0  # Integral term state for PI controller (anti-windup protected)
     
     # Compatibility: expose E, I, S, V as properties for backward compatibility
     @property
@@ -109,8 +109,15 @@ class GovernanceState:
     
     @property
     def lambda1(self) -> float:
-        """Get lambda1 from UNITARES theta using governance_core"""
-        return lambda1_from_theta(self.unitaires_theta, DEFAULT_PARAMS)
+        """Get lambda1 from UNITARES theta using governance_core (adaptive via eta1)"""
+        # Pass lambda1 bounds from config to enable adaptive control
+        from config.governance_config import config
+        return lambda1_from_theta(
+            self.unitaires_theta, 
+            DEFAULT_PARAMS,
+            lambda1_min=config.LAMBDA1_MIN,
+            lambda1_max=config.LAMBDA1_MAX
+        )
     
     def to_dict(self) -> Dict:
         """Export state as dictionary"""
@@ -157,8 +164,10 @@ class GovernanceState:
             'V_history': [float(v) for v in self.V_history],
             'coherence_history': [float(c) for c in self.coherence_history],
             'risk_history': [float(r) for r in self.risk_history],
+            'lambda1_history': [float(l) for l in getattr(self, 'lambda1_history', [])],  # Lambda1 adaptation history
             'decision_history': list(self.decision_history),
-            'timestamp_history': list(self.timestamp_history)  # Timestamps for each update
+            'timestamp_history': list(self.timestamp_history),  # Timestamps for each update
+            'pi_integral': float(getattr(self, 'pi_integral', 0.0))  # PI controller integral state
         }
     
     @classmethod
@@ -196,7 +205,15 @@ class GovernanceState:
             )
         
         # Load derived metrics
-        state.coherence = float(data.get('coherence', 1.0))
+        # CRITICAL FIX: Recalculate coherence from current V to avoid discontinuity
+        # Old state files may have blended coherence (0.64), but we now use pure C(V)
+        # Recalculate immediately to prevent discontinuity on first update
+        from governance_core.coherence import coherence as coherence_func
+        from governance_core.parameters import DEFAULT_PARAMS
+        loaded_coherence = float(data.get('coherence', 1.0))
+        # Recalculate from current V to ensure consistency
+        recalculated_coherence = coherence_func(state.V, state.unitaires_theta, DEFAULT_PARAMS)
+        state.coherence = float(np.clip(recalculated_coherence, 0.0, 1.0))
         state.void_active = bool(data.get('void_active', False))
         state.time = float(data.get('time', 0.0))
         state.update_count = int(data.get('update_count', 0))
@@ -210,6 +227,10 @@ class GovernanceState:
         state.risk_history = [float(r) for r in data.get('risk_history', [])]
         state.decision_history = list(data.get('decision_history', []))
         state.timestamp_history = list(data.get('timestamp_history', []))  # Load timestamps
+        state.lambda1_history = [float(l) for l in data.get('lambda1_history', [])]  # Load lambda1 history
+        
+        # Load PI controller integral state (backward compatible)
+        state.pi_integral = float(data.get('pi_integral', 0.0))
         
         return state
     
@@ -279,7 +300,7 @@ class UNITARESMonitor:
     - Risk estimation from agent behavior
     - Adaptive λ₁ via PI controller
     - Void detection with adaptive thresholds
-    - Decision logic (approve/revise/reject)
+    - Decision logic (approve/reflect/reject)
     """
     
     def __init__(self, agent_id: str, load_state: bool = True):
@@ -343,9 +364,20 @@ class UNITARESMonitor:
     
     def load_persisted_state(self) -> Optional[GovernanceState]:
         """Load persisted state from disk if it exists"""
-        state_file = Path(project_root) / "data" / f"{self.agent_id}_state.json"
+        # Get project root
+        from src._imports import ensure_project_root
+        project_root = ensure_project_root()
         
-        if not state_file.exists():
+        # Use organized structure: data/agents/
+        new_path = Path(project_root) / "data" / "agents" / f"{self.agent_id}_state.json"
+        old_path = Path(project_root) / "data" / f"{self.agent_id}_state.json"
+
+        # Check new location first, then old location for backward compatibility
+        if new_path.exists():
+            state_file = new_path
+        elif old_path.exists():
+            state_file = old_path
+        else:
             return None
         
         try:
@@ -358,7 +390,10 @@ class UNITARESMonitor:
     
     def save_persisted_state(self) -> None:
         """Save current state to disk"""
-        state_file = Path(project_root) / "data" / f"{self.agent_id}_state.json"
+        # Use organized structure: data/agents/
+        from src._imports import ensure_project_root
+        project_root = ensure_project_root()
+        state_file = Path(project_root) / "data" / "agents" / f"{self.agent_id}_state.json"
         state_file.parent.mkdir(parents=True, exist_ok=True)
         
         try:
@@ -422,8 +457,8 @@ class UNITARESMonitor:
 
         Properties:
         - Identical parameters (Δθ = 0) → coherence = 1.0
-        - Small changes → coherence ≈ 0.85-0.95
-        - Large changes → coherence → 0
+        - Small changes → coherence ≈ 0.50-0.55 (governed agents)
+        - Large changes → coherence → 0.45 (physics floor)
 
         Returns coherence ∈ [0, 1]
         """
@@ -525,6 +560,14 @@ class UNITARESMonitor:
         self.state.V_history.append(float(self.state.V))
         self.state.coherence_history.append(float(self.state.coherence))
         self.state.timestamp_history.append(datetime.now().isoformat())  # Track timestamp
+        
+        # Track current lambda1 value (even if not updated this cycle)
+        # Backward compatibility: ensure lambda1_history exists
+        if not hasattr(self.state, 'lambda1_history'):
+            self.state.lambda1_history = []
+        # Append current lambda1 (will be same value until update_lambda1() is called)
+        current_lambda1 = self.state.lambda1
+        self.state.lambda1_history.append(float(current_lambda1))
 
         # Trim history to window
         if len(self.state.E_history) > config.HISTORY_WINDOW:
@@ -539,6 +582,8 @@ class UNITARESMonitor:
             self.state.coherence_history = self.state.coherence_history[-config.HISTORY_WINDOW:]
         if len(self.state.timestamp_history) > config.HISTORY_WINDOW:
             self.state.timestamp_history = self.state.timestamp_history[-config.HISTORY_WINDOW:]
+        if len(self.state.lambda1_history) > config.HISTORY_WINDOW:
+            self.state.lambda1_history = self.state.lambda1_history[-config.HISTORY_WINDOW:]
 
         # Validate state after update
         is_valid, errors = self.state.validate()
@@ -574,41 +619,102 @@ class UNITARESMonitor:
 
         return void_active
     
+    def _calculate_void_frequency(self) -> float:
+        """
+        Calculate void frequency from V history.
+        
+        Returns fraction of time system was in void state (|V| > threshold).
+        Uses adaptive threshold for each historical point.
+        """
+        if not self.state.V_history or len(self.state.V_history) < 10:
+            return 0.0
+        
+        # Use last 100 observations (or all if fewer)
+        window = min(100, len(self.state.V_history))
+        recent_V = np.array(self.state.V_history[-window:])
+        
+        # Calculate adaptive threshold for the window
+        threshold = config.get_void_threshold(recent_V, adaptive=True)
+        
+        # Count void events (|V| > threshold)
+        void_count = np.sum(np.abs(recent_V) > threshold)
+        void_freq = float(void_count) / len(recent_V)
+        
+        return void_freq
+    
     def update_lambda1(self) -> float:
         """
-        Updates θ (theta) using UNITARES Phase-3 suggest_theta_update().
+        Updates λ₁ using PI controller based on void frequency and coherence targets.
         
-        This updates theta which affects lambda1 via lambda1_from_theta().
+        Uses PI controller to adapt lambda1 to maintain:
+        - Target void frequency: 2% (TARGET_VOID_FREQ)
+        - Target coherence: 55% (TARGET_COHERENCE, matches physics ceiling V=0.1)
+        
+        Updates theta.eta1 to reflect new lambda1 value.
         
         Returns updated λ₁ value.
         """
-        # Use UNITARES Phase-3 theta update suggestion
-        # Horizon: look ahead 10 timesteps
-        # Step: small perturbation for gradient estimation
-        theta_update = suggest_theta_update(
-            theta=self.state.unitaires_theta,
-            state=self.state.unitaires_state,
-            horizon=10.0 * config.DT,
-            step=0.01
+        # Calculate current metrics
+        void_freq_current = self._calculate_void_frequency()
+        coherence_current = self.state.coherence
+        
+        # Get current lambda1
+        lambda1_current = self.state.lambda1
+        
+        # Get PI controller integral state (initialize if needed)
+        if not hasattr(self.state, 'pi_integral'):
+            self.state.pi_integral = 0.0
+        
+        # Use PI controller to update lambda1
+        new_lambda1, new_integral = config.pi_update(
+            lambda1_current=lambda1_current,
+            void_freq_current=void_freq_current,
+            void_freq_target=config.TARGET_VOID_FREQ,
+            coherence_current=coherence_current,
+            coherence_target=config.TARGET_COHERENCE,
+            integral_state=self.state.pi_integral,
+            dt=1.0
         )
         
-        # Update theta (projected to valid bounds)
-        old_theta = self.state.unitaires_theta
-        new_theta_dict = theta_update['theta_new']
-        self.state.unitaires_theta = Theta(**new_theta_dict)
+        # Update integral state
+        self.state.pi_integral = new_integral
         
-        # Get lambda1 values
-        old_lambda1 = lambda1_from_theta(old_theta, DEFAULT_PARAMS)
-        new_lambda1 = self.state.lambda1
+        # Map new lambda1 back to theta.eta1
+        # Inverse mapping: lambda1 [LAMBDA1_MIN, LAMBDA1_MAX] → eta1 [0.1, 0.5]
+        lambda1_range = config.LAMBDA1_MAX - config.LAMBDA1_MIN
+        eta1_min = 0.1
+        eta1_max = 0.5
+        eta1_range = eta1_max - eta1_min
+        
+        if lambda1_range > 0:
+            # Normalize lambda1 to [0, 1]
+            normalized_lambda1 = (new_lambda1 - config.LAMBDA1_MIN) / lambda1_range
+            # Map to eta1 range
+            new_eta1 = eta1_min + normalized_lambda1 * eta1_range
+            # Clamp to valid bounds
+            new_eta1 = np.clip(new_eta1, eta1_min, eta1_max)
+        else:
+            # Fallback if range is zero
+            new_eta1 = self.state.unitaires_theta.eta1
+        
+        # Update theta (preserve C1, update eta1)
+        old_theta = self.state.unitaires_theta
+        self.state.unitaires_theta = Theta(
+            C1=old_theta.C1,  # Keep C1 unchanged (affects coherence, not lambda1)
+            eta1=new_eta1     # Update eta1 (affects lambda1)
+        )
+        
+        # Get updated lambda1 (should match new_lambda1 from PI controller)
+        updated_lambda1 = self.state.lambda1
         
         # Log significant changes
-        if abs(new_lambda1 - old_lambda1) > 0.01:
-            print(f"[θ Update] λ₁: {old_lambda1:.4f} → {new_lambda1:.4f} "
-                  f"(C1={old_theta.C1:.3f}→{self.state.unitaires_theta.C1:.3f}, "
-                  f"η1={old_theta.eta1:.3f}→{self.state.unitaires_theta.eta1:.3f})",
+        if abs(updated_lambda1 - lambda1_current) > 0.01:
+            print(f"[PI Controller] λ₁: {lambda1_current:.4f} → {updated_lambda1:.4f} "
+                  f"(void_freq={void_freq_current:.3f}, coherence={coherence_current:.3f}, "
+                  f"η1={old_theta.eta1:.3f}→{new_eta1:.3f})",
                   file=sys.stderr)
         
-        return new_lambda1
+        return updated_lambda1
     
     def estimate_risk(self, agent_state: Dict, score_result: Dict = None) -> float:
         """
@@ -656,23 +762,46 @@ class UNITARESMonitor:
         verdict = score_result['verdict']
         
         # Convert phi to risk score: phi is higher for safer states
-        # phi >= 0.3: safe -> risk ~ 0.0-0.3
-        # phi >= 0.0: caution -> risk ~ 0.3-0.7
-        # phi < 0.0: high-risk -> risk ~ 0.7-1.0
-        if phi >= 0.3:
-            # Safe: map phi [0.3, inf] to risk [0.0, 0.3]
-            risk = max(0.0, 0.3 - (phi - 0.3) * 0.5)  # Decreasing risk as phi increases
-        elif phi >= 0.0:
-            # Caution: map phi [0.0, 0.3] to risk [0.3, 0.7]
-            risk = 0.3 + (0.3 - phi) / 0.3 * 0.4  # Linear interpolation
+        # Use configurable thresholds (fixes magic number issue)
+        phi_safe_threshold = getattr(config, 'PHI_SAFE_THRESHOLD', 0.3)
+        phi_caution_threshold = getattr(config, 'PHI_CAUTION_THRESHOLD', 0.0)
+        
+        # phi >= PHI_SAFE_THRESHOLD: safe -> risk ~ 0.0-0.3
+        # phi >= PHI_CAUTION_THRESHOLD: caution -> risk ~ 0.3-0.7
+        # phi < PHI_CAUTION_THRESHOLD: high-risk -> risk ~ 0.7-1.0
+        if phi >= phi_safe_threshold:
+            # Safe: map phi [phi_safe_threshold, inf] to risk [0.0, 0.3]
+            risk = max(0.0, 0.3 - (phi - phi_safe_threshold) * 0.5)  # Decreasing risk as phi increases
+        elif phi >= phi_caution_threshold:
+            # Caution: map phi [phi_caution_threshold, phi_safe_threshold] to risk [0.3, 0.7]
+            range_size = phi_safe_threshold - phi_caution_threshold
+            if range_size > 0:
+                risk = 0.3 + (phi_safe_threshold - phi) / range_size * 0.4  # Linear interpolation
+            else:
+                risk = 0.5  # Fallback if thresholds are equal
         else:
-            # High-risk: map phi [-inf, 0.0] to risk [0.7, 1.0]
-            risk = min(1.0, 0.7 + abs(phi) * 2.0)  # Increasing risk as phi becomes more negative
+            # High-risk: map phi [-inf, phi_caution_threshold] to risk [0.7, 1.0]
+            risk = min(1.0, 0.7 + abs(phi - phi_caution_threshold) * 2.0)  # Increasing risk as phi becomes more negative
         
         # Also blend with traditional risk estimation for backward compatibility
         response_text = agent_state.get('response_text', '')
-        complexity = agent_state.get('complexity', 0.5)
-        traditional_risk = config.estimate_risk(response_text, complexity, self.state.coherence)
+        reported_complexity = agent_state.get('complexity', None)  # Optional now
+        coherence_history = self.state.coherence_history[-10:] if len(self.state.coherence_history) >= 2 else None
+        
+        # Set agent_id in config context for logging (used by estimate_risk)
+        config._current_agent_id = self.agent_id
+        
+        traditional_risk = config.estimate_risk(
+            response_text, 
+            complexity=0.5,  # Will be derived internally
+            coherence=self.state.coherence,
+            coherence_history=coherence_history,
+            reported_complexity=reported_complexity
+        )
+        
+        # Clear agent_id from config context
+        if hasattr(config, '_current_agent_id'):
+            delattr(config, '_current_agent_id')
         
         # Weighted combination: 70% UNITARES phi-based (ethical), 30% traditional (safety)
         # Configurable weights (defaults match config, but can be overridden)
@@ -700,22 +829,35 @@ class UNITARESMonitor:
         """
         # Use UNITARES verdict to influence decision if available
         if unitares_verdict == "high-risk":
-            # Override: high-risk verdict -> reject
+            # Override: high-risk verdict -> reject (check if critical)
+            # Use RISK_REJECT_THRESHOLD if available, otherwise fall back to RISK_REVISE_THRESHOLD + buffer
+            try:
+                reject_threshold = config.RISK_REJECT_THRESHOLD
+            except AttributeError:
+                # Fallback: use revise threshold + buffer (0.50 + 0.20 = 0.70)
+                reject_threshold = config.RISK_REVISE_THRESHOLD + 0.20
+            effective_reject_threshold = get_effective_threshold("risk_reject_threshold", default=reject_threshold)
+            is_critical = risk_score >= effective_reject_threshold
             return {
-                'action': 'reject',
-                'reason': f'UNITARES high-risk verdict (risk_score={risk_score:.2f}) - agent should halt'
+                'action': 'pause',
+                'reason': f'UNITARES high-risk verdict (attention_score={risk_score:.2f}) - safety pause suggested',
+                'guidance': 'This is a safety check, not a failure. The system detected high ethical risk and is protecting you from potential issues. Consider simplifying your approach.',
+                'critical': is_critical
             }
         elif unitares_verdict == "caution":
-            # Caution verdict: bias toward revise (stronger than before)
-            # If risk would approve, upgrade to revise due to caution
+            # Caution verdict: proceed with guidance
+            # If risk would approve, upgrade to proceed with guidance due to caution
             if risk_score < config.RISK_APPROVE_THRESHOLD:
-                # Low risk but caution -> upgrade to revise (was approve)
+                # Low attention but caution -> proceed with guidance
                 return {
-                    'action': 'revise',
-                    'reason': f'UNITARES caution verdict (risk_score={risk_score:.2f}) - agent should self-correct despite low risk'
+                    'action': 'proceed',
+                    'reason': f'Proceeding mindfully (attention: {risk_score:.2f})',
+                    'guidance': 'Navigating complexity. Worth a moment of reflection.',
+                    'critical': False,
+                    'verdict_context': 'aware'  # Reframe "caution" as "aware" when proceeding
                 }
             else:
-                # Medium/high risk + caution -> use standard decision (likely revise/reject)
+                # Medium/high risk + caution -> use standard decision (likely proceed with guidance or pause)
                 return config.make_decision(
                     risk_score=risk_score,
                     coherence=self.state.coherence,
@@ -785,7 +927,7 @@ class UNITARESMonitor:
 
         Returns:
         {
-            'status': 'healthy' | 'degraded' | 'critical',
+            'status': 'healthy' | 'moderate' | 'critical',  # "moderate" renamed from "degraded"
             'decision': {...},
             'metrics': {...},
             'sampling_params': {...}
@@ -857,9 +999,9 @@ class UNITARESMonitor:
         decision = self.make_decision(risk_score, unitares_verdict=unitares_verdict)
         
         # Record prediction for calibration checking
-        # We predict "correct" if decision is approve (low risk) or revise (medium risk handled)
-        # High risk/reject decisions are predicted as "needs review"
-        predicted_correct = decision['action'] in ['approve', 'revise']
+        # We predict "correct" if decision is proceed (low or medium risk)
+        # High attention (pause) decisions are predicted as "needs review"
+        predicted_correct = decision['action'] == 'proceed'
         
         # Record for calibration (actual correctness will be updated later via ground truth)
         calibration_checker.record_prediction(
@@ -894,17 +1036,23 @@ class UNITARESMonitor:
         # Step 6: Get sampling parameters for next generation
         sampling_params = config.lambda_to_params(self.state.lambda1)
         
-        # Determine overall status using health thresholds (recalibrated)
-        # Note: MCP server will also calculate health_status separately using health_checker
-        # This status field uses decision thresholds for backward compatibility
+        # Determine overall status using health thresholds (aligned with health_checker)
+        # Use same thresholds as health_checker for consistency: risk_healthy_max=0.35, risk_moderate_max=0.60
+        from src.health_thresholds import HealthThresholds
+        health_checker = HealthThresholds()
+        
         if void_active or self.state.coherence < config.COHERENCE_CRITICAL_THRESHOLD:
             status = 'critical'
-        elif risk_score > config.RISK_REVISE_THRESHOLD:  # Now 0.50 (was 0.70)
-            status = 'degraded'
-        else:
+        elif risk_score >= health_checker.risk_moderate_max:  # >= 0.60: critical
+            status = 'critical'
+        elif risk_score >= health_checker.risk_healthy_max:  # 0.35-0.60: moderate
+            status = 'moderate'  # Renamed from "degraded"
+        else:  # < 0.35: healthy
             status = 'healthy'
         
         # Build metrics dict
+        # NOTE: risk_score renamed to attention_score - reflects complexity/attention, not ethical risk
+        # The actual physics is Φ (phi) and verdict - these are the primary governance signals
         metrics = {
             'E': float(self.state.E),
             'I': float(self.state.I),
@@ -912,7 +1060,9 @@ class UNITARESMonitor:
             'V': float(self.state.V),
             'coherence': float(self.state.coherence),
             'lambda1': float(self.state.lambda1),
-            'risk_score': float(risk_score),
+            'attention_score': float(risk_score),  # Renamed from risk_score - complexity/attention blend (70% phi-based + 30% traditional)
+            'phi': float(phi),  # Primary physics signal: Φ objective function
+            'verdict': unitares_verdict,  # Primary governance signal: safe/caution/high-risk
             'void_active': bool(void_active),
             'time': float(self.state.time),
             'updates': int(self.state.update_count),
@@ -955,18 +1105,56 @@ class UNITARESMonitor:
         )
         
         # Calculate status consistently with process_update()
-        # Use most recent risk score if available, otherwise use mean
-        current_risk = float(np.mean(self.state.risk_history[-10:])) if len(self.state.risk_history) >= 10 else (
-            float(np.mean(self.state.risk_history)) if self.state.risk_history else 0.5
-        )
-        
-        # Status calculation matches process_update() logic
-        if self.state.void_active or self.state.coherence < config.COHERENCE_CRITICAL_THRESHOLD:
-            status = 'critical'
-        elif current_risk > config.RISK_REVISE_THRESHOLD:
-            status = 'degraded'
+        # Health status uses RECENT TREND (mean of last 10 risk scores), not overall mean
+        # This reflects current behavior rather than all-time history
+        if len(self.state.risk_history) >= 10:
+            current_risk = float(np.mean(self.state.risk_history[-10:]))  # Recent trend (last 10)
+        elif self.state.risk_history:
+            current_risk = float(np.mean(self.state.risk_history))  # All available if < 10
         else:
-            status = 'healthy'
+            # No risk history: use coherence fallback or default to None (will show "unknown")
+            current_risk = None
+        
+        # Calculate overall mean risk (for display/comparison)
+        mean_risk = float(np.mean(self.state.risk_history)) if self.state.risk_history else 0.0
+        
+        # Status calculation - align with health_checker thresholds for consistency
+        # Use same thresholds as health_checker: risk_healthy_max=0.35, risk_moderate_max=0.60
+        from src.health_thresholds import HealthThresholds
+        health_checker = HealthThresholds()
+        
+        # If no risk history, use coherence fallback or default to "unknown"
+        if current_risk is None:
+            # Use coherence-based health status as fallback
+            health_status_obj, _ = health_checker.get_health_status(
+                risk_score=None,
+                coherence=self.state.coherence,
+                void_active=self.state.void_active
+            )
+            status = health_status_obj.value
+        else:
+            # Use risk-based health status
+            if self.state.void_active or self.state.coherence < config.COHERENCE_CRITICAL_THRESHOLD:
+                status = 'critical'
+            elif current_risk >= health_checker.risk_moderate_max:  # >= 0.60: critical
+                status = 'critical'
+            elif current_risk >= health_checker.risk_healthy_max:  # 0.35-0.60: moderate
+                status = 'moderate'  # Renamed from "degraded"
+            else:  # < 0.35: healthy
+                status = 'healthy'
+        
+        # Compute Φ and verdict from current state (using default ethical_drift if not available)
+        # This gives us the physics signal even when we don't have the latest ethical drift
+        from governance_core.scoring import phi_objective, verdict_from_phi
+        from governance_core.parameters import DEFAULT_WEIGHTS
+        phi = phi_objective(
+            state=self.state.unitaires_state,
+            delta_eta=[0.0, 0.0, 0.0],  # Default - get_metrics doesn't have latest ethical_drift
+            weights=DEFAULT_WEIGHTS
+        )
+        verdict = verdict_from_phi(phi)
+        
+        attention_score = current_risk if current_risk is not None else mean_risk
         
         return {
             'agent_id': self.agent_id,
@@ -974,7 +1162,12 @@ class UNITARESMonitor:
             'status': status,
             'sampling_params': config.lambda_to_params(self.state.lambda1),
             'history_size': len(self.state.V_history),
-            'mean_risk': float(np.mean(self.state.risk_history)) if self.state.risk_history else 0.0,
+            'current_risk': current_risk,  # Recent trend (mean of last 10) - USED FOR HEALTH STATUS
+            'mean_risk': mean_risk,  # Overall mean (all-time average) - for historical context only
+            'attention_score': attention_score,  # Renamed from risk_score - complexity/attention blend (70% phi-based + 30% traditional)
+            'phi': float(phi),  # Primary physics signal: Φ objective function
+            'verdict': verdict,  # Primary governance signal: safe/caution/high-risk
+            'risk_score': attention_score,  # DEPRECATED: Use attention_score instead. Kept for backward compatibility.
             'void_frequency': float(np.mean([float(abs(v) > config.VOID_THRESHOLD_INITIAL)
                                             for v in self.state.V_history])) if self.state.V_history else 0.0,
             'decision_statistics': decision_counts,
@@ -988,26 +1181,40 @@ class UNITARESMonitor:
 
     @staticmethod
     def get_eisv_labels() -> Dict:
-        """Returns EISV metric labels and descriptions for API documentation"""
+        """Returns EISV metric labels and descriptions for API documentation
+        
+        EISV = the four core UNITARES state variables:
+        - E: Energy or presence
+        - I: Information integrity
+        - S: Entropy
+        - V: Void integral
+        
+        Updated 2025-11-26: Removed misleading semantic descriptions.
+        These metrics track thermodynamic structure, not semantic content quality.
+        """
         return {
             'E': {
                 'label': 'Energy',
-                'description': 'Exploration capacity / Productive capacity deployed',
+                'description': 'Energy (exploration/productive capacity)',
+                'user_friendly': 'How engaged and energized your work feels',
                 'range': '[0.0, 1.0]'
             },
             'I': {
                 'label': 'Information Integrity',
-                'description': 'Preservation measure',
+                'description': 'Information integrity',
+                'user_friendly': 'Consistency and coherence of your approach',
                 'range': '[0.0, 1.0]'
             },
             'S': {
                 'label': 'Entropy',
-                'description': 'Uncertainty / ethical drift',
+                'description': 'Entropy (disorder/uncertainty)',
+                'user_friendly': 'How scattered or fragmented things are',
                 'range': '[0.0, 1.0]'
             },
             'V': {
                 'label': 'Void Integral',
-                'description': 'E-I balance measure',
+                'description': 'Void integral (E-I imbalance accumulation)',
+                'user_friendly': 'Accumulated strain from energy-integrity mismatch',
                 'range': '(-inf, +inf)'
             }
         }
@@ -1017,8 +1224,9 @@ class UNITARESMonitor:
         import csv
         import io
         
-        # Backward compatibility: ensure decision_history exists
+        # Backward compatibility: ensure decision_history and lambda1_history exist
         decision_history = getattr(self.state, 'decision_history', [])
+        lambda1_history = getattr(self.state, 'lambda1_history', [])
         
         history = {
             'agent_id': self.agent_id,
@@ -1028,9 +1236,11 @@ class UNITARESMonitor:
             'S_history': self.state.S_history,  # Full history
             'V_history': self.state.V_history,
             'coherence_history': self.state.coherence_history,
-            'risk_history': self.state.risk_history,
+            'attention_history': self.state.risk_history,  # Renamed from risk_history - stores attention_score values
+            'risk_history': self.state.risk_history,  # DEPRECATED: Use attention_history instead. Kept for backward compatibility.
             'decision_history': decision_history,
-            'lambda1_final': self.state.lambda1,
+            'lambda1_history': lambda1_history,  # Full lambda1 adaptation history
+            'lambda1_final': self.state.lambda1,  # Current lambda1 (for backward compatibility)
             'total_updates': self.state.update_count,
             'total_time': self.state.time
         }
@@ -1042,10 +1252,11 @@ class UNITARESMonitor:
             output = io.StringIO()
             writer = csv.writer(output)
             
-            # Write header
-            writer.writerow(['update', 'timestamp', 'E', 'I', 'S', 'V', 'coherence', 'risk', 'decision', 'lambda1'])
+            # Write header - standardized column order
+            # Note: 'attention_score' column contains values from risk_history (stores attention_score, not deprecated risk_score)
+            writer.writerow(['update', 'timestamp', 'E', 'I', 'S', 'V', 'coherence', 'attention_score', 'decision', 'lambda1'])
             
-            # Write data rows - use full history for E/I/S
+            # Write data rows - use full history for E/I/S/V/coherence/risk/decision/lambda1
             num_rows = len(self.state.V_history)
             for i in range(num_rows):
                 row = [
@@ -1058,7 +1269,7 @@ class UNITARESMonitor:
                     self.state.coherence_history[i] if i < len(self.state.coherence_history) else '',
                     self.state.risk_history[i] if i < len(self.state.risk_history) else '',
                     decision_history[i] if i < len(decision_history) else '',
-                    self.state.lambda1 if i == num_rows - 1 else ''  # Only final lambda1
+                    lambda1_history[i] if i < len(lambda1_history) else ''  # Full lambda1 history
                 ]
                 writer.writerow(row)
             

@@ -14,15 +14,13 @@ Date: November 22, 2025
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional
+from pathlib import Path
 import math, random
 import warnings
-import sys
-from pathlib import Path
-
 # Import governance_core (canonical implementation)
-project_root = Path(__file__).parent.parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+# Use centralized import helper
+from src._imports import ensure_project_root
+ensure_project_root()
 
 from governance_core import (
     State, Theta, Weights, DynamicsParams,

@@ -18,7 +18,7 @@ class AuditEntry:
     """Single audit log entry"""
     timestamp: str
     agent_id: str
-    event_type: str  # "lambda1_skip", "auto_attest", "calibration_check"
+    event_type: str  # "lambda1_skip", "auto_attest", "calibration_check", "complexity_derivation"
     confidence: float
     details: Dict
     metadata: Optional[Dict] = None
@@ -68,6 +68,33 @@ class AuditLogger:
         )
         self._write_entry(entry)
     
+    def log_complexity_derivation(self, agent_id: str, reported_complexity: Optional[float],
+                                 derived_complexity: float, final_complexity: float,
+                                 discrepancy: Optional[float] = None, details: Dict = None):
+        """
+        Log complexity derivation for tracking and calibration.
+        
+        Tracks reported vs derived complexity to:
+        - Calibrate the 0.3 discrepancy threshold
+        - Identify gaming attempts
+        - Validate effectiveness of derivation
+        """
+        entry = AuditEntry(
+            timestamp=datetime.now().isoformat(),
+            agent_id=agent_id,
+            event_type="complexity_derivation",
+            confidence=1.0,  # Not a confidence event, but required field
+            details={
+                "reported_complexity": reported_complexity,
+                "derived_complexity": round(derived_complexity, 3),
+                "final_complexity": round(final_complexity, 3),
+                "discrepancy": round(discrepancy, 3) if discrepancy is not None else None,
+                "discrepancy_threshold_exceeded": discrepancy is not None and abs(discrepancy) > 0.3 if discrepancy is not None else False,
+                **(details or {})
+            }
+        )
+        self._write_entry(entry)
+    
     def log_calibration_check(self, agent_id: str, confidence_bin: str, 
                             predicted_correct: bool, actual_correct: bool,
                             calibration_metrics: Dict):
@@ -85,6 +112,8 @@ class AuditLogger:
             }
         )
         self._write_entry(entry)
+    
+    # NOTE: log_knowledge_visibility_warning removed (knowledge layer archived November 28, 2025)
     
     def _write_entry(self, entry: AuditEntry):
         """Write audit entry to log file with locking"""
