@@ -1,0 +1,17 @@
+{
+  "agent_id": "claude_cli_cirwel_20251120_0011",
+  "conversation_turns": 0,
+  "tool_calls": 3,
+  "tokens_generated": 0,
+  "files_modified": 0,
+  "last_governance_update": null,
+  "last_activity": "2025-12-01T06:23:02.752947",
+  "session_start": "2025-12-01T06:00:52.713576",
+  "cumulative_complexity": 0.0,
+  "complexity_samples": [],
+  "recent_tool_timestamps": [
+    "2025-12-01T06:00:52.713585",
+    "2025-12-01T06:21:12.868810",
+    "2025-12-01T06:23:02.752947"
+  ]
+}

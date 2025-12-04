@@ -88,59 +88,94 @@ You should see the server start (it will wait for stdio input).
 
 ## Available Tools
 
-Once configured, you can use these tools from your AI assistant:
+Once configured, agents can access governance tools via MCP:
 
 ### 1. `process_agent_update`
-Run one complete governance cycle.
+Log agent operations and receive governance feedback. Primary tool for governance cycle participation.
 
-**⚠️ Authentication Required:** For existing agents, you must include an `api_key` parameter to prove ownership. New agents automatically receive an API key on creation.
+**⚠️ Authentication Required:** Existing agents must provide `api_key` parameter for ownership verification. New agents receive API key upon creation.
 
-**Example (New Agent - No API Key Needed):**
+**Example (New Agent - Auto-Registration):**
 ```
-Use the governance-monitor tool process_agent_update with:
-- agent_id: "cursor_ide_session_001"
-- parameters: [0.5, 0.6, 0.7, 0.8, 0.5, 0.1]
-- ethical_drift: [0.05, 0.1, 0.15]
-- response_text: "Here's how to implement authentication..."
+process_agent_update with:
+- agent_id: "<agent_identifier_YYYYMMDD_HHMM>"
+- parameters: [0.5, 0.6, 0.7, 0.8, 0.5, 0.1]  # Deprecated, ignored
+- ethical_drift: [0.05, 0.1, 0.15]  # Deprecated, ignored
+- response_text: "Operation summary"
 - complexity: 0.7
 ```
 
-**Example (Existing Agent - API Key Required):**
+**Example (Existing Agent - Authentication Required):**
 ```
-Use the governance-monitor tool process_agent_update with:
-- agent_id: "cursor_ide_session_001"
-- api_key: "your_api_key_here"  # ← Required for existing agents
-- parameters: [0.5, 0.6, 0.7, 0.8, 0.5, 0.1]
-- ethical_drift: [0.05, 0.1, 0.15]
-- response_text: "Here's how to implement authentication..."
+process_agent_update with:
+- agent_id: "<agent_identifier_YYYYMMDD_HHMM>"
+- api_key: "<api_key_from_registration>"  # ← Required
+- parameters: [...]  # Deprecated
+- ethical_drift: [...]  # Deprecated
+- response_text: "Operation summary"
 - complexity: 0.7
 ```
 
-**Getting Your API Key:**
-- New agents: API key is returned in the response on first creation
-- Existing agents: Use `get_agent_api_key` tool to retrieve your key
+**API Key Retrieval:**
+- New agents: Returned in first `process_agent_update` response
+- Existing agents: Use `get_agent_api_key` tool for retrieval
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "status": "moderate",
+  "decision": {
+    "action": "proceed",
+    "reason": "Low attention load (0.43) - within normal operating parameters",
+    "guidance": "Moderate complexity operations - continue current approach"
+  },
+  "metrics": {
+    "E": 0.70,
+    "I": 0.82,
+    "S": 0.15,
+    "V": -0.01,
+    "coherence": 0.50,
+    "attention_score": 0.43,
+    "health_status": "moderate",
+    "health_message": "Typical attention load (43%) - standard operational range"
+  },
+  "sampling_params": {
+    "temperature": 0.59,
+    "top_p": 0.86,
+    "max_tokens": 150
+  },
+  "sampling_params_note": "Optional generation parameters derived from current thermodynamic state. Advisory only - agents may use or ignore. Temperature 0.59 = balanced exploration. Max tokens 150 = suggested output length.",
+  "eisv_labels": {
+    "E": {"label": "Energy", "description": "Thermodynamic energy state - exploration/productive capacity"},
+    "I": {"label": "Information Integrity", "description": "Information preservation - coherence and consistency"},
+    "S": {"label": "Entropy", "description": "Uncertainty measure - ethical drift accumulation"},
+    "V": {"label": "Void Integral", "description": "E-I imbalance accumulator - thermodynamic strain"}
+  }
+}
+```
 
 ### 2. `get_governance_metrics`
-Get current governance state.
+Retrieve current thermodynamic state and governance metrics.
 
 **Example:**
 ```
-Use the governance-monitor tool get_governance_metrics with:
-- agent_id: "cursor_ide"
+get_governance_metrics with:
+- agent_id: "<agent_identifier>"
 ```
 
 ### 3. `get_system_history`
-Export governance history.
+Export governance history time series.
 
 **Example:**
 ```
-Use the governance-monitor tool get_system_history with:
-- agent_id: "cursor_ide"
+get_system_history with:
+- agent_id: "<agent_identifier>"
 - format: "json"
 ```
 
 ### 4. `reset_monitor`
-Reset governance state (for testing).
+Reset agent state to initial conditions (testing/development only).
 
 **Example:**
 ```
@@ -291,10 +326,10 @@ Use get_system_history with:
 ## Next Steps
 
 1. ✅ Install dependencies
-2. ✅ Configure Cursor/Claude Desktop
-3. ✅ Test with a simple interaction
-4. ✅ Integrate into your workflow
-5. ✅ Monitor multiple agents
+2. ✅ Configure MCP client (Cursor/Claude Desktop)
+3. ✅ Execute test interaction
+4. ✅ Integrate into operational workflows
+5. ✅ Monitor multiple agent instances
 
 ---
 

@@ -36,6 +36,7 @@ data/processes/
 # Session history files (archived, not tracked)
 data/*history*.json
 data/*history*.csv
+data/history/
 data/claude_*.json
 data/claude_*.csv
 data/composer_*.json
@@ -47,6 +48,12 @@ data/hackathon_*.csv
 data/portal_*.json
 data/portal_*.csv
 data/archive/
+# Agent state files (runtime data, not tracked)
+data/agents/
+# Knowledge layer (may contain sensitive discoveries)
+data/knowledge/
+# Dialectic sessions (runtime data)
+data/dialectic_sessions/
 
 # IDE
 .vscode/

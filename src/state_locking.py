@@ -31,7 +31,12 @@ def is_process_alive(pid: int) -> bool:
 class StateLockManager:
     """Ensures only one process can modify agent state at a time"""
     
-    def __init__(self, lock_dir: Path = None, auto_cleanup_stale: bool = True, stale_threshold: float = 60.0):
+    def __init__(
+        self, 
+        lock_dir: Optional[Path] = None, 
+        auto_cleanup_stale: bool = True, 
+        stale_threshold: float = 60.0
+    ) -> None:
         if lock_dir is None:
             # Use project data directory for locks
             project_root = Path(__file__).parent.parent
@@ -45,47 +50,102 @@ class StateLockManager:
         """
         Check if lock file is stale and clean it if so.
         Returns True if lock was cleaned, False otherwise.
+        
+        Strategy:
+        1. Try to acquire a non-blocking lock - if we can, the lock is stale
+        2. If we can't acquire it, try to read the lock file to check process status
+        3. Only delete if we're certain the process is dead
         """
         if not lock_file.exists():
             return False
         
+        # First, try to acquire the lock non-blocking to see if it's actually held
+        # If we can acquire it immediately, the lock is stale
+        test_fd = None
         try:
-            # Try to read lock info
-            with open(lock_file, 'r') as f:
-                try:
-                    lock_data = json.load(f)
-                    pid = lock_data.get('pid')
-                    timestamp = lock_data.get('timestamp', 0)
-                    
-                    if pid is None:
-                        # No PID means stale/corrupted
-                        lock_file.unlink(missing_ok=True)
-                        return True
-                    
-                    # Check if process is alive
-                    if not is_process_alive(pid):
-                        # Process is dead, lock is stale
-                        lock_file.unlink(missing_ok=True)
-                        return True
-                    
-                    # Check if lock timestamp is too old
-                    if timestamp > 0:
-                        lock_age = time.time() - timestamp
-                        if lock_age > self.stale_threshold:
-                            # Lock is old, but process might still be alive
-                            # Double-check process is actually dead
-                            if not is_process_alive(pid):
-                                lock_file.unlink(missing_ok=True)
-                                return True
-                    
-                except (json.JSONDecodeError, ValueError):
-                    # Corrupted lock file
-                    lock_file.unlink(missing_ok=True)
-                    return True
-        except IOError:
-            # Can't read lock file, might be locked by another process
-            # Don't delete it - it's actively held
+            test_fd = os.open(str(lock_file), os.O_CREAT | os.O_RDWR)
+            try:
+                # Try non-blocking exclusive lock
+                fcntl.flock(test_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # If we got here, the lock was NOT held - it's stale!
+                # Release our test lock and delete the file
+                fcntl.flock(test_fd, fcntl.LOCK_UN)
+                os.close(test_fd)
+                test_fd = None
+                lock_file.unlink(missing_ok=True)
+                return True
+            except IOError:
+                # Lock is held by another process - check if that process is alive
+                pass
+            finally:
+                if test_fd is not None:
+                    try:
+                        fcntl.flock(test_fd, fcntl.LOCK_UN)
+                    except:
+                        pass
+                    os.close(test_fd)
+        except (IOError, OSError):
+            # Can't open lock file - might be actively locked or permission issue
+            # Don't delete it
             return False
+        
+        # Lock is held - check if the holding process is still alive
+        try:
+            # Try to read lock info with a shared lock (non-blocking)
+            read_fd = os.open(str(lock_file), os.O_RDONLY)
+            try:
+                # Try to acquire shared lock non-blocking
+                fcntl.flock(read_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                # Got shared lock - can read the file
+                os.lseek(read_fd, 0, os.SEEK_SET)
+                content = os.read(read_fd, 4096).decode('utf-8', errors='ignore')
+                if content:
+                    try:
+                        lock_data = json.loads(content)
+                        pid = lock_data.get('pid')
+                        timestamp = lock_data.get('timestamp', 0)
+                        
+                        if pid is None:
+                            # No PID means stale/corrupted
+                            fcntl.flock(read_fd, fcntl.LOCK_UN)
+                            os.close(read_fd)
+                            lock_file.unlink(missing_ok=True)
+                            return True
+                        
+                        # Check if process is alive
+                        if not is_process_alive(pid):
+                            # Process is dead, lock is stale
+                            fcntl.flock(read_fd, fcntl.LOCK_UN)
+                            os.close(read_fd)
+                            lock_file.unlink(missing_ok=True)
+                            return True
+                        
+                        # Check if lock timestamp is too old
+                        if timestamp > 0:
+                            lock_age = time.time() - timestamp
+                            if lock_age > self.stale_threshold:
+                                # Lock is old - double-check process is actually dead
+                                if not is_process_alive(pid):
+                                    fcntl.flock(read_fd, fcntl.LOCK_UN)
+                                    os.close(read_fd)
+                                    lock_file.unlink(missing_ok=True)
+                                    return True
+                    except (json.JSONDecodeError, ValueError):
+                        # Corrupted lock file
+                        fcntl.flock(read_fd, fcntl.LOCK_UN)
+                        os.close(read_fd)
+                        lock_file.unlink(missing_ok=True)
+                        return True
+                fcntl.flock(read_fd, fcntl.LOCK_UN)
+            except IOError:
+                # Can't acquire shared lock - lock is actively held
+                pass
+            finally:
+                os.close(read_fd)
+        except (IOError, OSError):
+            # Can't read lock file - might be actively locked
+            # Don't delete it
+            pass
         
         return False
     
@@ -112,14 +172,16 @@ class StateLockManager:
         
         # Retry loop with exponential backoff and automatic cleanup
         last_error = None
-        for attempt in range(max_retries):
-            start_time = time.time()
-            lock_fd = None
-            
-            try:
+        lock_fd = None  # Initialize outside loop to ensure cleanup on final failure
+        
+        try:
+            for attempt in range(max_retries):
+                start_time = time.time()
+                lock_fd = None
+
                 # Create lock file if doesn't exist
                 lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_RDWR)
-                
+
                 # Try to acquire lock with timeout
                 while time.time() - start_time < timeout:
                     try:
@@ -143,7 +205,12 @@ class StateLockManager:
                                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
                             except:
                                 pass
-                            os.close(lock_fd)
+                            try:
+                                os.close(lock_fd)
+                            except (OSError, ValueError):
+                                # File descriptor already closed or invalid
+                                pass
+                            lock_fd = None  # Mark as closed
                         return  # Success, exit retry loop
                     except IOError:
                         # Lock is held by another process, wait and retry
@@ -155,7 +222,11 @@ class StateLockManager:
                         fcntl.flock(lock_fd, fcntl.LOCK_UN)
                     except:
                         pass
-                    os.close(lock_fd)
+                    try:
+                        os.close(lock_fd)
+                    except (OSError, ValueError):
+                        # File descriptor already closed or invalid
+                        pass
                     lock_fd = None
                 
                 # Before retrying, check if lock is stale and clean it
@@ -172,33 +243,40 @@ class StateLockManager:
                     # Exponential backoff: wait longer on each retry
                     wait_time = 0.2 * (2 ** attempt)
                     time.sleep(wait_time)
-                    
-            except Exception as e:
-                # Close file descriptor on error
-                if lock_fd:
-                    try:
-                        fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                    except:
-                        pass
+
+        except Exception as e:
+            # Close file descriptor on error (only if not already closed)
+            if lock_fd is not None:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                except:
+                    pass
+                try:
                     os.close(lock_fd)
-                    lock_fd = None
-                
-                last_error = e
-                
-                # If this is the last attempt, break to raise error
-                if attempt == max_retries - 1:
-                    break
-                
-                # Otherwise, wait and retry
-                time.sleep(0.2 * (2 ** attempt))
+                except (OSError, ValueError):
+                    # File descriptor already closed or invalid - this is OK
+                    pass
+                lock_fd = None
+
+            last_error = e
+        finally:
+            # Ensure lock_fd is closed even if we exit the loop early
+            if lock_fd is not None:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                except:
+                    pass
+                try:
+                    os.close(lock_fd)
+                except:
+                    pass
         
         # All retries exhausted - raise appropriate error
         if last_error:
             raise last_error
         else:
             raise TimeoutError(
-                f"Could not acquire lock for agent '{agent_id}' after {max_retries} attempts "
-                f"(timeout: {timeout}s each). Lock may be held by another active process. "
-                f"Try running cleanup_stale_locks tool or check for stuck processes."
+                f"Lock timeout for agent '{agent_id}' after {max_retries} attempts. "
+                f"Another process may be updating this agent. Try: wait and retry, or use cleanup_stale_locks tool."
             )
 

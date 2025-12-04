@@ -119,13 +119,15 @@ def analyze_agent_patterns(
     state = monitor.state
     
     # Current state
+    attention_score = float(state.risk_history[-1]) if state.risk_history else 0.0
     current_state = {
         "E": float(state.E),
         "I": float(state.I),
         "S": float(state.S),
         "V": float(state.V),
         "coherence": float(state.coherence),
-        "risk_score": float(state.risk_history[-1]) if state.risk_history else 0.0,
+        "attention_score": attention_score,  # Renamed from risk_score - complexity/attention blend
+        "risk_score": attention_score,  # DEPRECATED: Use attention_score instead. Kept for backward compatibility.
         "lambda1": float(state.lambda1),
         "update_count": state.update_count
     }
@@ -173,8 +175,11 @@ def analyze_agent_patterns(
         "mean_risk": float(np.mean(state.risk_history)) if state.risk_history else 0.0,
         "mean_coherence": float(np.mean(state.coherence_history)) if state.coherence_history else 0.0,
         "decision_distribution": {
+            "proceed": decision_counts.get("proceed", 0) + decision_counts.get("approve", 0) + decision_counts.get("reflect", 0) + decision_counts.get("revise", 0),
+            "pause": decision_counts.get("pause", 0) + decision_counts.get("reject", 0),
+            # Backward compatibility
             "approve": decision_counts.get("approve", 0),
-            "revise": decision_counts.get("revise", 0),
+            "reflect": decision_counts.get("reflect", 0) + decision_counts.get("revise", 0),
             "reject": decision_counts.get("reject", 0)
         }
     }

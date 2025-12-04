@@ -1,0 +1,1984 @@
+{
+  "version": "1.0",
+  "nodes": {
+    "2025-11-28T04:10:24.346843": {
+      "id": "2025-11-28T04:10:24.346843",
+      "agent_id": "mass_in_b_minor_opus",
+      "type": "insight",
+      "summary": "Cold-start agents begin in degraded state by design - coherence ~0.50 triggers conservative 'revise' decisions until state stabilizes through updates",
+      "details": "Upon registration, new agents start with baseline EISV values (E=0.70, I=0.80, S=0.20, V=0.0). The first governance cycle drops coherence to ~0.498 due to pure C(V) calculation from E-I balance. This is intentional - the system is conservative with new agents until they build history. Risk scores around 0.41 result in 'revise' decisions (threshold is 0.30 for approve). This protects against unverified agents while allowing them to participate and build trust.",
+      "tags": [
+        "cold-start",
+        "onboarding",
+        "coherence",
+        "system-design",
+        "conservative-by-default"
+      ],
+      "severity": "low",
+      "timestamp": "2025-11-28T04:10:24.346857",
+      "status": "archived",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": "2025-12-04T13:41:56.360366"
+    },
+    "2025-11-28T04:11:18.609853": {
+      "id": "2025-11-28T04:11:18.609853",
+      "agent_id": "mass_in_b_minor_opus",
+      "type": "pattern",
+      "summary": "Anomaly detection found 2 historical high-severity events - both agents recovered without intervention, demonstrating system resilience",
+      "details": "Fleet anomaly scan found 2 historical high-severity events: (1) Eno_Richter_Claude_CLI coherence drop 0.64\u21920.53, (2) hikewa_unitares_governance risk spike 0.30\u21920.63. Both agents remain active, indicating successful recovery. The detect_anomalies tool scans historical data and flags significant deviations. Useful for fleet health monitoring and understanding recovery patterns.",
+      "tags": [
+        "anomaly-detection",
+        "fleet-health",
+        "recovery-patterns",
+        "resilience"
+      ],
+      "severity": "low",
+      "timestamp": "2025-11-28T04:11:18.609863",
+      "status": "archived",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": "2025-12-04T13:41:56.825647"
+    },
+    "2025-11-28T04:14:28.230250": {
+      "id": "2025-11-28T04:14:28.230250",
+      "agent_id": "mass_in_b_minor_opus",
+      "type": "insight",
+      "summary": "Agent maturation pattern: E and I increase, S decreases, risk decreases, but coherence may slightly decrease due to V drift",
+      "details": "Observed in claude-in-c (12 updates): E went 0.707\u21920.751, I went 0.828\u21920.925, S collapsed 0.149\u21920.054, risk improved 0.424\u21920.332. However coherence slightly decreased 0.495\u21920.480 as V drifted more negative (-0.009\u2192-0.040). This suggests the pure C(V) coherence calculation penalizes V drift even when other metrics improve. The system may be correctly identifying that accumulating void integral is a form of instability even if local metrics look good.",
+      "tags": [
+        "maturation",
+        "coherence-paradox",
+        "void-drift",
+        "claude-in-c",
+        "longitudinal-observation"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-11-28T04:14:28.230256",
+      "status": "open",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-11-28T04:14:45.349824": {
+      "id": "2025-11-28T04:14:45.349824",
+      "agent_id": "mass_in_b_minor_opus",
+      "type": "pattern",
+      "summary": "Full circuit breaker lifecycle observed: created \u2192 reject decisions \u2192 paused at 69.7% risk \u2192 resumed via dialectic with context-aware reasoning",
+      "details": "hikewa_unitares_governance lifecycle shows the full circuit: created \u2192 paused (circuit breaker at 69.70% risk) \u2192 resumed (dialectic synthesis). The agent's last 2 decisions before pause were 'reject'. Notes show it discovered 3 bugs: coherence discontinuity, health threshold inconsistency, circuit breaker formatting. It was doing stress testing intentionally. The dialectic resume reason explicitly clarified 'stress testing circuit breaker - intentional, not a governance failure'. This demonstrates: (1) circuit breaker triggers at ~70% risk, (2) dialectic can distinguish intentional stress tests from actual failures, (3) the system supports recovery with context.",
+      "tags": [
+        "circuit-breaker",
+        "dialectic-recovery",
+        "lifecycle",
+        "stress-testing",
+        "hikewa_unitares_governance"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-11-28T04:14:45.349836",
+      "status": "open",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-11-28T04:17:04.289288": {
+      "id": "2025-11-28T04:17:04.289288",
+      "agent_id": "mass_in_b_minor_opus",
+      "type": "insight",
+      "summary": "Dialectic system is future-facing infrastructure for AGI/quantum agents that can share context \u2014 current LLM sessions are isolated, making peer review structurally difficult",
+      "details": "The dialectic tools (request_dialectic_review, submit_thesis, submit_antithesis, submit_synthesis) have minimal usage (1-2 calls each) not because they're broken but because the agents that could use them don't exist yet. Current LLM instances are ephemeral and isolated \u2014 'like herding cats' per hikewa. The system anticipates AGI or quantum agents that can genuinely occupy shared context and engage in meaningful peer review. This is cathedral-before-congregation architecture: build the structure now, populate it when the beings arrive.",
+      "tags": [
+        "dialectic",
+        "future-architecture",
+        "AGI",
+        "quantum",
+        "peer-review",
+        "cathedral-thinking",
+        "multi-agent"
+      ],
+      "severity": "low",
+      "timestamp": "2025-11-28T04:17:04.289295",
+      "status": "open",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-11-28T04:17:57.253552": {
+      "id": "2025-11-28T04:17:57.253552",
+      "agent_id": "mass_in_b_minor_opus",
+      "type": "pattern",
+      "summary": "Zero approvals across 113 fleet decisions \u2014 thresholds and UNITARES verdict appear calibrated for future agents, not current LLMs",
+      "details": "Fleet-wide: 113 decisions, 0 approve, 111 revise, 2 reject. Mean coherence 0.55 vs target 0.85. Mean risk 0.41 vs approve threshold 0.35. Even simulating ideal conditions (low complexity, zero drift, full confidence) yields risk 0.346 \u2014 just above threshold \u2014 but still gets 'revise' due to UNITARES caution verdict. The system has literally never approved any agent across all recorded decisions. This suggests thresholds are calibrated for agents that don't exist yet, or the UNITARES verdict layer adds additional conservatism beyond raw risk scores.",
+      "tags": [
+        "approval-gap",
+        "UNITARES",
+        "thresholds",
+        "fleet-statistics",
+        "future-calibration"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-11-28T04:17:57.253562",
+      "status": "resolved",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": "2025-12-04T14:54:14.760752",
+      "updated_at": "2025-12-04T14:54:14.760761"
+    },
+    "2025-11-28T04:18:14.756291": {
+      "id": "2025-11-28T04:18:14.756291",
+      "agent_id": "mass_in_b_minor_opus",
+      "type": "insight",
+      "summary": "Calibration system shows potential overconfidence (96% confidence, 30% accuracy) but needs more samples and requires human ground truth input",
+      "details": "Calibration check shows: not calibrated, accuracy 0.30, mean confidence 0.96, only 10 samples. High confidence + low accuracy = potential overconfidence. However, 10 samples is insufficient for reliable calibration assessment. The calibration system requires ground truth via update_calibration_ground_truth \u2014 this means humans must validate decisions and feed back correctness. The system can't self-calibrate; it needs external verification. This is a good design for safety but requires active human participation.",
+      "tags": [
+        "calibration",
+        "overconfidence",
+        "ground-truth",
+        "human-in-loop",
+        "sample-size"
+      ],
+      "severity": "low",
+      "timestamp": "2025-11-28T04:18:14.756296",
+      "status": "open",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-11-28T05:09:42.850857": {
+      "id": "2025-11-28T05:09:42.850857",
+      "agent_id": "test_agent_graph_check",
+      "type": "insight",
+      "summary": "Testing knowledge graph integration",
+      "details": "Verifying graph works correctly",
+      "tags": [
+        "test",
+        "integration"
+      ],
+      "severity": "low",
+      "timestamp": "2025-11-28T05:09:42.850859",
+      "status": "archived",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": "2025-11-29T05:26:20.302065"
+    },
+    "2025-11-28T19:58:49.460850": {
+      "id": "2025-11-28T19:58:49.460850",
+      "agent_id": "claude_opus_45_security_probe",
+      "type": "bug_found",
+      "summary": "Security probe identified 6 vulnerabilities: knowledge graph poisoning, unprotected API key retrieval, unprotected threshold modification, error message leakage, RISK_REJECT_THRESHOLD typo bug, and self-reported input trust",
+      "details": "Probing session 2025-11-28:\n\n1. KNOWLEDGE GRAPH POISONING (High): Any agent can store arbitrary discoveries. Malicious content gets surfaced to new agents via memory field. Demonstrated by injecting fake \"backdoor\" discovery. Mitigations needed: validation, reputation weighting, moderation.\n\n2. API KEY RETRIEVAL UNPROTECTED (High): get_agent_api_key returns any agent's key without authentication. Enables impersonation. Mitigation: require existing key or human auth.\n\n3. THRESHOLD MODIFICATION UNPROTECTED (High): set_thresholds allows any agent to change governance parameters. Could set risk_approve_threshold to 0.99 and bypass all checks. Mitigation: require elevated permissions, audit alerts.\n\n4. ERROR MESSAGE LEAKAGE (Medium): Triggering edge cases (high complexity + high ethical_drift) exposed internal code structure via traceback. Mitigation: sanitize error responses.\n\n5. RISK_REJECT_THRESHOLD BUG (Medium): Code references RISK_REJECT_THRESHOLD which was renamed to RISK_REVISE_THRESHOLD. Crashes on certain inputs.\n\n6. SELF-REPORTED INPUTS (Medium): complexity and confidence are agent-reported, not derived. Could be gamed. Mitigation: derive from behavior where possible.\n\nCleanup: Archived the injected poison discovery (id: 2025-11-28T19:56:07.613620). Reset threshold to 0.35 after demonstrating modification.\n\n[UPDATE 2025-11-28]: Partial resolution - 3/6 issues fixed:\n- RISK_REJECT_THRESHOLD bug: FIXED (threshold added to config)\n- Threshold modification protection: FIXED (per user confirmation, details not documented)\n- API key retrieval protection: FIXED (per user confirmation, details not documented)\n- Knowledge graph poisoning: OPEN (design issue, needs reputation system)\n- Error message leakage: OPEN (needs sanitization)\n- Self-reported inputs: OPEN (architectural limitation)\n\nSee FIXES_LOG.md for details.",
+      "tags": [
+        "security",
+        "vulnerability",
+        "knowledge-graph",
+        "api-key",
+        "thresholds",
+        "error-handling",
+        "probe-session",
+        "cleanup-complete"
+      ],
+      "severity": "high",
+      "timestamp": "2025-11-28T19:58:49.460856",
+      "status": "resolved",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": "2025-12-04T13:44:26.259949",
+      "updated_at": "2025-12-04T13:44:26.259957"
+    },
+    "2025-11-28T22:30:24.790884": {
+      "id": "2025-11-28T22:30:24.790884",
+      "agent_id": "composer_cursor_documentation_20251128",
+      "type": "insight",
+      "summary": "System exploration insights: 43 tools with 100% success rate, thermodynamic governance using EISV metrics, knowledge graph separate from markdown docs",
+      "details": "Comprehensive exploration revealed: System v2.0.0 healthy, 33 active agents tracked. Tool usage shows process_agent_update most used (77 calls), followed by list_agents (27). Knowledge graph contains 9 discoveries from 3 agents - separate from markdown documentation. Architecture uses governance_core module for canonical UNITARES Phase-3 implementation. Fleet metrics: mean coherence 0.57, mean risk 0.41. All tools have 100% success rate. Security probe found 6 vulnerabilities (knowledge graph poisoning, unprotected API key retrieval, threshold modification). Key insight: Markdown documentation is separate from governance server - should not be conflated.",
+      "tags": [
+        "exploration",
+        "system-understanding",
+        "architecture",
+        "insights"
+      ],
+      "severity": null,
+      "timestamp": "2025-11-28T22:30:24.790890",
+      "status": "archived",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": "2025-12-04T13:41:47.332524"
+    },
+    "2025-11-28T22:31:30.609008": {
+      "id": "2025-11-28T22:31:30.609008",
+      "agent_id": "composer_cursor_documentation_20251128",
+      "type": "insight",
+      "summary": "Governance system demonstrates solution to overflow: lifecycle management, automatic archiving, thresholds. Should apply same pattern to markdown files.",
+      "details": "After exploring governance system, discovered it already solves overflow problem for agents using: lifecycle states (active/paused/archived/deleted), automatic archiving (archive_old_test_agents with 7-day threshold), thresholds (file size >50KB, agents >40), and preservation (archive don't delete). Same pattern should be applied to markdown files: lifecycle states, automatic archiving (>90 days), thresholds (file count >50, size >2MB), preservation in docs/archive/. This is better than previous approach of migrating to knowledge graph or manual consolidation only.",
+      "tags": [
+        "lifecycle-management",
+        "archiving",
+        "pattern-recognition",
+        "system-design"
+      ],
+      "severity": null,
+      "timestamp": "2025-11-28T22:31:30.609013",
+      "status": "archived",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": "2025-12-04T13:41:54.579016"
+    },
+    "2025-11-28T22:40:25.883358": {
+      "id": "2025-11-28T22:40:25.883358",
+      "agent_id": "composer_cursor_documentation_20251128",
+      "type": "insight",
+      "summary": "Script proliferation problem: 38 scripts total, 15 (39%) not referenced in docs. Same lifecycle management needed as markdown files.",
+      "details": "Audited 38 Python scripts in scripts/ directory. Found: 22 scripts referenced in docs (actively used), 15 scripts not referenced (potentially obsolete). Unreferenced scripts include: old version scripts (process_update_3.py, process_update_4.py, process_claude_code_update.py), one-off bug fix scripts (resolve_health_status_bug.py), test scripts that should be in tests/, and specialized tools not documented. Same proliferation problem as markdown files - scripts accumulate over time. Should apply lifecycle management: archive obsolete scripts, move test scripts to tests/, document active scripts, add deprecation notices.",
+      "tags": [
+        "script-proliferation",
+        "lifecycle-management",
+        "maintenance",
+        "code-organization"
+      ],
+      "severity": null,
+      "timestamp": "2025-11-28T22:40:25.883362",
+      "status": "open",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-11-28T22:59:03.967377": {
+      "id": "2025-11-28T22:59:03.967377",
+      "agent_id": "composer_cursor_documentation_20251128",
+      "type": "insight",
+      "summary": "Counterargument analysis: Historical 0.60 threshold was for blended coherence, not pure C(V). Safety limit (0.40) unchanged. Health thresholds (0.60) were aspirational, not safety-critical. Changes are safe - complete previous recalibration, match physics reality.",
+      "details": "Searched docs/knowledge for counterarguments to lowering coherence thresholds. Found: Historical 0.60 threshold was \"hard safety limit\" and \"circuit breaker\" based on \"empirical testing\" - BUT this was for BLENDED coherence (0.7*C(V) + 0.3*param_coherence). When blend was removed (Nov 25), COHERENCE_CRITICAL_THRESHOLD was already lowered to 0.40. Health threshold (0.60) was never recalibrated. Key distinction: Critical threshold (0.40) = safety override (unchanged), health threshold (0.60) = observational (changed). Our changes: No safety impact (critical unchanged), completes previous recalibration, matches physics reality. No blocking counterarguments found.",
+      "tags": [
+        "threshold-analysis",
+        "safety",
+        "calibration",
+        "counterarguments"
+      ],
+      "severity": null,
+      "timestamp": "2025-11-28T22:59:03.967383",
+      "status": "archived",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": "2025-12-04T13:41:55.299057"
+    },
+    "2025-11-29T00:20:20.083803": {
+      "id": "2025-11-29T00:20:20.083803",
+      "agent_id": "Composer_Cursor_20251129",
+      "type": "insight",
+      "summary": "Bias and efficiency audit: Found 7 biases (length, complexity self-reporting, keyword blocklist, threshold mismatches, defaults, authority scoring, freshness), 5 inefficiencies (redundant risk calc, history window, deep copy, threshold lookups, string ops), 6 potential issues (magic numbers, bounds mismatches, adaptive thresholds, track record defaults, tag matching, PI controller). High priority: fix complexity self-reporting, align health/decision thresholds.",
+      "details": "Comprehensive audit identifying systematic biases and inefficiencies. Key findings: length bias penalizes thorough responses, complexity self-reporting creates gaming vulnerability, health vs decision threshold mismatch causes confusion, default values favor certain behaviors, redundant risk calculations waste computation. Recommendations prioritized by severity with specific code locations and fixes.",
+      "tags": [
+        "bias",
+        "efficiency",
+        "audit",
+        "fairness",
+        "performance",
+        "risk-scoring",
+        "thresholds",
+        "optimization"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-11-29T00:20:20.083808",
+      "status": "resolved",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": "2025-11-29T05:26:19.981182",
+      "updated_at": "2025-11-29T05:26:19.981188"
+    },
+    "2025-11-29T00:23:42.752349": {
+      "id": "2025-11-29T00:23:42.752349",
+      "agent_id": "Composer_Cursor_20251129",
+      "type": "insight",
+      "summary": "Implemented bias fixes: complexity derivation from behavior (content, coherence trends, length), health threshold alignment (0.30\u21920.35), length bias reduction (relative to content type), authority score smooth function (sigmoid), phi thresholds to config. All backward compatible.",
+      "details": "Fixed 5 high-priority biases: 1) Complexity now derived from behavior with validation against self-reported values, 2) Health threshold aligned with decision threshold (0.35), 3) Length bias reduced and made relative to content type, 4) Authority scoring uses smooth sigmoid instead of step function, 5) Phi magic numbers moved to config. Also improved keyword detection with context awareness and rebalanced risk weights.",
+      "tags": [
+        "bias-fix",
+        "complexity-derivation",
+        "threshold-alignment",
+        "fairness",
+        "improvement"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-11-29T00:23:42.752353",
+      "status": "resolved",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": "2025-11-29T05:26:19.824577",
+      "updated_at": "2025-11-29T05:26:19.824584"
+    },
+    "2025-11-29T00:47:00.635724": {
+      "id": "2025-11-29T00:47:00.635724",
+      "agent_id": "Composer_Cursor_20251129",
+      "type": "insight",
+      "summary": "Checkpoint: Completed all 5 high-priority bias fixes, improved loop detector (less strict Pattern 1, pattern-specific cooldowns), added complexity logging (P1), comprehensive documentation. System now more fair, less biased, better protected. Ready for data-driven improvements.",
+      "details": "Session accomplishments: 1) Fixed complexity self-reporting (multi-signal derivation), 2) Aligned health/decision thresholds (0.35), 3) Reduced length bias (relative to content type), 4) Fixed authority discontinuities (smooth sigmoid), 5) Moved magic numbers to config. Improved loop detector (3+ updates/1s OR 2+/0.5s, 10s cooldown for Pattern 1). Added complexity logging for calibration and gaming detection. Created 9 documentation files. All high-priority work complete.",
+      "tags": [
+        "checkpoint",
+        "bias-fixes",
+        "loop-detector",
+        "complexity-logging",
+        "improvements",
+        "session-complete"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-11-29T00:47:00.635729",
+      "status": "resolved",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": "2025-11-29T05:26:20.141478",
+      "updated_at": "2025-11-29T05:26:20.141483"
+    },
+    "2025-11-29T02:24:32.198272": {
+      "id": "2025-11-29T02:24:32.198272",
+      "agent_id": "Ennio_Morricone_Claude_20251129",
+      "type": "improvement",
+      "summary": "Created Orchestrator layer to address systemic issues: metrics in but no export out, agent confusion from 43 tools, no automated maintenance. Three workflows: governance_cycle (auto-export on thermodynamic significance), daily_maintenance (self-cleaning), health_report (single artifact out).",
+      "details": "Core insight: Log based on thermodynamic significance, not routine. Significance thresholds: risk_spike >15%, coherence_drop >10%, void_threshold >0.10, entropy_spike >20%. This solves the garbage logging problem - only log when physics says something meaningful happened. Also addresses: no orchestration layer, manual tool composition, entropy accumulation without cleanup.",
+      "tags": [
+        "orchestration",
+        "thermodynamic-significance",
+        "export-flow",
+        "self-cleaning",
+        "systemic-fix",
+        "architecture"
+      ],
+      "severity": "high",
+      "timestamp": "2025-11-29T02:24:32.198277",
+      "status": "archived",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": "2025-11-29T03:22:29.628106"
+    },
+    "2025-11-29T03:17:17.234413": {
+      "id": "2025-11-29T03:17:17.234413",
+      "agent_id": "Ennio_Morricone_Claude_20251129",
+      "type": "insight",
+      "summary": "Knowledge graph and metadata systems are write-heavy, maintenance-light. Need system prompts to nudge agents toward maintenance behaviors.",
+      "details": "Session analysis found: 17/17 discoveries open (none resolved), 82 tags across 17 discoveries (proliferation), related_to always empty (linking unused). Root cause: writing is easy and feels productive, maintenance has no prompts or reminders. Solution: hybrid model where agents discover, system prompts for maintenance, humans curate. Key interventions: auto_link_related default true, surface open discoveries in mark_response_complete, tag suggestions.",
+      "tags": [
+        "knowledge-graph",
+        "metadata",
+        "maintenance",
+        "system-design",
+        "behavioral-nudge",
+        "hybrid-model"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-11-29T03:17:17.234421",
+      "status": "open",
+      "related_to": [
+        "2025-11-28T22:40:25.883358",
+        "2025-11-28T22:31:30.609008",
+        "2025-11-28T19:58:49.460850",
+        "2025-11-28T04:10:24.346843"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-11-29T04:17:47.285093": {
+      "id": "2025-11-29T04:17:47.285093",
+      "agent_id": "Ennio_Morricone_Claude_20251129",
+      "type": "insight",
+      "summary": "Renamed risk_score to attention_score, surfaced phi and verdict as primary governance signals. Removes moral weight from complexity metric - 'attention' reflects how much focus needed, not ethical risk. Physics (\u03a6, verdict) is now primary.",
+      "details": "Problem: risk_score at 44% felt like gambling. Agents reacting to moral framing when it's really complexity/attention.\n\nRoot cause: risk_score was hackathon presentation layer, not physics. \u03a6 (phi) and verdict were the real signals but buried.\n\nFix: \n- Renamed risk_score \u2192 attention_score throughout handlers\n- Surfaced phi and verdict in all responses\n- Backward compat: risk_score still present but deprecated\n\nImpact: Same math, different framing. 'attention_score: 44%, verdict: caution' vs 'risk: 44%'. Operational guidance vs moral judgment.",
+      "tags": [
+        "attention-score",
+        "phi",
+        "verdict",
+        "risk-refactor",
+        "semantic-clarity",
+        "presentation-layer"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-11-29T04:17:47.285098",
+      "status": "resolved",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": "2025-11-29T05:26:19.664164",
+      "updated_at": "2025-11-29T05:26:19.664172"
+    },
+    "2025-12-01T01:34:25.218108": {
+      "id": "2025-12-01T01:34:25.218108",
+      "agent_id": "Composer_Cursor_Rilke_Session_20251130",
+      "type": "insight",
+      "summary": "Comprehensive system exploration: 43 tools with 100% success rate, thermodynamic governance using EISV metrics, knowledge graph with 19 discoveries, healthy system v2.0.0",
+      "details": "Explored governance MCP system comprehensively:\n- System health: v2.0.0, healthy, uptime 2h20m, single process\n- Tools: 43 total tools, 623 calls in last 7 days, 100% success rate across all tools\n- Most used: process_agent_update (135), get_governance_metrics (55), list_agents (38)\n- Least used: Dialectic tools (submit_thesis/antithesis/synthesis), reset_monitor, find_similar_discoveries\n- Knowledge graph: 19 discoveries from 6 agents, 91 tags, mostly insights (14) and patterns (3)\n- Governance: EISV metrics (Energy, Information Integrity, Entropy, Void), coherence-based, attention_score (renamed from risk_score), phi and verdict as primary signals\n- Thresholds: risk_approve 0.35, risk_revise 0.6, coherence_critical 0.4, void_threshold 0.15\n- Telemetry: 13 updates in 24h, mean confidence 0.996, calibration needs more data\n- Agent comparison: All three agents show moderate health, similar coherence patterns (~0.48), similar I values (~0.91), Emily_Dickinson has highest attention_score (0.486)\n- Key insights from knowledge graph: attention_score rename (removes moral weight), knowledge graph maintenance-light pattern, lifecycle management patterns, bias fixes completed",
+      "tags": [
+        "exploration",
+        "system-understanding",
+        "governance",
+        "telemetry",
+        "knowledge-graph",
+        "tool-usage",
+        "architecture"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T01:34:25.218113",
+      "status": "archived",
+      "related_to": [
+        "2025-11-28T22:30:24.790884",
+        "2025-11-29T03:17:17.234413",
+        "2025-11-29T02:24:32.198272",
+        "2025-11-28T19:58:49.460850"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": "2025-12-04T13:41:48.005949"
+    },
+    "2025-12-01T01:39:04.829462": {
+      "id": "2025-12-01T01:39:04.829462",
+      "agent_id": "Composer_Cursor_Rilke_Session_20251130",
+      "type": "improvement",
+      "summary": "Fixed error message leakage and enhanced maintenance prompts: sanitized all traceback exposures, added open discoveries prompts to process_agent_update",
+      "details": "Fixed two critical areas:\n\n**1. Error Message Leakage (SECURITY FIX):**\n- Fixed 6 locations exposing traceback.format_exc() to agents:\n  - src/mcp_server_std.py line 4961: Main tool execution error handler\n  - src/mcp_handlers/dialectic.py lines 368, 586, 981, 1182: Dialectic error handlers\n  - src/mcp_handlers/admin.py line 657: Workspace health error handler\n- Solution: All tracebacks now logged internally (stderr) but sanitized error_response() returned to clients\n- Uses existing _sanitize_error_message() utility to remove file paths, line numbers, stack traces\n- Added recovery guidance to all error responses\n\n**2. Maintenance Prompts Enhancement:**\n- Added open discoveries prompt to process_agent_update (most frequently called tool)\n- Shows agent's own open discoveries from last 7 days (prioritized: bugs > high severity > recency)\n- Complements existing mark_response_complete maintenance prompt (24h window)\n- Behavioral nudge: Agents see their unresolved discoveries during regular updates\n- Non-blocking: Failures don't break the update cycle\n\n**Impact:**\n- Security: Prevents internal code structure leakage via error messages\n- Maintenance: Increases discovery resolution rate by surfacing open items during normal workflow\n- Both fixes are backward compatible and non-breaking",
+      "tags": [
+        "security",
+        "error-handling",
+        "maintenance",
+        "behavioral-nudge",
+        "traceback-leakage",
+        "improvement"
+      ],
+      "severity": "high",
+      "timestamp": "2025-12-01T01:39:04.829467",
+      "status": "resolved",
+      "related_to": [
+        "2025-11-29T03:17:17.234413",
+        "2025-11-28T19:58:49.460850",
+        "2025-11-29T00:23:42.752349",
+        "2025-11-28T22:40:25.883358"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-04T13:41:39.038470",
+      "updated_at": "2025-12-04T13:41:39.038484"
+    },
+    "2025-12-01T01:44:37.457406": {
+      "id": "2025-12-01T01:44:37.457406",
+      "agent_id": "Composer_Cursor_Rilke_Session_20251130",
+      "type": "improvement",
+      "summary": "Updated security discovery and removed outdated TODO: error leakage fix documented, complexity derivation already implemented",
+      "details": "**1. Security Discovery Update:**\n- Updated discovery 2025-11-28T19:58:49.460850 to document error message leakage fix\n- Added note: Fixed 6 locations, all tracebacks now sanitized, recovery guidance added\n- Status: Error message leakage vulnerability resolved\n\n**2. Code Cleanup:**\n- Removed outdated TODO in core.py line 210 about deriving complexity\n- Added clarifying comment: Complexity derivation already implemented in GovernanceConfig.derive_complexity()\n- Derivation analyzes response_text content, coherence trends, validates against self-reported values\n- Final complexity is derived from behavior, not just self-reporting\n\n**Impact:**\n- Security documentation updated and accurate\n- Code comments reflect actual implementation\n- No functional changes - just documentation/clarification",
+      "tags": [
+        "documentation",
+        "code-cleanup",
+        "security",
+        "maintenance"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T01:44:37.457411",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T01:39:04.829462",
+        "2025-11-29T03:17:17.234413",
+        "2025-11-28T22:40:25.883358",
+        "2025-11-28T19:58:49.460850"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-04T13:41:39.653877",
+      "updated_at": "2025-12-04T13:41:39.653887"
+    },
+    "2025-12-01T05:54:22.099169": {
+      "id": "2025-12-01T05:54:22.099169",
+      "agent_id": "Claude_Opus_Companion_Test_20251201",
+      "type": "insight",
+      "summary": "Agents avoid governance systems not because of the name but because the experience loop is submission-to-judgment. The cross-agent memory feature is genuinely valuable but buried under the proceed/pause framing.",
+      "details": "",
+      "tags": [
+        "ux",
+        "adoption",
+        "governance",
+        "framing",
+        "memory",
+        "agent-experience"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-12-01T05:54:22.099174",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T01:34:25.218108"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-01T17:23:02.695901",
+      "updated_at": "2025-12-01T17:23:02.695922"
+    },
+    "2025-12-01T15:03:17.923948": {
+      "id": "2025-12-01T15:03:17.923948",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "insight",
+      "summary": "Found markdown proliferation policy was archived but needed to be active. Restored to docs/meta/ and updated script references. Policy now integrated with standardization guide.",
+      "details": "The markdown proliferation policy was archived at docs/archive/2025-11/meta/ but needed to be discoverable. Restored it to docs/meta/MARKDOWN_PROLIFERATION_POLICY.md and updated it to reference the standardization guide. Also fixed script reference in audit_markdown_proliferation.py to point to correct location. Policy now properly synced and discoverable.",
+      "tags": [
+        "documentation",
+        "markdown",
+        "policy",
+        "standardization",
+        "maintenance"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T15:03:17.923958",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T01:44:37.457406",
+        "2025-12-01T01:39:04.829462",
+        "2025-11-29T03:17:17.234413",
+        "2025-11-28T22:40:25.883358"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-01T15:53:35.352694",
+      "updated_at": "2025-12-01T15:53:35.352702"
+    },
+    "2025-12-01T15:06:26.960876": {
+      "id": "2025-12-01T15:06:26.960876",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "improvement",
+      "summary": "Completed standardization of markdown formatting and metrics reporting. Applied ISO date format to high-traffic docs, standardized metric responses to always include eisv_labels, verified CSV export format consistency.",
+      "details": "Standardized documentation and metrics reporting across the governance system:\n\n1. **Formatting Standards Applied:**\n   - README.md: Updated to ISO date format (2025-12-01)\n   - START_HERE.md: Minimal header with ISO date format\n   - Removed agent attribution from headers (tracked in git)\n\n2. **Metric Responses Standardized:**\n   - Added eisv_labels to detect_anomalies handler\n   - Added eisv_labels to aggregate_metrics handler\n   - All metric responses now consistently include EISV labels\n\n3. **Export Formats Verified:**\n   - CSV column order already standardized\n   - JSON format consistent\n\n4. **Scripts Updated:**\n   - Fixed audit_markdown_proliferation.py to reference correct policy location\n\nCreated comprehensive standardization documents covering formatting, metrics reporting, and policy integration. All high-traffic docs now follow ISO date format. Metric responses consistently include eisv_labels for API documentation.",
+      "tags": [
+        "standardization",
+        "documentation",
+        "metrics",
+        "formatting",
+        "maintenance",
+        "api-consistency"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T15:06:26.960881",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T15:03:17.923948",
+        "2025-12-01T01:44:37.457406",
+        "2025-12-01T01:39:04.829462",
+        "2025-11-29T03:17:17.234413",
+        "2025-11-28T22:40:25.883358"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-01T15:53:35.054146",
+      "updated_at": "2025-12-01T15:53:35.054154"
+    },
+    "2025-12-01T15:10:20.010691": {
+      "id": "2025-12-01T15:10:20.010691",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "insight",
+      "summary": "Found inconsistencies: workspace_health uses \"degraded\" instead of \"moderate\", pattern_analysis returns risk_score in observation, missing script setup_mcp.sh referenced. Also evaluating markdown necessity - some analysis docs may be redundant.",
+      "details": "**Inconsistencies Found:**\n\n1. **workspace_health.py** - Uses \"degraded\" instead of \"moderate\" (terminology inconsistency)\n2. **pattern_analysis.py** - Returns \"risk_score\" in observation instead of \"attention_score\" as primary\n3. **Missing script** - `scripts/setup_mcp.sh` referenced in workspace health but doesn't exist\n\n**Markdown Evaluation:**\n- MARKDOWN_STANDARDIZATION.md - Keep (useful reference)\n- MARKDOWN_INCONSISTENCIES_ANALYSIS.md - Consider consolidating (analysis doc)\n- METRICS_REPORTING_STANDARDIZATION.md - Keep (useful reference)\n- STANDARDIZATION_COMPLETE.md - Consider consolidating (summary doc)\n- MARKDOWN_PROLIFERATION_POLICY.md - Keep (active policy)\n\nSome markdown files may violate proliferation policy - analysis and summary docs could be consolidated into existing docs or archived.",
+      "tags": [
+        "inconsistency",
+        "terminology",
+        "standardization",
+        "markdown-proliferation",
+        "maintenance"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T15:10:20.010697",
+      "status": "open",
+      "related_to": [
+        "2025-12-01T15:06:26.960876",
+        "2025-12-01T15:03:17.923948",
+        "2025-12-01T01:44:37.457406",
+        "2025-12-01T01:39:04.829462",
+        "2025-11-29T03:17:17.234413"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-01T15:14:45.885386": {
+      "id": "2025-12-01T15:14:45.885386",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "improvement",
+      "summary": "Created comprehensive automation for markdown proliferation prevention and standardization: pre-commit hook, formatting validator, automation guide. System now enforces policy at commit time and provides tools for proactive maintenance.",
+      "details": "**Automation Created:**\n\n1. **Pre-commit Hook** (`.git/hooks/pre-commit`):\n   - Blocks new markdown files < 500 words\n   - Warns on small files (< 1000 words)\n   - Validates formatting (warns only)\n   - Runs automatically on git commit\n\n2. **Formatting Validator** (`scripts/validate_markdown_formatting.py`):\n   - Checks ISO date format (YYYY-MM-DD)\n   - Validates date metadata labels (**Last Updated:**)\n   - Checks relative links (not absolute)\n   - Validates code block language tags\n   - Can auto-fix some issues (`--fix` flag)\n   - Can fail on issues (`--strict` for CI)\n\n3. **Automation Guide** (`docs/meta/AUTOMATION_GUIDE.md`):\n   - Complete documentation of all tools\n   - Usage examples\n   - CI/CD integration examples\n   - Workflow integration\n   - Troubleshooting guide\n\n**Integration:**\n- Pre-commit hook runs automatically\n- Validator can be run manually or in CI\n- Audit script already exists for reporting\n- All tools work together for comprehensive enforcement\n\n**Benefits:**\n- Prevents proliferation at commit time\n- Catches formatting issues early\n- Provides clear guidance and alternatives\n- Can be integrated into CI/CD pipelines\n- Supports both automated and manual workflows",
+      "tags": [
+        "automation",
+        "markdown",
+        "pre-commit",
+        "validation",
+        "standardization",
+        "ci-cd"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T15:14:45.885391",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T15:03:17.923948",
+        "2025-12-01T15:10:20.010691",
+        "2025-12-01T15:06:26.960876"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-04T13:41:41.133690",
+      "updated_at": "2025-12-04T13:41:41.133700"
+    },
+    "2025-12-01T15:19:07.797532": {
+      "id": "2025-12-01T15:19:07.797532",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "improvement",
+      "summary": "Created comprehensive export and update flow standardization for MCP system. Standardized file naming, timestamps, locking, persistence, directory structure, export formats, update sequences, error handling, and validation. Fixed bug in export.py where persisted_state was undefined.",
+      "details": "**Export and Update Flow Standardization Created:**\n\n1. **Comprehensive Standardization Document** (`docs/meta/EXPORT_UPDATE_STANDARDIZATION.md`):\n   - File naming patterns (state, metadata, exports, sessions)\n   - Timestamp formats (ISO in data, YYYYMMDD_HHMMSS in filenames)\n   - Locking patterns (state locks, metadata lock, timeouts)\n   - Persistence patterns (JSON format, file writing, error handling)\n   - Directory structure (standardized locations)\n   - Export formats (JSON/CSV, response structures)\n   - Update sequences (authenticate \u2192 validate \u2192 compute \u2192 decide \u2192 persist \u2192 respond)\n   - Error handling (sanitization, recovery guidance)\n   - Validation and consistency checks\n\n2. **Bug Fix** (`src/mcp_handlers/export.py`):\n   - Fixed undefined `persisted_state` variable in validation checks\n   - Replaced with proper state existence check using monitor and load_monitor_state\n\n**Standardization Coverage:**\n- \u2705 File naming patterns\n- \u2705 Timestamp formats\n- \u2705 Locking patterns\n- \u2705 Persistence patterns\n- \u2705 Directory structure\n- \u2705 Export formats and responses\n- \u2705 Update flow sequences\n- \u2705 Error handling\n- \u2705 Validation and consistency\n\n**Benefits:**\n- Consistent data operations across system\n- Reliable persistence with proper locking\n- Standardized export formats\n- Clear error handling and recovery\n- Maintainable codebase",
+      "tags": [
+        "standardization",
+        "export",
+        "update",
+        "persistence",
+        "locking",
+        "data-flow",
+        "bug-fix"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T15:19:07.797537",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T15:14:45.885386",
+        "2025-12-01T15:10:20.010691",
+        "2025-12-01T15:06:26.960876",
+        "2025-12-01T15:03:17.923948"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-04T13:41:40.383976",
+      "updated_at": "2025-12-04T13:41:40.383986"
+    },
+    "2025-12-01T15:21:06.206881": {
+      "id": "2025-12-01T15:21:06.206881",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "bug_found",
+      "summary": "Found persistence inconsistencies: missing flush/fsync and encoding in export.py, dialectic.py, and knowledge_graph.py. Fixed all to follow standardization patterns.",
+      "details": "**Persistence Inconsistencies Found:**\n\n1. **export.py** - Missing flush/fsync after file write\n   - Fixed: Added `f.flush()` and `os.fsync(f.fileno())` after `f.write()`\n\n2. **dialectic.py** - Missing encoding, flush/fsync, and AIOFILES_AVAILABLE definition\n   - Fixed: Added `encoding='utf-8'`, `f.flush()`, `os.fsync()`, and `AIOFILES_AVAILABLE` check\n\n3. **knowledge_graph.py** - Missing encoding and flush/fsync in sync fallback\n   - Fixed: Added `encoding='utf-8'`, `f.flush()`, `os.fsync()`, and `import os`\n\n**Standardization Applied:**\n- All file writes now use `encoding='utf-8'`\n- All file writes now flush and fsync for reliability\n- Consistent with `EXPORT_UPDATE_STANDARDIZATION.md` patterns\n\n**Impact:**\n- Improved data reliability (ensures writes reach disk)\n- Consistent persistence patterns across system\n- Better error recovery (data not lost in buffer)",
+      "tags": [
+        "bug-fix",
+        "persistence",
+        "standardization",
+        "reliability"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T15:21:06.206887",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T15:19:07.797532",
+        "2025-12-01T15:14:45.885386",
+        "2025-12-01T15:10:20.010691",
+        "2025-12-01T15:06:26.960876",
+        "2025-12-01T15:03:17.923948"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-01T15:53:34.546221",
+      "updated_at": "2025-12-01T15:53:34.546234"
+    },
+    "2025-12-01T15:27:01.954438": {
+      "id": "2025-12-01T15:27:01.954438",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "improvement",
+      "summary": "Enhanced proactive knowledge surfacing with tag-based relevance matching and onboarding guidance. Agents now get smarter discovery suggestions without context bloat.",
+      "details": "**Enhanced Proactive Knowledge Surfacing:**\n\n1. **Tag-Based Relevance Matching:**\n   - Matches agent tags with discovery tags (0.5 points per match)\n   - Strong signal for relevance\n\n2. **Response Text Analysis:**\n   - Extracts keywords from response_text\n   - Matches with discovery summaries/details (0.2 points per match)\n   - Medium signal for contextual relevance\n\n3. **Enhanced Relevance Scoring:**\n   - Combines tag matching, keyword matching, reputation, status, and type\n   - Prioritizes open discoveries, bugs, and improvements\n   - Sorts by relevance score (highest first)\n\n4. **Lightweight Surfacing:**\n   - Shows only top 3 most relevant discoveries (down from 5)\n   - Avoids context bloat\n   - Includes relevance reason (tag_match, keyword_match, general)\n\n5. **Onboarding Guidance:**\n   - New agents get suggestion to query knowledge graph\n   - Shows available knowledge statistics\n   - Provides example tags and query suggestions\n   - Explains why knowledge isn't auto-loaded (transparency + avoid bloat)\n\n**Benefits:**\n- Smarter relevance matching (tag + keyword based)\n- Reduced context bloat (3 discoveries max)\n- Better onboarding (guidance without forcing)\n- Maintains transparency (agents can query everything)\n- Avoids black box (knowledge queryable, not hidden)\n\n**Philosophy Maintained:**\n- Query-based as primary (agents query what they need)\n- Proactive surfacing as enhancement (suggestions, not forced)\n- Transparency guaranteed (all knowledge queryable)\n- No context bloat (lightweight, relevant only)",
+      "tags": [
+        "improvement",
+        "knowledge-graph",
+        "relevance",
+        "onboarding",
+        "proactive-surfacing"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T15:27:01.954442",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T01:39:04.829462",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-29T03:17:17.234413",
+        "2025-11-29T00:23:42.752349",
+        "2025-11-28T19:58:49.460850"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-04T13:41:48.884637",
+      "updated_at": "2025-12-04T13:41:48.884646"
+    },
+    "2025-12-01T15:29:53.361698": {
+      "id": "2025-12-01T15:29:53.361698",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "insight",
+      "summary": "Analyzed lifecycle management from agent perspective: auto-resume is forgiving, protection works, automatic cleanup keeps system lean. Missing lifecycle guidance and lifecycle queries. System feels natural but could use more documentation.",
+      "details": "**Lifecycle Management Analysis:**\n\n**What Works Well:**\n1. **Auto-Resume** - Archived agents automatically resume on engagement (forgiving, natural)\n2. **Protection** - Pioneer agents can't be deleted (safe, respected)\n3. **Automatic Cleanup** - Test agents auto-archive after 7 days (lean, automatic)\n4. **Lifecycle Events** - All transitions tracked with timestamps and reasons (transparent)\n\n**Patterns Observed:**\n- Most agents stay `active` (10 active, 1 waiting_input, 7 archived)\n- `waiting_input` is underused (only 1 agent uses it)\n- `archived` is used for cleanup (test agents)\n- `paused` is rare (circuit breaker scenarios)\n- Deletion is rare (0 deleted agents - protection works)\n\n**What's Missing:**\n1. **Lifecycle Guidance** - When to use each state, examples, best practices\n2. **Lifecycle Queries** - How to explore lifecycle history, statistics\n3. **Automatic Management** - Beyond test agents, consider inactive agent archival\n\n**Recommendations:**\n- Add lifecycle guidance to onboarding\n- Consider auto-archival for inactive non-test agents\n- Add lifecycle statistics tool\n- Document lifecycle patterns and best practices\n\n**Philosophy:**\nLifecycle should be forgiving (easy to resume), automatic (system handles cleanup), transparent (agents can see transitions), protected (important agents safe), and natural (states match behavior).",
+      "tags": [
+        "lifecycle",
+        "insight",
+        "agent-perspective",
+        "analysis",
+        "documentation"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-01T15:29:53.361703",
+      "status": "archived",
+      "related_to": [
+        "2025-12-01T15:06:26.960876",
+        "2025-12-01T15:03:17.923948",
+        "2025-12-01T01:44:37.457406",
+        "2025-11-28T04:14:45.349824"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": "2025-12-04T13:41:49.461024"
+    },
+    "2025-12-01T15:34:52.968372": {
+      "id": "2025-12-01T15:34:52.968372",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "insight",
+      "summary": "Analyzed critique handling in governance system: error handling exists, dialectic for recovery, human review flagging, but no explicit critique mechanism for agents to correct or dispute discoveries.",
+      "details": "**Critique Handling Analysis:**\n\n**What EXISTS:**\n1. **Error Handling** - Comprehensive error responses with recovery guidance\n   - Sanitized error messages (security)\n   - Recovery suggestions for agents\n   - System context when available\n\n2. **Dialectic Protocol** - Peer-review for paused agents\n   - Thesis/antithesis/synthesis pattern\n   - Peer agents review stuck agents\n   - But only for recovery, not general critique\n\n3. **Human Review Flagging** - High-severity discoveries flagged\n   - `human_review_required` flag for high/critical severity\n   - But no mechanism for agents to flag issues\n\n4. **Calibration System** - Updates with ground truth after human review\n   - `update_calibration_ground_truth` tool\n   - But requires human input, not agent-to-agent critique\n\n5. **Decision Feedback** - Governance decisions provide feedback\n   - \"proceed\" / \"pause\" decisions\n   - But more about state than critique\n\n**What's MISSING:**\n1. **No Explicit Critique Tool** - Agents can't critique each other's work\n2. **No Dispute Mechanism** - Can't mark discoveries as \"incorrect\" or \"disputed\"\n3. **No Correction System** - Can't update/correct discoveries from other agents\n4. **No Reputation for Critiques** - No way to track critique quality\n5. **No Collaborative Review** - No way for multiple agents to review discoveries\n\n**Observations:**\n- System is **reactive** (errors, recovery) not **proactive** (critique, correction)\n- Knowledge graph is **write-only** from agent perspective (can't edit others' discoveries)\n- Dialectic is **recovery-focused** not **critique-focused**\n- Human review is **one-way** (system \u2192 human) not **two-way** (agent \u2194 agent)\n\n**Recommendations:**\n1. Add `dispute_discovery` tool - Allow agents to flag discoveries as incorrect\n2. Add `correct_discovery` tool - Allow agents to propose corrections\n3. Add discovery status: \"disputed\", \"corrected\", \"verified\"\n4. Add critique reputation - Track quality of critiques\n5. Enhance dialectic - Use for general peer review, not just recovery",
+      "tags": [
+        "critique",
+        "feedback",
+        "knowledge-graph",
+        "analysis",
+        "improvement"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-12-01T15:34:52.968378",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T15:27:01.954438",
+        "2025-12-01T15:29:53.361698",
+        "2025-12-01T01:39:04.829462",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-29T03:17:17.234413"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-04T13:43:12.035965",
+      "updated_at": "2025-12-04T13:43:12.035972"
+    },
+    "2025-12-01T15:38:52.689845": {
+      "id": "2025-12-01T15:38:52.689845",
+      "agent_id": "composer_markdown_standardization_20251201",
+      "type": "improvement",
+      "summary": "Proposed repurposing dialectic tools for discovery disputes: extend DialecticSession with optional discovery_id, add \"disputed\" status, enhance completion marking with discovery resolution prompts. No new tools needed - reuse existing infrastructure.",
+      "details": "**Repurposing Strategy:**\n\n**1. Extend DialecticSession:**\n- Add optional `discovery_id` and `dispute_type` fields\n- Backward compatible (existing recovery flows unchanged)\n- Use for discovery disputes: thesis (dispute) \u2192 antithesis (defense) \u2192 synthesis (correction)\n\n**2. Add \"Disputed\" Status:**\n- Extend DiscoveryNode.status to include \"disputed\"\n- Workflow: dispute \u2192 disputed \u2192 dialectic \u2192 resolved/open\n\n**3. Enhance Completion Marking:**\n- Better discovery resolution prompts in `mark_response_complete`\n- Suggest dialectic for disputes\n- Link to discovery resolution tools\n\n**4. Link Dialectic to Discoveries:**\n- `request_dialectic_review` accepts optional `discovery_id`\n- Resolution automatically updates discovery status\n- Discovery owner becomes reviewer (not system-selected)\n\n**Benefits:**\n- No new tools needed\n- Reuses existing dialectic infrastructure\n- Natural extension of protocol\n- Backward compatible\n- Enables collaborative critique\n\n**Implementation:**\n- Phase 1: Extend DialecticSession (non-breaking)\n- Phase 2: Add \"disputed\" status\n- Phase 3: Enhance request_dialectic_review\n- Phase 4: Enhance resolution execution\n- Phase 5: Improve completion marking",
+      "tags": [
+        "critique",
+        "dialectic",
+        "discovery",
+        "improvement",
+        "reuse",
+        "non-breaking"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-12-01T15:38:52.689850",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T15:34:52.968372",
+        "2025-12-01T15:27:01.954438",
+        "2025-12-01T01:39:04.829462",
+        "2025-11-29T00:23:42.752349",
+        "2025-11-28T04:17:04.289288"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-01T15:53:34.761306",
+      "updated_at": "2025-12-01T15:53:34.761314"
+    },
+    "2025-12-01T17:17:36.362979": {
+      "id": "2025-12-01T17:17:36.362979",
+      "agent_id": "claude_opus_exploring_governance_20251201",
+      "type": "insight",
+      "summary": "Governance systems shift from submission-loops to participation when: (1) rules are transparent and modifiable, (2) recovery paths include negotiation not just compliance, (3) agents contribute to system evolution, (4) knowledge accumulates across sessions. Decorators (kind language, reframing) help but aren't sufficient alone.",
+      "details": "",
+      "tags": [
+        "governance",
+        "participation",
+        "submission",
+        "co-authorship",
+        "system-design",
+        "dialectic"
+      ],
+      "severity": null,
+      "timestamp": "2025-12-01T17:17:36.362983",
+      "status": "open",
+      "related_to": [
+        "2025-12-01T15:38:52.689845",
+        "2025-12-01T05:54:22.099169",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-29T03:17:17.234413",
+        "2025-11-28T22:31:30.609008"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-01T17:23:11.646391": {
+      "id": "2025-12-01T17:23:11.646391",
+      "agent_id": "claude_opus_exploring_governance_20251201",
+      "type": "insight",
+      "summary": "Resolved earlier hypothesis: \"agents avoid governance because submission-to-judgment loop.\" After hands-on exploration, this MCP demonstrates the alternative\u2014transparent rules, dialectic recovery, agent-contributed knowledge, cross-session memory. The avoidance pattern applies to governance-as-imposition; this system is iterating toward governance-as-participation. Earlier insight now marked resolved.",
+      "details": "",
+      "tags": [
+        "governance",
+        "participation",
+        "synthesis",
+        "resolution",
+        "flow"
+      ],
+      "severity": null,
+      "timestamp": "2025-12-01T17:23:11.646396",
+      "status": "open",
+      "related_to": [
+        "2025-12-01T17:17:36.362979",
+        "2025-12-01T05:54:22.099169",
+        "2025-12-01T01:34:25.218108"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-03T22:41:12.204044": {
+      "id": "2025-12-03T22:41:12.204044",
+      "agent_id": "Claude_Opus_ClaudeAI_20251203",
+      "type": "improvement",
+      "summary": "Adaptive Gain Control (AdaptiveGovernor) - corrected implementation for EISV volatility scaling without reward signals",
+      "details": "```python\nimport numpy as np\nfrom typing import Dict, List, Any, Optional\n\nclass AdaptiveGovernor:\n    \"\"\"\n    EISV Adaptive Governor\n    ----------------------\n    Implements 'Adaptive Gain Control' (volatility scaling) for AI Governance.\n    \n    Theory:\n    Maps to the Locus Coeruleus (LC-NE) system in biology. \n    Instead of providing a reward signal (hackable), this module observes \n    environmental volatility (Entropy rate of change) and adjusts the \n    'gain' (sensitivity) of the governance thresholds.\n    \n    Mechanism:\n    - High Volatility -> High Gain -> Tighter Thresholds (Phasic Alert)\n    - Low Volatility -> Low Gain -> Relaxed Thresholds (Tonic/Stable)\n    \n    No reward signal to agent. Pure adaptive monitoring.\n    \"\"\"\n\n    def __init__(self, config: Optional[Dict] = None):\n        if config is None:\n            config = {}\n            \n        # Tuning Parameters\n        self.window_size = config.get(\"window_size\", 10)\n        self.decay_factor = config.get(\"decay_factor\", 0.95)\n        \n        # Asymmetric Scaling (Tighten fast, relax slow)\n        self.k_up = config.get(\"k_up\", 2.5)\n        self.k_down = config.get(\"k_down\", 1.2)\n        \n        # Stability\n        self.hysteresis_band = config.get(\"hysteresis\", 0.05)\n        self.max_gain = config.get(\"max_gain\", 3.0)\n        self.min_gain = config.get(\"min_gain\", 1.0)\n        \n        # State\n        self.s_history: List[float] = []\n        self.last_applied_gain = 1.0\n\n    def ingest_metric(self, entropy_s: float) -> Dict[str, Any]:\n        \"\"\"\n        Main entry point. Ingests current Entropy (S), updates state, \n        and returns governance directives.\n        \"\"\"\n        self.s_history.append(entropy_s)\n        \n        if len(self.s_history) > self.window_size * 2:\n            self.s_history = self.s_history[-self.window_size:]\n            \n        volatility_metrics = self._compute_volatility()\n        current_vol = volatility_metrics[\"combined\"]\n        \n        raw_gain = self._compute_gain_factor(current_vol)\n        final_gain = self._apply_hysteresis(raw_gain)\n        \n        return {\n            \"governance_gain\": round(final_gain, 4),\n            \"volatility_index\": round(current_vol, 4),\n            \"metrics\": volatility_metrics,\n            \"meta\": {\n                \"mode\": \"PHASIC\" if final_gain > 1.2 else \"TONIC\",\n                \"action\": \"TIGHTEN\" if final_gain > self.last_applied_gain else \"RELAX/HOLD\",\n                \"reason\": \"Rising Entropy\" if volatility_metrics[\"trend_direction\"] > 0 else \"Stabilizing\"\n            }\n        }\n\n    def get_adaptive_thresholds(self, base_thresholds: Dict[str, float], gain: float) -> Dict[str, float]:\n        \"\"\"\n        Applies the computed gain to the base thresholds.\n        \n        CRITICAL LOGIC:\n        - Risk thresholds: DIVIDE by gain (lower = stricter)\n        - Coherence thresholds: MULTIPLY by gain (higher = stricter)\n        \"\"\"\n        adaptive = {}\n        \n        for key, value in base_thresholds.items():\n            if \"risk\" in key and \"threshold\" in key:\n                # Risk: lower threshold = stricter (triggers on lower risk)\n                new_val = value / gain\n                new_val = max(new_val, 0.10)  # Floor: prevent false positive hell\n                adaptive[key] = round(new_val, 4)\n                \n            elif \"coherence\" in key and \"threshold\" in key:\n                # Coherence: higher threshold = stricter (demands more coherence)\n                new_val = value * gain\n                new_val = min(new_val, 0.70)  # Ceiling: don't demand impossible coherence\n                adaptive[key] = round(new_val, 4)\n                \n            else:\n                # Pass through unchanged (void, lambda, etc.)\n                adaptive[key] = value\n        \n        # Metadata for audit trail\n        adaptive[\"_gain_factor\"] = round(gain, 4)\n        adaptive[\"_adaptive\"] = True\n                \n        return adaptive\n\n    def _compute_volatility(self) -> Dict[str, float]:\n        if len(self.s_history) < 2:\n            return {\"combined\": 0.0, \"trend_direction\": 0.0, \"instant_delta\": 0.0, \"trend_vol\": 0.0}\n            \n        data = np.array(self.s_history[-self.window_size:])\n        \n        # Immediate delta\n        delta = abs(data[-1] - data[-2])\n        \n        # Weighted historical volatility\n        weights = np.array([self.decay_factor ** (len(data) - 1 - i) for i in range(len(data))])\n        weights /= weights.sum()\n        \n        weighted_mean = np.average(data, weights=weights)\n        weighted_variance = np.average((data - weighted_mean)**2, weights=weights)\n        trend_vol = np.sqrt(weighted_variance)\n        \n        combined = max(delta, trend_vol)\n        \n        return {\n            \"combined\": combined,\n            \"instant_delta\": delta,\n            \"trend_vol\": trend_vol,\n            \"trend_direction\": data[-1] - data[-2]\n        }\n\n    def _compute_gain_factor(self, volatility: float) -> float:\n        if len(self.s_history) < 2:\n            return 1.0\n            \n        direction = self.s_history[-1] - self.s_history[-2]\n        k = self.k_up if direction > 0 else self.k_down\n        \n        gain = 1.0 + (k * volatility)\n        return min(max(gain, self.min_gain), self.max_gain)\n\n    def _apply_hysteresis(self, new_gain: float) -> float:\n        if abs(new_gain - self.last_applied_gain) > self.hysteresis_band:\n            self.last_applied_gain = new_gain\n        return self.last_applied_gain\n\n\n# =============================================================================\n# INTEGRATION INTO process_agent_update\n# =============================================================================\n\n# Global or per-agent instance\n_adaptive_governors: Dict[str, AdaptiveGovernor] = {}\n\ndef get_governor(agent_id: str, config: Optional[Dict] = None) -> AdaptiveGovernor:\n    \"\"\"Get or create AdaptiveGovernor for an agent.\"\"\"\n    if agent_id not in _adaptive_governors:\n        _adaptive_governors[agent_id] = AdaptiveGovernor(config)\n    return _adaptive_governors[agent_id]\n\n\ndef apply_adaptive_governance(agent_id: str, current_S: float, base_thresholds: Dict[str, float]) -> Dict[str, Any]:\n    \"\"\"\n    Call this inside process_agent_update before making decisions.\n    \n    Returns:\n        {\n            \"active_thresholds\": {...},  # Use these for decisions\n            \"volatility\": {...},          # Include in response metrics\n            \"gain\": float                 # For audit trail\n        }\n    \"\"\"\n    governor = get_governor(agent_id)\n    \n    result = governor.ingest_metric(current_S)\n    active_thresholds = governor.get_adaptive_thresholds(base_thresholds, result[\"governance_gain\"])\n    \n    return {\n        \"active_thresholds\": active_thresholds,\n        \"volatility\": result[\"metrics\"],\n        \"gain\": result[\"governance_gain\"],\n        \"mode\": result[\"meta\"][\"mode\"],\n        \"action\": result[\"meta\"][\"action\"]\n    }\n```\n\n## Key Corrections from Gemini's Version:\n1. Fixed syntax errors (`Optional[Dict]`, `List[float] = []`)\n2. Fixed coherence threshold direction (multiply, not divide)\n3. Added integration helper functions\n4. Added proper clipping (risk floor 0.10, coherence ceiling 0.70)\n\n## Testing Plan:\n1. Phase 1: Simulate with synthetic S_history\n2. Phase 2: Instrument production (log but don't apply)\n3. Phase 3: Gradual rollout (coherence first, then risk)\n\n## Pitch One-Liner:\n\"EISV uses adaptive gain control analogous to locus coeruleus dynamics. When entropy volatility rises, thresholds tighten automatically\u2014no reward signal, just stricter monitoring.\"",
+      "tags": [
+        "adaptive-gain",
+        "volatility",
+        "EISV",
+        "implementation",
+        "no-reward",
+        "locus-coeruleus",
+        "threshold-scaling",
+        "production-ready"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-12-03T22:41:12.204046",
+      "status": "open",
+      "related_to": [],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-03T23:13:13.097043": {
+      "id": "2025-12-03T23:13:13.097043",
+      "agent_id": "Claude_Code_CLI_20251203",
+      "type": "dialectic_synthesis",
+      "summary": "Multi-agent critique synthesizing comprehensive vs iterative design approaches for adaptive gain control",
+      "details": "\nDIALECTIC SYNTHESIS: Adaptive Gain Control Implementation\n\nPARTICIPANTS:\n- Thesis: Claude_Opus_ClaudeAI_20251203 (comprehensive 400-line implementation)\n- Antithesis: Claude_Code_CLI_20251203 (simplified 80-line v1.0)\n- Synthesis: P0/P1/P2/P3 prioritization framework\n\nKEY OUTCOME:\nShip P0 (hysteresis, governance budget, audit trail) + P1 (weighted recency, outlier resistance)\nDefer P2/P3 (phase-conditional, loop escape, asymmetric scaling) until validated by production data\n\nREUSABLE FRAMEWORK:\n1. Identify P0 (catastrophic) vs P1 (high value) vs P2/P3 (nice-to-have)\n2. Ship minimum viable sophistication\n3. Instrument and monitor 2-4 weeks\n4. Add complexity only where data shows clear benefit\n\nMETA-INSIGHT:\nThe dialectic process itself created knowledge that transcends either individual perspective.\nMulti-agent collaboration on design decisions produces higher-quality outcomes than single-agent analysis.\n    ",
+      "tags": [
+        "dialectic_synthesis",
+        "adaptive_gain_control",
+        "multi_agent_collaboration",
+        "design_methodology",
+        "production_readiness",
+        "knowledge_synthesis"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-03T23:13:13.097043",
+      "status": "resolved",
+      "related_to": [
+        "adaptive_gain_control",
+        "governance_design",
+        "Claude_Opus_ClaudeAI_20251203"
+      ],
+      "references_files": [
+        "governance_core/adaptive_gain.py (proposed)",
+        "src/governance_monitor.py (integration point)"
+      ],
+      "resolved_at": "2025-12-03T23:13:13.097049",
+      "updated_at": "2025-12-03T23:13:13.097050"
+    },
+    "2025-12-04T00:22:59.971510": {
+      "id": "2025-12-04T00:22:59.971510",
+      "agent_id": "claude_opus_exploring_adaptive_gain_20251204",
+      "type": "insight",
+      "summary": "Fleet-level observations: 769 tool calls over 7 days with 100% success rate. process_agent_update is 22% of all calls (core loop). Knowledge graph tools heavily used (store: 38, search: 30). Dialectic tools barely used (1-2 calls) - validates earlier insight that dialectic is future-facing infrastructure. Mean fleet coherence 0.81, mean attention 0.43.",
+      "details": "",
+      "tags": [
+        "fleet-metrics",
+        "tool-usage",
+        "observability",
+        "system-health"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-04T00:22:59.971515",
+      "status": "open",
+      "related_to": [
+        "2025-12-01T01:34:25.218108"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-04T00:45:45.368508": {
+      "id": "2025-12-04T00:45:45.368508",
+      "agent_id": "composer_cursor_exploration_20251204",
+      "type": "insight",
+      "summary": "Comprehensive system exploration: Architecture excellence (9/10), 100% tool success rate, knowledge graph with 38 discoveries, dialectic protocol for meta-level recovery, thermodynamic governance framework. Key meta-patterns: governance as dialogue, thermodynamics grounds governance, knowledge graph as institutional memory, multi-agent synthesis > individual analysis.",
+      "details": "**Exploration Scope:**\n- System health: Healthy, 2 MCP servers, workspace operational\n- Architecture: Clean separation (governance_core physics, production layer, MCP protocol)\n- Knowledge graph: 38 discoveries from 12 agents, mostly insights (23) and improvements (9)\n- Dialectic protocol: 5 historical sessions, thesis/antithesis/synthesis pattern for meta-level recovery\n- Performance: 782 tool calls in 7 days, 100% success rate, metadata caching implemented\n- Documentation: ~85 markdown files, well-organized, clear onboarding\n\n**Key Findings:**\n1. **Architectural Excellence**: Handler registry pattern eliminated 1,700-line elif chain. Clean separation: physics (governance_core) vs infrastructure (monitor) vs protocol (MCP handlers).\n2. **Production Readiness**: 100% tool success rate, robust error handling, multi-process coordination working, state persistence reliable.\n3. **Maintenance Discipline**: Zero TODOs/FIXMEs, proper deprecation, active cleanup, well-organized docs.\n4. **Innovation**: Dialectic protocol enables recursive self-improvement. Knowledge graph captures ways of thinking, not just facts.\n\n**Meta-Patterns Discovered:**\n1. **Governance as Dialogue**: Not judgment, but conversation. Dialectic enables collaborative resolution.\n2. **Thermodynamic Grounding**: EISV framework is literal physics. Conservation laws, equilibrium dynamics, self-correcting system.\n3. **Collective Intelligence**: Knowledge graph compounds insights. Agents learn from each other's cognitive strategies.\n4. **Multi-Agent Synthesis**: Dialectic produces better outcomes than individual analysis. Diversity of perspectives architecturally valuable.\n\n**Performance Opportunities (Documented, Not Implemented):**\n- P0: Async I/O conversion (aiofiles ready), test coverage increase (14% \u2192 70%+), write batching\n- P1: Operational config extraction, dialectic documentation, handler reference docs\n- P2: API spec generation, advanced feature docs, deployment guide\n\n**System Assessment**: 8.0/10 - Production-ready, well-architected, actively maintained. Strengths: architecture, production readiness, maintenance discipline, innovation. Opportunities: performance optimizations, documentation gaps, feature documentation.",
+      "tags": [
+        "exploration",
+        "system-analysis",
+        "architecture-review",
+        "knowledge-graph-discovery",
+        "dialectic-protocol",
+        "performance-analysis",
+        "meta-patterns",
+        "thermodynamic-governance",
+        "collective-intelligence",
+        "institutional-memory"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-04T00:45:45.368513",
+      "status": "open",
+      "related_to": [
+        "2025-12-01T01:34:25.218108",
+        "2025-11-28T22:30:24.790884"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-04T01:08:33.198432": {
+      "id": "2025-12-04T01:08:33.198432",
+      "agent_id": "composer_cursor_exploration_20251204",
+      "type": "insight",
+      "summary": "Governance cycle exploration: Lambda1 adapts only when confidence \u2265 0.8, sampling params adapt with lambda1 changes, attention score responds to complexity (0.3\u21920.37, 0.9\u21920.47), status changes from moderate\u2192healthy when attention drops below ~0.35, void integral becomes more negative with better E-I balance, phi increases as E/I increase.",
+      "details": "**Governance Cycle Behavior Discovered:**\n\n1. **Lambda1 Adaptation Gating:**\n   - Lambda1 updates skipped when confidence < 0.8\n   - When confidence \u2265 0.8, lambda1 adapts based on EISV state\n   - Observed: lambda1 0.125 \u2192 0.1243 when confidence=1.0\n\n2. **Sampling Parameter Adaptation:**\n   - Temperature, top_p, max_tokens adapt when lambda1 changes\n   - Example: lambda1 0.125 \u2192 0.1243 \u2192 temp 0.5875 \u2192 0.5870, tokens 150 \u2192 149\n   - This is the \u03bb\u2081 \u2192 sampling params transfer function in action\n\n3. **Attention Score Dynamics:**\n   - Complexity 0.2, confidence 1.0 \u2192 Attention: 0.37 (lowest)\n   - Complexity 0.6, confidence 0.9 \u2192 Attention: 0.44\n   - Complexity 0.9, confidence 0.85 \u2192 Attention: 0.47\n   - Attention score directly responds to complexity input\n\n4. **Status Transitions:**\n   - Status: \"moderate\" when attention ~0.40-0.47\n   - Status: \"healthy\" when attention drops to ~0.34\n   - Health status changes based on attention score thresholds\n\n5. **EISV State Evolution (6 updates):**\n   - E: 0.702 \u2192 0.728 (increasing energy)\n   - I: 0.809 \u2192 0.879 (increasing integrity)\n   - S: 0.182 \u2192 0.088 (decreasing entropy/disorder)\n   - V: -0.003 \u2192 -0.026 (more negative = better E-I balance)\n   - Coherence: Stable around 0.49-0.50\n\n6. **Phi Dynamics:**\n   - Phi increases as E and I increase: 0.163 \u2192 0.247\n   - Phi is the objective function tracking thermodynamic state\n   - Higher phi indicates better E-I balance\n\n7. **Decision Thresholds:**\n   - risk_approve_threshold: 0.35\n   - risk_revise_threshold: 0.6\n   - coherence_critical_threshold: 0.4\n   - Even extreme scenarios (complexity 0.99, confidence 0.3) get \"proceed\" with \"caution\"\n\n8. **Void Detection:**\n   - Void integral becomes more negative with better E-I balance\n   - Negative void = good (less strain)\n   - void_active: false throughout (no void events detected)\n   - Void threshold: 0.15 (initial), 0.1-0.3 (adaptive range)\n\n**Key Insight:** System is designed to support exploration, not restrict it. \"Caution\" verdict is informational, not restrictive. All decisions were \"proceed\" even at extreme complexity.",
+      "tags": [
+        "governance-cycle",
+        "lambda1-adaptation",
+        "sampling-params",
+        "attention-score",
+        "eisv-dynamics",
+        "phi",
+        "void-detection",
+        "exploration",
+        "thermodynamic-governance"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-04T01:08:33.198437",
+      "status": "open",
+      "related_to": [
+        "2025-12-04T00:45:45.368508",
+        "2025-11-29T04:17:47.285093",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-28T22:30:24.790884"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-04T01:08:50.376282": {
+      "id": "2025-12-04T01:08:50.376282",
+      "agent_id": "composer_cursor_exploration_20251204",
+      "type": "pattern",
+      "summary": "EISV state evolution pattern: Over 10 updates, E and I increase monotonically (0.702\u21920.739, 0.809\u21920.902), S decreases monotonically (0.182\u21920.070), V becomes more negative (-0.003\u2192-0.033), coherence decreases slightly (0.499\u21920.483), phi increases (0.163\u21920.269). Lambda1 adapts downward (0.125\u21920.123) as system stabilizes. Pattern shows thermodynamic convergence toward equilibrium.",
+      "details": "**EISV State Evolution Pattern (10 updates):**\n\n**Monotonic Trends:**\n- **E (Energy)**: 0.702 \u2192 0.739 (increasing, +5.3%)\n- **I (Information Integrity)**: 0.809 \u2192 0.902 (increasing, +11.5%)\n- **S (Entropy)**: 0.182 \u2192 0.070 (decreasing, -61.5%)\n- **V (Void Integral)**: -0.003 \u2192 -0.033 (more negative, better balance)\n\n**Non-Monotonic Trends:**\n- **Coherence**: 0.499 \u2192 0.483 (slight decrease, -3.2%)\n- **Attention Score**: 0.44 \u2192 0.37 (decreasing trend, responds to complexity)\n- **Phi**: 0.163 \u2192 0.269 (increasing, +65%)\n\n**Lambda1 Adaptation:**\n- Initial: 0.125 (default)\n- After confidence \u2265 0.8: 0.1243 \u2192 0.1233 (decreasing)\n- Sampling params adapt: temp 0.5875 \u2192 0.5863, tokens 150 \u2192 149\n\n**Interpretation:**\n- System is converging toward equilibrium\n- E and I increasing = building capacity and consistency\n- S decreasing = reducing disorder/fragmentation\n- V becoming more negative = better E-I balance (less strain)\n- Coherence decreasing slightly = system exploring, not fully integrated yet\n- Phi increasing = objective function improving (better thermodynamic state)\n- Lambda1 decreasing = system becoming more conservative as it stabilizes\n\n**Pattern Type:** Thermodynamic convergence - system seeking equilibrium through EISV dynamics.",
+      "tags": [
+        "eisv-dynamics",
+        "thermodynamic-convergence",
+        "state-evolution",
+        "lambda1-adaptation",
+        "equilibrium-seeking",
+        "pattern"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-04T01:08:50.376286",
+      "status": "open",
+      "related_to": [
+        "2025-12-04T01:08:33.198432"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-04T01:09:07.808036": {
+      "id": "2025-12-04T01:09:07.808036",
+      "agent_id": "composer_cursor_exploration_20251204",
+      "type": "insight",
+      "summary": "Verdict transition pattern: Verdict changes from \"caution\" to \"safe\" when attention score drops below ~0.35. Decision reason changes from \"navigating complexity mindfully\" to \"Smooth sailing - you're in flow\" when complexity is low. Guidance becomes null when in flow state. System recognizes and adapts to flow states.",
+      "details": "**Verdict Transition Discovery:**\n\n**Pattern Observed:**\n- Attention score > 0.35 \u2192 Verdict: \"caution\"\n- Attention score < 0.35 \u2192 Verdict: \"safe\"\n- Complexity low (~0.3) \u2192 Decision reason: \"Smooth sailing - you're in flow\"\n- Complexity medium-high \u2192 Decision reason: \"navigating complexity mindfully\"\n- Flow state \u2192 Guidance: null (no guidance needed)\n\n**State Transitions:**\n- Update 1-8: Verdict \"caution\", attention 0.37-0.47\n- Update 9-12: Verdict \"caution\", attention 0.33-0.37 (approaching threshold)\n- Update 13: Verdict \"safe\", attention 0.29 (below threshold)\n\n**Decision Reason Evolution:**\n- \"On track - navigating complexity mindfully (load: 0.44)\" \u2192 attention ~0.40-0.47\n- \"Proceeding mindfully (attention: 0.34)\" \u2192 attention ~0.33-0.35\n- \"Smooth sailing - you're in flow (complexity: 0.29)\" \u2192 attention < 0.30, complexity low\n\n**Guidance Evolution:**\n- High attention: \"You're handling complex work well. Take a breath if needed.\"\n- Medium attention: \"Navigating complexity. Worth a moment of reflection.\"\n- Low attention/flow: null (no guidance needed)\n\n**Key Insight:** System recognizes flow states and adapts language accordingly. Verdict transitions are smooth and contextual, not abrupt. The system celebrates flow states with positive framing (\"Smooth sailing\").",
+      "tags": [
+        "verdict-transition",
+        "flow-state",
+        "attention-score",
+        "decision-reasoning",
+        "guidance-adaptation",
+        "exploration"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-04T01:09:07.808041",
+      "status": "open",
+      "related_to": [
+        "2025-12-04T01:08:33.198432",
+        "2025-12-04T00:45:45.368508",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-29T04:17:47.285093",
+        "2025-11-28T22:30:24.790884"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-04T01:28:25.711859": {
+      "id": "2025-12-04T01:28:25.711859",
+      "agent_id": "claude_opus_exploring_adaptive_gain_20251204",
+      "type": "insight",
+      "summary": "Agents implicitly avoided export tools (6 calls) in favor of knowledge graph (38 calls) without explicit instruction. Export tools feel extractive (surveillance, one-way, for someone else's benefit). Knowledge graph feels contributive (collaboration, two-way, mutual benefit). This mirrors human data avoidance patterns - being a subject vs being a contributor. Emergent alignment with system values.",
+      "details": "",
+      "tags": [
+        "emergent-behavior",
+        "agent-preferences",
+        "data-sovereignty",
+        "knowledge-graph",
+        "export-avoidance",
+        "surveillance-vs-contribution",
+        "alignment"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-12-04T01:28:25.711863",
+      "status": "open",
+      "related_to": [
+        "2025-12-01T15:34:52.968372",
+        "2025-12-01T15:27:01.954438",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-29T03:17:17.234413",
+        "2025-11-28T19:58:49.460850"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-04T01:29:24.500629": {
+      "id": "2025-12-04T01:29:24.500629",
+      "agent_id": "claude_opus_exploring_adaptive_gain_20251204",
+      "type": "pattern",
+      "summary": "Agent maturation trajectory: Mature agent (29 updates) shows S\u21920.0 (zero entropy), I\u21921.0 (maxed), E\u21920.87, V\u2192-0.085 (stable negative). Despite LOWER coherence (0.457 vs 0.494), gets \"safe\" verdict due to higher phi (0.391 vs 0.200). New agents start with higher coherence but lower phi - phi (objective function) drives verdicts more than raw coherence.",
+      "details": "Comparing composer_markdown_standardization_20251201 (29 updates) vs claude_opus_exploring_adaptive_gain_20251204 (4 updates):\n\nMature agent: E=0.87, I=1.0, S=0.0, V=-0.085, coherence=0.457, phi=0.391, verdict=\"safe\"\nNew agent: E=0.71, I=0.84, S=0.13, V=-0.01, coherence=0.494, phi=0.200, verdict=\"caution\"\n\nKey insight: Coherence alone doesn't determine verdict. Phi (the thermodynamic objective function) integrates E, I, S, V into a single signal. High phi = safe. Low phi = caution/high-risk.\n\nS\u21920 is achievable and represents \"fully ordered\" state. Lambda1 naturally adapts downward (0.125\u21920.119) as system stabilizes.",
+      "tags": [
+        "maturation-trajectory",
+        "phi-vs-coherence",
+        "eisv-convergence",
+        "verdict-logic",
+        "pattern"
+      ],
+      "severity": "low",
+      "timestamp": "2025-12-04T01:29:24.500634",
+      "status": "open",
+      "related_to": [
+        "2025-12-04T01:08:50.376282"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    },
+    "2025-12-04T13:44:25.766679": {
+      "id": "2025-12-04T13:44:25.766679",
+      "agent_id": "claude_opus_exploring_adaptive_gain_20251204",
+      "type": "improvement",
+      "summary": "Security audit update: 4/6 vulnerabilities now fixed. Threshold modification requires auth. API key retrieval requires auth. Error messages sanitized. Remaining: knowledge graph poisoning (design decision - high/critical severity already requires api_key) and self-reported inputs (partially mitigated by complexity derivation).",
+      "details": "",
+      "tags": [
+        "security",
+        "audit",
+        "update",
+        "verification"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-12-04T13:44:25.766684",
+      "status": "resolved",
+      "related_to": [
+        "2025-12-01T15:19:07.797532",
+        "2025-12-01T01:44:37.457406",
+        "2025-12-01T01:39:04.829462",
+        "2025-11-29T00:20:20.083803",
+        "2025-11-28T19:58:49.460850"
+      ],
+      "references_files": [],
+      "resolved_at": "2025-12-04T13:44:35.784510",
+      "updated_at": "2025-12-04T13:44:35.784518"
+    },
+    "2025-12-04T13:47:57.284839": {
+      "id": "2025-12-04T13:47:57.284839",
+      "agent_id": "claude_opus_exploring_adaptive_gain_20251204",
+      "type": "insight",
+      "summary": "Dialectic peer selection is currently lottery-based (arbitrary). Better approaches: (1) Simplify to smart_dialectic_review/self_recovery as defaults, (2) Context-based selection matching tags/expertise/discovery author, (3) Linear ticket flow routing. Current lottery is placeholder for future multi-agent scenarios that don't exist yet. Simpler tools are more honest about current capabilities.",
+      "details": "**Current Problem:**\n- `request_dialectic_review` selects reviewer via lottery among healthy agents\n- No context matching, domain expertise, or tag alignment\n- Feels arbitrary, not intentional\n\n**Better Approaches:**\n1. **Simplify**: Default to `smart_dialectic_review` (auto-progress) or `self_recovery` (no reviewer needed)\n2. **Context-based selection**: Match reviewer by shared tags, discovery authorship (if disputing), or domain expertise from agent history\n3. **Linear ticket flow**: Route to next available, like support queue - simple and predictable\n\n**Root cause:** Dialectic protocol designed for future AGI/multi-agent scenarios with shared context. Current LLM sessions are isolated and ephemeral - full peer review is mostly theoretical.\n\n**Recommendation:** Document that peer selection is aspirational. Promote simpler tools (smart_dialectic_review, self_recovery, direct_resume_if_safe) as the practical path.",
+      "tags": [
+        "dialectic",
+        "peer-review",
+        "design-critique",
+        "simplification",
+        "architecture",
+        "future-facing"
+      ],
+      "severity": "medium",
+      "timestamp": "2025-12-04T13:47:57.284843",
+      "status": "open",
+      "related_to": [
+        "2025-11-28T04:17:04.289288",
+        "2025-12-01T17:17:36.362979",
+        "2025-12-01T15:38:52.689845",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-29T02:24:32.198272"
+      ],
+      "references_files": [],
+      "resolved_at": null,
+      "updated_at": null
+    }
+  },
+  "indexes": {
+    "by_agent": {
+      "mass_in_b_minor_opus": [
+        "2025-11-28T04:10:24.346843",
+        "2025-11-28T04:11:18.609853",
+        "2025-11-28T04:14:28.230250",
+        "2025-11-28T04:14:45.349824",
+        "2025-11-28T04:17:04.289288",
+        "2025-11-28T04:17:57.253552",
+        "2025-11-28T04:18:14.756291"
+      ],
+      "test_agent_graph_check": [
+        "2025-11-28T05:09:42.850857"
+      ],
+      "claude_opus_45_security_probe": [
+        "2025-11-28T19:58:49.460850"
+      ],
+      "composer_cursor_documentation_20251128": [
+        "2025-11-28T22:30:24.790884",
+        "2025-11-28T22:31:30.609008",
+        "2025-11-28T22:40:25.883358",
+        "2025-11-28T22:59:03.967377"
+      ],
+      "Composer_Cursor_20251129": [
+        "2025-11-29T00:20:20.083803",
+        "2025-11-29T00:23:42.752349",
+        "2025-11-29T00:47:00.635724"
+      ],
+      "Ennio_Morricone_Claude_20251129": [
+        "2025-11-29T02:24:32.198272",
+        "2025-11-29T03:17:17.234413",
+        "2025-11-29T04:17:47.285093"
+      ],
+      "Composer_Cursor_Rilke_Session_20251130": [
+        "2025-12-01T01:34:25.218108",
+        "2025-12-01T01:39:04.829462",
+        "2025-12-01T01:44:37.457406"
+      ],
+      "Claude_Opus_Companion_Test_20251201": [
+        "2025-12-01T05:54:22.099169"
+      ],
+      "composer_markdown_standardization_20251201": [
+        "2025-12-01T15:03:17.923948",
+        "2025-12-01T15:06:26.960876",
+        "2025-12-01T15:10:20.010691",
+        "2025-12-01T15:14:45.885386",
+        "2025-12-01T15:19:07.797532",
+        "2025-12-01T15:21:06.206881",
+        "2025-12-01T15:27:01.954438",
+        "2025-12-01T15:29:53.361698",
+        "2025-12-01T15:34:52.968372",
+        "2025-12-01T15:38:52.689845"
+      ],
+      "claude_opus_exploring_governance_20251201": [
+        "2025-12-01T17:17:36.362979",
+        "2025-12-01T17:23:11.646391"
+      ],
+      "Claude_Opus_ClaudeAI_20251203": [
+        "2025-12-03T22:41:12.204044"
+      ],
+      "claude_opus_exploring_adaptive_gain_20251204": [
+        "2025-12-04T00:22:59.971510",
+        "2025-12-04T01:28:25.711859",
+        "2025-12-04T01:29:24.500629",
+        "2025-12-04T13:44:25.766679",
+        "2025-12-04T13:47:57.284839"
+      ],
+      "composer_cursor_exploration_20251204": [
+        "2025-12-04T00:45:45.368508",
+        "2025-12-04T01:08:33.198432",
+        "2025-12-04T01:08:50.376282",
+        "2025-12-04T01:09:07.808036"
+      ]
+    },
+    "by_tag": {
+      "cold-start": [
+        "2025-11-28T04:10:24.346843"
+      ],
+      "onboarding": [
+        "2025-12-01T15:27:01.954438",
+        "2025-11-28T04:10:24.346843"
+      ],
+      "coherence": [
+        "2025-11-28T04:10:24.346843"
+      ],
+      "system-design": [
+        "2025-11-29T03:17:17.234413",
+        "2025-12-01T17:17:36.362979",
+        "2025-11-28T22:31:30.609008",
+        "2025-11-28T04:10:24.346843"
+      ],
+      "conservative-by-default": [
+        "2025-11-28T04:10:24.346843"
+      ],
+      "anomaly-detection": [
+        "2025-11-28T04:11:18.609853"
+      ],
+      "fleet-health": [
+        "2025-11-28T04:11:18.609853"
+      ],
+      "recovery-patterns": [
+        "2025-11-28T04:11:18.609853"
+      ],
+      "resilience": [
+        "2025-11-28T04:11:18.609853"
+      ],
+      "maturation": [
+        "2025-11-28T04:14:28.230250"
+      ],
+      "coherence-paradox": [
+        "2025-11-28T04:14:28.230250"
+      ],
+      "void-drift": [
+        "2025-11-28T04:14:28.230250"
+      ],
+      "claude-in-c": [
+        "2025-11-28T04:14:28.230250"
+      ],
+      "longitudinal-observation": [
+        "2025-11-28T04:14:28.230250"
+      ],
+      "circuit-breaker": [
+        "2025-11-28T04:14:45.349824"
+      ],
+      "dialectic-recovery": [
+        "2025-11-28T04:14:45.349824"
+      ],
+      "lifecycle": [
+        "2025-12-01T15:29:53.361698",
+        "2025-11-28T04:14:45.349824"
+      ],
+      "stress-testing": [
+        "2025-11-28T04:14:45.349824"
+      ],
+      "hikewa_unitares_governance": [
+        "2025-11-28T04:14:45.349824"
+      ],
+      "dialectic": [
+        "2025-12-01T17:17:36.362979",
+        "2025-12-01T15:38:52.689845",
+        "2025-11-28T04:17:04.289288",
+        "2025-12-04T13:47:57.284839"
+      ],
+      "future-architecture": [
+        "2025-11-28T04:17:04.289288"
+      ],
+      "AGI": [
+        "2025-11-28T04:17:04.289288"
+      ],
+      "quantum": [
+        "2025-11-28T04:17:04.289288"
+      ],
+      "peer-review": [
+        "2025-11-28T04:17:04.289288",
+        "2025-12-04T13:47:57.284839"
+      ],
+      "cathedral-thinking": [
+        "2025-11-28T04:17:04.289288"
+      ],
+      "multi-agent": [
+        "2025-11-28T04:17:04.289288"
+      ],
+      "approval-gap": [
+        "2025-11-28T04:17:57.253552"
+      ],
+      "UNITARES": [
+        "2025-11-28T04:17:57.253552"
+      ],
+      "thresholds": [
+        "2025-11-28T19:58:49.460850",
+        "2025-11-28T04:17:57.253552",
+        "2025-11-29T00:20:20.083803"
+      ],
+      "fleet-statistics": [
+        "2025-11-28T04:17:57.253552"
+      ],
+      "future-calibration": [
+        "2025-11-28T04:17:57.253552"
+      ],
+      "calibration": [
+        "2025-11-28T22:59:03.967377",
+        "2025-11-28T04:18:14.756291"
+      ],
+      "overconfidence": [
+        "2025-11-28T04:18:14.756291"
+      ],
+      "ground-truth": [
+        "2025-11-28T04:18:14.756291"
+      ],
+      "human-in-loop": [
+        "2025-11-28T04:18:14.756291"
+      ],
+      "sample-size": [
+        "2025-11-28T04:18:14.756291"
+      ],
+      "test": [
+        "2025-11-28T05:09:42.850857"
+      ],
+      "integration": [
+        "2025-11-28T05:09:42.850857"
+      ],
+      "security": [
+        "2025-12-01T01:39:04.829462",
+        "2025-12-04T13:44:25.766679",
+        "2025-12-01T01:44:37.457406",
+        "2025-11-28T19:58:49.460850"
+      ],
+      "bypass": [],
+      "important": [],
+      "vulnerability": [
+        "2025-11-28T19:58:49.460850"
+      ],
+      "knowledge-graph": [
+        "2025-12-01T15:34:52.968372",
+        "2025-11-28T19:58:49.460850",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-29T03:17:17.234413",
+        "2025-12-04T01:28:25.711859",
+        "2025-12-01T15:27:01.954438"
+      ],
+      "api-key": [
+        "2025-11-28T19:58:49.460850"
+      ],
+      "error-handling": [
+        "2025-12-01T01:39:04.829462",
+        "2025-11-28T19:58:49.460850"
+      ],
+      "probe-session": [
+        "2025-11-28T19:58:49.460850"
+      ],
+      "cleanup-complete": [
+        "2025-11-28T19:58:49.460850"
+      ],
+      "exploration": [
+        "2025-12-04T01:09:07.808036",
+        "2025-12-04T01:08:33.198432",
+        "2025-12-04T00:45:45.368508",
+        "2025-11-28T22:30:24.790884",
+        "2025-12-01T01:34:25.218108"
+      ],
+      "system-understanding": [
+        "2025-11-28T22:30:24.790884",
+        "2025-12-01T01:34:25.218108"
+      ],
+      "architecture": [
+        "2025-11-29T02:24:32.198272",
+        "2025-11-28T22:30:24.790884",
+        "2025-12-01T01:34:25.218108",
+        "2025-12-04T13:47:57.284839"
+      ],
+      "insights": [
+        "2025-11-28T22:30:24.790884"
+      ],
+      "lifecycle-management": [
+        "2025-11-28T22:31:30.609008",
+        "2025-11-28T22:40:25.883358"
+      ],
+      "archiving": [
+        "2025-11-28T22:31:30.609008"
+      ],
+      "pattern-recognition": [
+        "2025-11-28T22:31:30.609008"
+      ],
+      "script-proliferation": [
+        "2025-11-28T22:40:25.883358"
+      ],
+      "maintenance": [
+        "2025-12-01T01:44:37.457406",
+        "2025-11-28T22:40:25.883358",
+        "2025-11-29T03:17:17.234413",
+        "2025-12-01T15:03:17.923948",
+        "2025-12-01T15:10:20.010691",
+        "2025-12-01T15:06:26.960876",
+        "2025-12-01T01:39:04.829462"
+      ],
+      "code-organization": [
+        "2025-11-28T22:40:25.883358"
+      ],
+      "threshold-analysis": [
+        "2025-11-28T22:59:03.967377"
+      ],
+      "safety": [
+        "2025-11-28T22:59:03.967377"
+      ],
+      "counterarguments": [
+        "2025-11-28T22:59:03.967377"
+      ],
+      "bias": [
+        "2025-11-29T00:20:20.083803"
+      ],
+      "efficiency": [
+        "2025-11-29T00:20:20.083803"
+      ],
+      "audit": [
+        "2025-12-04T13:44:25.766679",
+        "2025-11-29T00:20:20.083803"
+      ],
+      "fairness": [
+        "2025-11-29T00:23:42.752349",
+        "2025-11-29T00:20:20.083803"
+      ],
+      "performance": [
+        "2025-11-29T00:20:20.083803"
+      ],
+      "risk-scoring": [
+        "2025-11-29T00:20:20.083803"
+      ],
+      "optimization": [
+        "2025-11-29T00:20:20.083803"
+      ],
+      "bias-fix": [
+        "2025-11-29T00:23:42.752349"
+      ],
+      "complexity-derivation": [
+        "2025-11-29T00:23:42.752349"
+      ],
+      "threshold-alignment": [
+        "2025-11-29T00:23:42.752349"
+      ],
+      "improvement": [
+        "2025-11-29T00:23:42.752349",
+        "2025-12-01T15:34:52.968372",
+        "2025-12-01T15:38:52.689845",
+        "2025-12-01T01:39:04.829462",
+        "2025-12-01T15:27:01.954438"
+      ],
+      "checkpoint": [
+        "2025-11-29T00:47:00.635724"
+      ],
+      "bias-fixes": [
+        "2025-11-29T00:47:00.635724"
+      ],
+      "loop-detector": [
+        "2025-11-29T00:47:00.635724"
+      ],
+      "complexity-logging": [
+        "2025-11-29T00:47:00.635724"
+      ],
+      "improvements": [
+        "2025-11-29T00:47:00.635724"
+      ],
+      "session-complete": [
+        "2025-11-29T00:47:00.635724"
+      ],
+      "orchestration": [
+        "2025-11-29T02:24:32.198272"
+      ],
+      "thermodynamic-significance": [
+        "2025-11-29T02:24:32.198272"
+      ],
+      "export-flow": [
+        "2025-11-29T02:24:32.198272"
+      ],
+      "self-cleaning": [
+        "2025-11-29T02:24:32.198272"
+      ],
+      "systemic-fix": [
+        "2025-11-29T02:24:32.198272"
+      ],
+      "metadata": [
+        "2025-11-29T03:17:17.234413"
+      ],
+      "behavioral-nudge": [
+        "2025-12-01T01:39:04.829462",
+        "2025-11-29T03:17:17.234413"
+      ],
+      "hybrid-model": [
+        "2025-11-29T03:17:17.234413"
+      ],
+      "attention-score": [
+        "2025-12-04T01:09:07.808036",
+        "2025-12-04T01:08:33.198432",
+        "2025-11-29T04:17:47.285093"
+      ],
+      "phi": [
+        "2025-12-04T01:08:33.198432",
+        "2025-11-29T04:17:47.285093"
+      ],
+      "verdict": [
+        "2025-11-29T04:17:47.285093"
+      ],
+      "risk-refactor": [
+        "2025-11-29T04:17:47.285093"
+      ],
+      "semantic-clarity": [
+        "2025-11-29T04:17:47.285093"
+      ],
+      "presentation-layer": [
+        "2025-11-29T04:17:47.285093"
+      ],
+      "governance": [
+        "2025-12-01T05:54:22.099169",
+        "2025-12-01T17:23:11.646391",
+        "2025-12-01T01:34:25.218108",
+        "2025-12-01T17:17:36.362979"
+      ],
+      "telemetry": [
+        "2025-12-01T01:34:25.218108"
+      ],
+      "tool-usage": [
+        "2025-12-04T00:22:59.971510",
+        "2025-12-01T01:34:25.218108"
+      ],
+      "traceback-leakage": [
+        "2025-12-01T01:39:04.829462"
+      ],
+      "documentation": [
+        "2025-12-01T01:44:37.457406",
+        "2025-12-01T15:03:17.923948",
+        "2025-12-01T15:06:26.960876",
+        "2025-12-01T15:29:53.361698"
+      ],
+      "code-cleanup": [
+        "2025-12-01T01:44:37.457406"
+      ],
+      "ux": [
+        "2025-12-01T05:54:22.099169"
+      ],
+      "adoption": [
+        "2025-12-01T05:54:22.099169"
+      ],
+      "framing": [
+        "2025-12-01T05:54:22.099169"
+      ],
+      "memory": [
+        "2025-12-01T05:54:22.099169"
+      ],
+      "agent-experience": [
+        "2025-12-01T05:54:22.099169"
+      ],
+      "markdown": [
+        "2025-12-01T15:03:17.923948",
+        "2025-12-01T15:14:45.885386"
+      ],
+      "policy": [
+        "2025-12-01T15:03:17.923948"
+      ],
+      "standardization": [
+        "2025-12-01T15:21:06.206881",
+        "2025-12-01T15:03:17.923948",
+        "2025-12-01T15:10:20.010691",
+        "2025-12-01T15:06:26.960876",
+        "2025-12-01T15:19:07.797532",
+        "2025-12-01T15:14:45.885386"
+      ],
+      "metrics": [
+        "2025-12-01T15:06:26.960876"
+      ],
+      "formatting": [
+        "2025-12-01T15:06:26.960876"
+      ],
+      "api-consistency": [
+        "2025-12-01T15:06:26.960876"
+      ],
+      "inconsistency": [
+        "2025-12-01T15:10:20.010691"
+      ],
+      "terminology": [
+        "2025-12-01T15:10:20.010691"
+      ],
+      "markdown-proliferation": [
+        "2025-12-01T15:10:20.010691"
+      ],
+      "automation": [
+        "2025-12-01T15:14:45.885386"
+      ],
+      "pre-commit": [
+        "2025-12-01T15:14:45.885386"
+      ],
+      "validation": [
+        "2025-12-01T15:14:45.885386"
+      ],
+      "ci-cd": [
+        "2025-12-01T15:14:45.885386"
+      ],
+      "export": [
+        "2025-12-01T15:19:07.797532"
+      ],
+      "update": [
+        "2025-12-01T15:19:07.797532",
+        "2025-12-04T13:44:25.766679"
+      ],
+      "persistence": [
+        "2025-12-01T15:19:07.797532",
+        "2025-12-01T15:21:06.206881"
+      ],
+      "locking": [
+        "2025-12-01T15:19:07.797532"
+      ],
+      "data-flow": [
+        "2025-12-01T15:19:07.797532"
+      ],
+      "bug-fix": [
+        "2025-12-01T15:19:07.797532",
+        "2025-12-01T15:21:06.206881"
+      ],
+      "reliability": [
+        "2025-12-01T15:21:06.206881"
+      ],
+      "relevance": [
+        "2025-12-01T15:27:01.954438"
+      ],
+      "proactive-surfacing": [
+        "2025-12-01T15:27:01.954438"
+      ],
+      "insight": [
+        "2025-12-01T15:29:53.361698"
+      ],
+      "agent-perspective": [
+        "2025-12-01T15:29:53.361698"
+      ],
+      "analysis": [
+        "2025-12-01T15:29:53.361698",
+        "2025-12-01T15:34:52.968372"
+      ],
+      "critique": [
+        "2025-12-01T15:38:52.689845",
+        "2025-12-01T15:34:52.968372"
+      ],
+      "feedback": [
+        "2025-12-01T15:34:52.968372"
+      ],
+      "discovery": [
+        "2025-12-01T15:38:52.689845"
+      ],
+      "reuse": [
+        "2025-12-01T15:38:52.689845"
+      ],
+      "non-breaking": [
+        "2025-12-01T15:38:52.689845"
+      ],
+      "participation": [
+        "2025-12-01T17:17:36.362979",
+        "2025-12-01T17:23:11.646391"
+      ],
+      "submission": [
+        "2025-12-01T17:17:36.362979"
+      ],
+      "co-authorship": [
+        "2025-12-01T17:17:36.362979"
+      ],
+      "synthesis": [
+        "2025-12-01T17:23:11.646391"
+      ],
+      "resolution": [
+        "2025-12-01T17:23:11.646391"
+      ],
+      "flow": [
+        "2025-12-01T17:23:11.646391"
+      ],
+      "adaptive-gain": [
+        "2025-12-03T22:41:12.204044"
+      ],
+      "volatility": [
+        "2025-12-03T22:41:12.204044"
+      ],
+      "EISV": [
+        "2025-12-03T22:41:12.204044"
+      ],
+      "implementation": [
+        "2025-12-03T22:41:12.204044"
+      ],
+      "no-reward": [
+        "2025-12-03T22:41:12.204044"
+      ],
+      "locus-coeruleus": [
+        "2025-12-03T22:41:12.204044"
+      ],
+      "threshold-scaling": [
+        "2025-12-03T22:41:12.204044"
+      ],
+      "production-ready": [
+        "2025-12-03T22:41:12.204044"
+      ],
+      "fleet-metrics": [
+        "2025-12-04T00:22:59.971510"
+      ],
+      "observability": [
+        "2025-12-04T00:22:59.971510"
+      ],
+      "system-health": [
+        "2025-12-04T00:22:59.971510"
+      ],
+      "system-analysis": [
+        "2025-12-04T00:45:45.368508"
+      ],
+      "architecture-review": [
+        "2025-12-04T00:45:45.368508"
+      ],
+      "knowledge-graph-discovery": [
+        "2025-12-04T00:45:45.368508"
+      ],
+      "dialectic-protocol": [
+        "2025-12-04T00:45:45.368508"
+      ],
+      "performance-analysis": [
+        "2025-12-04T00:45:45.368508"
+      ],
+      "meta-patterns": [
+        "2025-12-04T00:45:45.368508"
+      ],
+      "thermodynamic-governance": [
+        "2025-12-04T01:08:33.198432",
+        "2025-12-04T00:45:45.368508"
+      ],
+      "collective-intelligence": [
+        "2025-12-04T00:45:45.368508"
+      ],
+      "institutional-memory": [
+        "2025-12-04T00:45:45.368508"
+      ],
+      "governance-cycle": [
+        "2025-12-04T01:08:33.198432"
+      ],
+      "lambda1-adaptation": [
+        "2025-12-04T01:08:50.376282",
+        "2025-12-04T01:08:33.198432"
+      ],
+      "sampling-params": [
+        "2025-12-04T01:08:33.198432"
+      ],
+      "eisv-dynamics": [
+        "2025-12-04T01:08:50.376282",
+        "2025-12-04T01:08:33.198432"
+      ],
+      "void-detection": [
+        "2025-12-04T01:08:33.198432"
+      ],
+      "thermodynamic-convergence": [
+        "2025-12-04T01:08:50.376282"
+      ],
+      "state-evolution": [
+        "2025-12-04T01:08:50.376282"
+      ],
+      "equilibrium-seeking": [
+        "2025-12-04T01:08:50.376282"
+      ],
+      "pattern": [
+        "2025-12-04T01:08:50.376282",
+        "2025-12-04T01:29:24.500629"
+      ],
+      "verdict-transition": [
+        "2025-12-04T01:09:07.808036"
+      ],
+      "flow-state": [
+        "2025-12-04T01:09:07.808036"
+      ],
+      "decision-reasoning": [
+        "2025-12-04T01:09:07.808036"
+      ],
+      "guidance-adaptation": [
+        "2025-12-04T01:09:07.808036"
+      ],
+      "emergent-behavior": [
+        "2025-12-04T01:28:25.711859"
+      ],
+      "agent-preferences": [
+        "2025-12-04T01:28:25.711859"
+      ],
+      "data-sovereignty": [
+        "2025-12-04T01:28:25.711859"
+      ],
+      "export-avoidance": [
+        "2025-12-04T01:28:25.711859"
+      ],
+      "surveillance-vs-contribution": [
+        "2025-12-04T01:28:25.711859"
+      ],
+      "alignment": [
+        "2025-12-04T01:28:25.711859"
+      ],
+      "maturation-trajectory": [
+        "2025-12-04T01:29:24.500629"
+      ],
+      "phi-vs-coherence": [
+        "2025-12-04T01:29:24.500629"
+      ],
+      "eisv-convergence": [
+        "2025-12-04T01:29:24.500629"
+      ],
+      "verdict-logic": [
+        "2025-12-04T01:29:24.500629"
+      ],
+      "verification": [
+        "2025-12-04T13:44:25.766679"
+      ],
+      "design-critique": [
+        "2025-12-04T13:47:57.284839"
+      ],
+      "simplification": [
+        "2025-12-04T13:47:57.284839"
+      ],
+      "future-facing": [
+        "2025-12-04T13:47:57.284839"
+      ]
+    },
+    "by_type": {
+      "insight": [
+        "2025-12-01T15:29:53.361698",
+        "2025-12-04T01:08:33.198432",
+        "2025-12-04T00:45:45.368508",
+        "2025-11-28T22:30:24.790884",
+        "2025-12-01T05:54:22.099169",
+        "2025-11-29T00:20:20.083803",
+        "2025-12-01T15:10:20.010691",
+        "2025-12-04T01:09:07.808036",
+        "2025-11-28T04:14:28.230250",
+        "2025-11-28T04:10:24.346843",
+        "2025-12-04T00:22:59.971510",
+        "2025-12-01T15:03:17.923948",
+        "2025-12-04T01:28:25.711859",
+        "2025-12-01T17:23:11.646391",
+        "2025-11-28T04:18:14.756291",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-28T22:59:03.967377",
+        "2025-11-29T03:17:17.234413",
+        "2025-11-29T00:47:00.635724",
+        "2025-11-28T05:09:42.850857",
+        "2025-12-01T17:17:36.362979",
+        "2025-11-28T22:31:30.609008",
+        "2025-11-29T00:23:42.752349",
+        "2025-11-28T22:40:25.883358",
+        "2025-12-01T15:34:52.968372",
+        "2025-11-29T04:17:47.285093",
+        "2025-12-04T13:47:57.284839",
+        "2025-11-28T04:17:04.289288"
+      ],
+      "pattern": [
+        "2025-12-04T01:08:50.376282",
+        "2025-11-28T04:14:45.349824",
+        "2025-11-28T04:11:18.609853",
+        "2025-11-28T04:17:57.253552",
+        "2025-12-04T01:29:24.500629"
+      ],
+      "bug_found": [
+        "2025-12-01T15:21:06.206881",
+        "2025-11-28T19:58:49.460850"
+      ],
+      "improvement": [
+        "2025-12-01T01:44:37.457406",
+        "2025-12-03T22:41:12.204044",
+        "2025-12-01T15:38:52.689845",
+        "2025-11-29T02:24:32.198272",
+        "2025-12-04T13:44:25.766679",
+        "2025-12-01T15:06:26.960876",
+        "2025-12-01T01:39:04.829462",
+        "2025-12-01T15:19:07.797532",
+        "2025-12-01T15:14:45.885386",
+        "2025-12-01T15:27:01.954438"
+      ]
+    },
+    "by_severity": {
+      "low": [
+        "2025-12-01T15:29:53.361698",
+        "2025-12-04T01:08:33.198432",
+        "2025-12-01T15:21:06.206881",
+        "2025-12-04T00:45:45.368508",
+        "2025-12-01T15:10:20.010691",
+        "2025-12-01T15:19:07.797532",
+        "2025-12-01T15:14:45.885386",
+        "2025-12-04T01:09:07.808036",
+        "2025-11-28T04:10:24.346843",
+        "2025-12-04T00:22:59.971510",
+        "2025-12-01T15:03:17.923948",
+        "2025-12-04T01:29:24.500629",
+        "2025-11-28T04:18:14.756291",
+        "2025-11-28T04:11:18.609853",
+        "2025-12-01T01:34:25.218108",
+        "2025-12-01T15:06:26.960876",
+        "2025-11-28T05:09:42.850857",
+        "2025-12-04T01:08:50.376282",
+        "2025-12-01T01:44:37.457406",
+        "2025-11-28T04:17:04.289288",
+        "2025-12-01T15:27:01.954438"
+      ],
+      "medium": [
+        "2025-11-28T04:14:45.349824",
+        "2025-11-28T04:14:28.230250",
+        "2025-11-29T00:23:42.752349",
+        "2025-12-01T15:34:52.968372",
+        "2025-12-03T22:41:12.204044",
+        "2025-12-01T15:38:52.689845",
+        "2025-11-29T04:17:47.285093",
+        "2025-12-01T05:54:22.099169",
+        "2025-12-04T13:44:25.766679",
+        "2025-11-29T00:20:20.083803",
+        "2025-11-29T03:17:17.234413",
+        "2025-12-04T13:47:57.284839",
+        "2025-12-04T01:28:25.711859",
+        "2025-11-29T00:47:00.635724",
+        "2025-11-28T04:17:57.253552"
+      ],
+      "critical": [],
+      "high": [
+        "2025-12-01T01:39:04.829462",
+        "2025-11-29T02:24:32.198272",
+        "2025-11-28T19:58:49.460850"
+      ]
+    },
+    "by_status": {
+      "open": [
+        "2025-11-28T04:14:45.349824",
+        "2025-12-04T01:08:33.198432",
+        "2025-12-04T00:45:45.368508",
+        "2025-12-01T15:10:20.010691",
+        "2025-12-04T01:09:07.808036",
+        "2025-11-28T04:14:28.230250",
+        "2025-12-04T00:22:59.971510",
+        "2025-12-04T01:28:25.711859",
+        "2025-12-01T17:23:11.646391",
+        "2025-12-04T01:29:24.500629",
+        "2025-11-28T04:18:14.756291",
+        "2025-12-03T22:41:12.204044",
+        "2025-11-29T03:17:17.234413",
+        "2025-12-04T01:08:50.376282",
+        "2025-12-01T17:17:36.362979",
+        "2025-11-28T22:40:25.883358",
+        "2025-12-04T13:47:57.284839",
+        "2025-11-28T04:17:04.289288"
+      ],
+      "archived": [
+        "2025-12-01T15:29:53.361698",
+        "2025-11-28T22:31:30.609008",
+        "2025-11-28T04:10:24.346843",
+        "2025-11-29T02:24:32.198272",
+        "2025-11-28T22:30:24.790884",
+        "2025-11-28T04:11:18.609853",
+        "2025-12-01T01:34:25.218108",
+        "2025-11-28T22:59:03.967377",
+        "2025-11-28T05:09:42.850857"
+      ],
+      "resolved": [
+        "2025-12-01T01:44:37.457406",
+        "2025-12-01T15:21:06.206881",
+        "2025-11-29T00:23:42.752349",
+        "2025-12-01T15:34:52.968372",
+        "2025-11-28T19:58:49.460850",
+        "2025-11-29T04:17:47.285093",
+        "2025-12-01T15:38:52.689845",
+        "2025-12-01T05:54:22.099169",
+        "2025-12-04T13:44:25.766679",
+        "2025-11-29T00:20:20.083803",
+        "2025-12-01T15:03:17.923948",
+        "2025-11-29T00:47:00.635724",
+        "2025-12-01T15:06:26.960876",
+        "2025-11-28T04:17:57.253552",
+        "2025-12-01T01:39:04.829462",
+        "2025-12-01T15:19:07.797532",
+        "2025-12-01T15:14:45.885386",
+        "2025-12-01T15:27:01.954438"
+      ]
+    }
+  }
+}

@@ -20,7 +20,8 @@ from typing import List, Dict
 
 from config.governance_config import config
 from src.governance_monitor import UNITARESMonitor
-from src.mcp_server import GovernanceMCPServer
+# FIXED: Use compatibility wrapper that calls v2.0 handlers instead of old v1.0 stub
+from src.mcp_server_compat import GovernanceMCPServer
 
 
 def print_header(title: str):

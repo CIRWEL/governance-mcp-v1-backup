@@ -21,7 +21,9 @@ COMMON_AGENT_IDS: Set[str] = {
     "claude_chat",
     "test",
     "demo",
-    "default_agent"
+    "default_agent",
+    "agent",
+    "assistant"
 }
 
 
@@ -30,7 +32,8 @@ def detect_interface_prefix() -> str:
     Detect the interface/environment and return appropriate prefix for agent IDs.
     
     Returns:
-        Prefix string like "composer_cursor", "cursor_ide", "claude_chat", or "claude_cli"
+        Prefix string like "composer_cursor", "cursor_ide", "gpt4_vscode", "gemini_jetbrains", 
+        "claude_desktop", or generic "mcp_client" if detection fails
     """
     # Check for explicit override via environment variable
     explicit_prefix = os.getenv("GOVERNANCE_AGENT_PREFIX")
@@ -58,7 +61,11 @@ def detect_interface_prefix() -> str:
             if "cursor" in parent_name:
                 return "composer_cursor"
             elif "claude" in parent_name:
-                return "claude_chat"
+                return "claude_desktop"
+            elif "vscode" in parent_name or "code" in parent_name:
+                return "mcp_vscode"
+            elif "idea" in parent_name or "pycharm" in parent_name:
+                return "mcp_jetbrains"
         
         # Check process tree up to 3 levels
         for _ in range(3):
@@ -70,7 +77,11 @@ def detect_interface_prefix() -> str:
                         if "cursor" in parent_name:
                             return "composer_cursor"
                         elif "claude" in parent_name:
-                            return "claude_chat"
+                            return "claude_desktop"
+                        elif "vscode" in parent_name or "code" in parent_name:
+                            return "mcp_vscode"
+                        elif "idea" in parent_name or "pycharm" in parent_name:
+                            return "mcp_jetbrains"
             except (psutil.NoSuchProcess, AttributeError):
                 break
     except (ImportError, AttributeError, psutil.NoSuchProcess):
@@ -81,11 +92,11 @@ def detect_interface_prefix() -> str:
     if "cursor" in term_program:
         return "composer_cursor"
     
-    # Check if running via MCP (likely Cursor or Claude Desktop)
-    # MCP servers are typically invoked by Cursor or Claude Desktop
+    # Check if running via MCP (any MCP-compatible client)
+    # MCP servers can be invoked by Cursor, Claude Desktop, VS Code, or other clients
     if os.getenv("MCP_SERVER_NAME"):
-        # Could be either, default to cursor since that's more common for dev work
-        return "composer_cursor"
+        # Generic MCP client - let user specify model/platform in agent_id
+        return "mcp_client"
     
     # Check PYTHONPATH for IDE indicators
     pythonpath = os.getenv("PYTHONPATH", "").lower()
@@ -98,14 +109,27 @@ def detect_interface_prefix() -> str:
     if "cursor" in cwd or os.path.exists("/Applications/Cursor.app"):
         return "composer_cursor"
     
+    # Check for other IDE/platform indicators
+    if os.getenv("VSCODE_PID") or "vscode" in os.getenv("TERM_PROGRAM", "").lower():
+        return "mcp_vscode"
+    
+    if os.getenv("JETBRAINS") or "idea" in os.getenv("TERM_PROGRAM", "").lower():
+        return "mcp_jetbrains"
+    
+    # Check for model-specific environment variables
+    if os.getenv("OPENAI_API_KEY"):
+        return "gpt_mcp"
+    
+    if os.getenv("GOOGLE_AI_API_KEY") or os.getenv("GEMINI_API_KEY"):
+        return "gemini_mcp"
+    
     # Default based on common usage patterns
     # If we're in a script context, likely CLI
     if os.getenv("_") and "python" in os.getenv("_", "").lower():
-        return "claude_cli"
+        return "mcp_cli"
     
-    # Final fallback: default to composer_cursor for modern IDE usage
-    # (Most users will be in Cursor/Composer context)
-    return "composer_cursor"
+    # Final fallback: generic MCP client (works for any MCP-compatible interface)
+    return "mcp_client"
 
 
 class AgentIDManager:

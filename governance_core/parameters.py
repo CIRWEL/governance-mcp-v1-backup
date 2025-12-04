@@ -44,6 +44,7 @@ class DynamicsParams:
 
     # Coherence parameters
     Cmax: float = 1.0            # Maximum coherence value
+    coherence_scale: float = 1.0  # V scaling factor (1.0 = pure thermodynamic, no scaling)
 
     # State bounds
     E_min: float = 0.0

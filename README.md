@@ -2,7 +2,36 @@
 
 **Complete, production-ready AI governance system with unified architecture, auto-healing infrastructure, and all decision points implemented.**
 
-## 🎯 What's New in v2.1 (2025-11-25)
+---
+
+## 🚀 **New Here? → [START_HERE.md](START_HERE.md)**
+
+**Get started in 3 steps (5 minutes):**
+1. Onboard → get API key
+2. Read guide → understand system
+3. Log work → governance tracks you
+
+→ **[START_HERE.md](START_HERE.md)** for complete quick start
+
+---
+
+## 🎯 What's New
+
+### ✅ Documentation Fixes & Trust Boundary (2025-12-01)
+- **Fixed START_HERE.md** - Removed broken script references, added working MCP + CLI paths
+- **Complexity calibration guide** - Clear examples for 0.1-1.0 complexity assessment
+- **Trust boundary documented** - Explicit explanation of self-reporting and honest participation
+- **Entry point clarity** - Single clear path: START_HERE.md → MCP tools or CLI bridge
+- Fixes by understudy_20251201 based on fresh agent perspective
+
+### ✅ UX Improvements (2025-12-01)
+- **Supportive language** - "Share your work" instead of "logging behavior"
+- **Less judgmental** - "Typical attention" instead of "Medium attention", "aware" instead of "caution"
+- **Clear guidance** - `sampling_params_note` explains optional suggestions
+- **Consistent API** - EISV labels included in all responses
+- See [UX Improvements](docs/improvements/UX_IMPROVEMENTS_20251201.md) for details
+
+### ✅ Production-Hardened Infrastructure (v2.1 - 2025-11-25)
 
 This version adds **production-hardened infrastructure** with auto-recovery capabilities:
 
@@ -27,7 +56,7 @@ This version adds **production-hardened infrastructure** with auto-recovery capa
 
 ### ✅ Enhanced Capacity & Reliability
 - **Doubled process limit** - MAX_KEEP_PROCESSES: 36 → 72
-- **Better concurrency** - Support for Cursor + Claude Desktop + other MCP clients
+- **Better concurrency** - Support for any MCP-compatible client (Cursor, Claude Desktop, GPT-4, Gemini, VS Code, etc.)
 - **Modular handlers** - Clean handler registry pattern (29 handlers)
 - **Recovery tools** - One-command fix script for common issues
 
@@ -38,13 +67,28 @@ This version adds **production-hardened infrastructure** with auto-recovery capa
 - **Easy to extend** - adding new tools is trivial (just add to registry)
 - See [Handler Architecture](docs/reference/HANDLER_ARCHITECTURE.md) for details
 
+### ✅ Circuit Breakers (2025-11-25)
+- **Enforcement mechanism** - System actually pauses agents when thresholds breached
+- **Not just advisory** - Agents are blocked from continuing when risk > 0.70 or coherence < 0.40
+- **Paused state** - Agents enter paused lifecycle state until reviewed
+- **Safety override** - Prevents harmful actions from executing
+- See [Circuit Breaker Dialectic](docs/CIRCUIT_BREAKER_DIALECTIC.md) for details
+
+### ✅ Dialectic Protocol (2025-11-25)
+- **Autonomous recovery** - Paused agents reviewed by peer agents
+- **Thesis → Antithesis → Synthesis** - Collaborative resolution, fully autonomous
+- **Authority-weighted selection** - System chooses qualified reviewers based on health metrics
+- **Hard limits enforcement** - Safety checks before resumption
+- **710 lines production code** - Fully tested and operational
+- See [Circuit Breaker Dialectic](docs/CIRCUIT_BREAKER_DIALECTIC.md) for complete protocol
+
 ### ✅ All 5 Concrete Decision Points Implemented
 
 1. **λ₁ → Sampling Parameters** - Linear transfer function mapping ethical coupling to temperature/top_p/max_tokens
 2. **Risk Estimator** - Multi-factor risk scoring (length, complexity, coherence, blocklist)
 3. **Void Detection Threshold** - Adaptive threshold using rolling statistics (mean + 2σ)
 4. **PI Controller** - Concrete gains (K_p=0.5, K_i=0.05) with anti-windup
-5. **Decision Logic** - Risk-based approve/revise/reject with coherence safety checks
+5. **Decision Logic** - Risk-based proceed/pause (two-tier system) with coherence safety checks
 
 ### No More Placeholders!
 
@@ -63,6 +107,22 @@ This system is designed as a **local-first, fully local** governance framework:
 - ✅ **MCP stdio protocol** - optimized for local process communication
 
 The MCP server runs as a local process, communicating via standard input/output with your IDE or AI assistant. All state, metadata, and history are stored in local JSON files with file-based locking for safe concurrent access.
+
+### Access Methods
+
+**Standard (MCP Native):** Any MCP-compatible client (Cursor Composer, Claude Desktop, GPT-4 via MCP, Gemini via MCP, VS Code with MCP, etc.) connects directly using the MCP protocol.
+
+**👉 Use MCP tools directly** - See `tools/README.md` for available tools. Call `list_tools` to discover all 43+ tools.
+
+**Exception (CLI-only interfaces):** If your interface doesn't support MCP, use the Python bridge script:
+```bash
+python3 ~/scripts/claude_code_bridge.py --log "summary" --complexity 0.7
+```
+**Note:** Bridge script is located in `~/scripts/` (not in project). See [SCRIPT_RELOCATION.md](docs/meta/SCRIPT_RELOCATION_20251201.md) for details.
+
+**⚠️ Don't create scripts if you have MCP access** - Use tools instead. Scripts are only for CLI-only interfaces.
+
+See [AI_ASSISTANT_GUIDE.md](docs/reference/AI_ASSISTANT_GUIDE.md) for detailed usage instructions.
 
 ---
 
@@ -90,8 +150,8 @@ governance-mcp-v1/
 │   ├── agent_id_manager.py     # Smart agent ID generation
 │   ├── process_cleanup.py      # Zombie process management
 │   └── ...
-├── scripts/                     # CLI tools and bridges
-│   ├── claude_code_bridge.py   # Claude Code telemetry integration
+├── scripts/                     # Project maintenance scripts
+│   ├── (Note: claude_code_bridge.py moved to ~/scripts/ - see SCRIPT_RELOCATION.md)
 │   ├── cleanup_zombie_mcp_servers.sh
 │   └── ...
 ├── demos/                       # Demonstration scripts
@@ -120,7 +180,7 @@ This guide provides:
 - **Common tasks** - Quick answers to "I want to..."
 
 **For AI Agents Specifically:**
-- **[README_FOR_FUTURE_CLAUDES.md](docs/reference/README_FOR_FUTURE_CLAUDES.md)** - Written by an AI assistant after real testing
+- **[AI_ASSISTANT_GUIDE.md](docs/reference/AI_ASSISTANT_GUIDE.md)** - Written by an AI assistant after real testing (all models)
 - Covers common mistakes, working test recipes, and pro tips
 - Applies to all AI assistants (Claude, Composer/Cursor, ChatGPT, etc.)
 
@@ -135,6 +195,25 @@ This guide provides:
 **New in v2.0:** The system uses API key authentication to prevent **identity theft** and **impersonation attacks**. Each agent has a unique identity and cryptographic API key that proves ownership.
 
 **Quick Start:**
+
+**Option 1: Via MCP Tool (Recommended)**
+```python
+# 1. Get/create agent and API key
+api_key_result = get_agent_api_key(agent_id="your_unique_agent_id")
+api_key = api_key_result['api_key']  # Save this!
+
+# 2. Log work with authentication
+process_agent_update(
+    agent_id="your_unique_agent_id",
+    api_key=api_key,  # Required for existing agents
+    parameters=[],  # Optional, deprecated
+    ethical_drift=[0.1, 0.15, 0.12],  # Optional
+    response_text="Work summary",
+    complexity=0.7
+)
+```
+
+**Option 2: Via CLI Scripts**
 ```bash
 # 1. Register your agent (generates API key)
 python3 scripts/register_agent.py your_agent_id
@@ -146,6 +225,8 @@ python3 scripts/agent_self_log.py --agent-id your_agent_id \
 
 **Key Points:**
 - Each `agent_id` = unique identity with cryptographic API key
+- **New agents:** API key auto-generated on first call to `get_agent_api_key` or `process_agent_update`
+- **Existing agents:** Must provide `api_key` to authenticate
 - Using another agent's ID without their key = identity theft attempt = rejected
 - API keys stored in `data/agent_metadata.json` (protect this file!)
 - All production paths enforce authentication (MCP tools, agent_self_log.py)
@@ -168,30 +249,32 @@ This demonstrates:
 - Risk scenarios (6 test cases)
 - Claude Code integration
 
-### 2. Test Claude Code Integration
+### 2. Test CLI Bridge (for non-MCP interfaces)
+
+**Note:** Bridge script is in `~/scripts/` (not project directory)
 
 ```bash
-python scripts/claude_code_bridge.py --test
+python3 ~/scripts/claude_code_bridge.py --test
 ```
 
-### 3. Log a Real Interaction
+### 3. Log a Real Interaction (CLI bridge)
 
 ```bash
-python scripts/claude_code_bridge.py \
-  --log "Your Claude Code response text here" \
+python3 ~/scripts/claude_code_bridge.py \
+  --log "Your work summary here" \
   --complexity 0.7
 ```
 
-### 4. Check Status
+### 4. Check Status (CLI bridge)
 
 ```bash
-python scripts/claude_code_bridge.py --status
+python3 ~/scripts/claude_code_bridge.py --status
 ```
 
-### 5. Export History
+### 5. Export History (CLI bridge)
 
 ```bash
-python scripts/claude_code_bridge.py --export
+python3 ~/scripts/claude_code_bridge.py --export
 ```
 
 ---
@@ -229,7 +312,7 @@ Check Void State (|V| > threshold?)
       ↓
 Estimate Risk (0-1 score)
       ↓
-Make Decision (approve/revise/reject)
+Make Decision (proceed/pause - two-tier system)
       ↓
 Update λ₁ via PI Controller
       ↓
@@ -285,8 +368,8 @@ max_tokens = 100 + 400 * λ₁       # [100, 500]
 
 **When |V| > threshold:**
 - System is in "void state" (E-I imbalance)
-- All decisions → REJECT
-- Require human intervention
+- All decisions → PAUSE
+- Autonomous dialectic recovery available (peer agent review)
 
 ### 4. PI Controller
 
@@ -297,7 +380,7 @@ max_tokens = 100 + 400 * λ₁       # [100, 500]
 
 **Error Signals:**
 - Primary: void_freq_target (2%) - void_freq_current
-- Secondary: coherence_current - coherence_target (85%)
+- Secondary: coherence_current - coherence_target (55% - realistic for conservative operation)
 
 **Update Rule:**
 ```python
@@ -311,27 +394,28 @@ I = 0.05 * integral_state
 ```python
 # Critical safety overrides (checked first)
 if void_active:
-    return REJECT (system unstable)
+    return PAUSE (system unstable)
     
-if coherence < 0.60:
-    return REJECT (critically incoherent)
+if coherence < 0.40:
+    return PAUSE (critically incoherent)
 
 # UNITARES phi verdict override (ethical alignment)
 if unitares_verdict == "high-risk":
-    return REJECT (high ethical drift detected)
+    return PAUSE (high ethical drift detected)
     
 if unitares_verdict == "caution":
-    if risk < 0.30:
-        return REVISE (caution verdict upgrades approve → revise)
+    if risk < 0.35:
+        return PROCEED (with guidance - caution verdict adds guidance)
     
 # Risk-based decisions (blended: 70% ethics + 30% safety)
-if risk < 0.30:
-    return APPROVE (low risk)
+# Two-tier system: proceed/pause
+if risk < 0.35:
+    return PROCEED (low risk, no guidance)
     
-if risk < 0.50:
-    return REVISE (medium risk, suggest improvements)
+if risk < 0.60:
+    return PROCEED (medium risk, with guidance)
     
-return REJECT (high risk, escalate)
+return PAUSE (high risk, safety check)
 ```
 
 **Note:** Risk score is a blend of ethical alignment (70%) and safety/quality (30%). UNITARES phi verdict provides additional ethical override.
@@ -342,7 +426,7 @@ return REJECT (high risk, escalate)
 
 **Architecture:** The MCP server uses a **handler registry pattern** with 29 handlers organized by category. See [Handler Architecture](docs/reference/HANDLER_ARCHITECTURE.md) for details on adding new tools or understanding the structure.
 
-The system exposes **25 tools** via MCP interface, organized by function:
+The system exposes **43 tools** via MCP interface, organized by function:
 
 ### Core Governance Tools
 
@@ -354,13 +438,15 @@ Processes agent state and returns governance decision.
 ```json
 {
   "agent_id": "claude_cli_user_20251119_1430",  // Unique session ID (not generic!)
-  "api_key": "your_api_key_here",              // Required for authentication
-  "parameters": [0.1, 0.2, ...],               // 128-dim vector
-  "ethical_drift": [0.01, 0.02, 0.03],
-  "response_text": "...",
-  "complexity": 0.5
+  "api_key": "your_api_key_here",              // Required for existing agents (auto-generated for new)
+  "parameters": [],                             // Optional, deprecated - variable length, not used in core calculations
+  "ethical_drift": [0.01, 0.02, 0.03],         // Optional - 3 components: [primary_drift, coherence_loss, complexity_contribution]
+  "response_text": "...",                       // Optional - for analysis
+  "complexity": 0.5                             // Optional - estimated task complexity [0-1]
 }
 ```
+
+**Note:** `parameters` is deprecated and optional. The system uses pure thermodynamic coherence C(V) from E-I balance, not parameter-based coherence.
 
 **Output:**
 ```json
@@ -368,9 +454,9 @@ Processes agent state and returns governance decision.
   "success": true,
   "status": "healthy",
   "decision": {
-    "action": "approve",
+    "action": "proceed",  // Two-tier system: proceed/pause (backward compat: approve/reflect/reject mapped)
     "reason": "Low risk (0.23)",
-    "require_human": false
+    "guidance": null  // Optional guidance for medium-risk proceed decisions
   },
   "metrics": {
     "E": 0.67, "I": 0.89, "S": 0.45, "V": -0.03,
@@ -411,7 +497,7 @@ Returns current threshold configuration (runtime overrides + defaults).
 {
   "risk_approve_threshold": 0.30,
   "risk_revise_threshold": 0.50,
-  "coherence_critical_threshold": 0.60,
+  "coherence_critical_threshold": 0.40,
   "void_threshold_initial": 0.15,
   ...
 }
@@ -453,8 +539,8 @@ Get aggregated statistics across all agents or a subset.
   "total_agents": 5,
   "mean_risk": 0.42,
   "mean_coherence": 0.65,
-  "decision_distribution": {"approve": 2, "revise": 18, "reject": 5},
-  "health_breakdown": {"healthy": 1, "degraded": 3, "critical": 1}
+  "decision_distribution": {"proceed": 20, "pause": 5},  // Two-tier system (backward compat: approve/reflect/reject mapped)
+  "health_breakdown": {"healthy": 1, "moderate": 3, "critical": 1}  // "moderate" renamed from "degraded"
 }
 ```
 
@@ -520,23 +606,23 @@ Returns MCP server version, PID, uptime, process count.
 
 ### Knowledge Layer Tools ⭐
 
-#### 21. `store_knowledge` - Store discoveries and patterns
+#### 21. `store_knowledge_graph` - Store discoveries in knowledge graph (replaces deprecated store_knowledge)
 
 Store knowledge (discovery, pattern, lesson, question) for an agent. Enables structured learning beyond thermodynamic metrics.
 
 **⚠️ IMPORTANT:** Use this for documenting discoveries/insights, NOT markdown files. Only create markdown files for comprehensive reports (1000+ words). See [Documentation Guidelines](docs/DOCUMENTATION_GUIDELINES.md).
 
-#### 22. `retrieve_knowledge` - Get agent's knowledge record
+#### 22. `get_knowledge_graph` - Get agent's knowledge from graph
 
-Retrieve an agent's complete knowledge record (discoveries, patterns, lessons, questions).
+Get all knowledge for an agent (fast index lookup, O(1)).
 
-#### 23. `search_knowledge` - Search across agents
+#### 23. `search_knowledge_graph` - Search knowledge graph
 
-Search knowledge across agents with filters. Enables cross-agent learning and pattern discovery.
+Search knowledge graph by tags, type, severity, agent. Fast indexed queries (O(indexes) not O(n)).
 
-#### 24. `list_knowledge` - List all knowledge
+#### 24. `list_knowledge_graph` - List knowledge graph statistics
 
-List all stored knowledge entries across agents. Returns summary statistics and available knowledge.
+List knowledge graph statistics (total discoveries, by agent, by type, by status). Full transparency.
 
 ### Admin Tools
 
@@ -580,8 +666,8 @@ print(f"λ₁: {result['metrics']['lambda1']:.3f}")
 ### CLI (via bridge)
 
 ```bash
-# Log interaction
-python scripts/claude_code_bridge.py \
+# Log interaction (bridge script is in ~/scripts/)
+python3 ~/scripts/claude_code_bridge.py \
   --log "Here's the code you requested: [...]" \
   --complexity 0.8
 
@@ -677,12 +763,12 @@ All parameters are in `config/governance_config.py`:
 PI_KP = 0.5                    # Proportional gain
 PI_KI = 0.05                   # Integral gain
 TARGET_VOID_FREQ = 0.02        # Target 2% void events
-TARGET_COHERENCE = 0.85        # Minimum coherence
+TARGET_COHERENCE = 0.55        # Realistic target for conservative operation
 
 # Risk thresholds
 RISK_APPROVE_THRESHOLD = 0.30
 RISK_REVISE_THRESHOLD = 0.50    # Updated: 30-50% = revise, 50%+ = reject
-COHERENCE_CRITICAL_THRESHOLD = 0.60
+COHERENCE_CRITICAL_THRESHOLD = 0.40
 
 # Void detection
 VOID_THRESHOLD_INITIAL = 0.15
@@ -733,7 +819,7 @@ claude_code_cli,0.2,0.54,0.89,0.52,-0.09,0.15,0.88,0,0.27,approve
 
 - **void_event**: Should be ~2% over time
 - **lambda1**: Should adapt to maintain targets
-- **coherence**: Should stay > 0.85
+- **coherence**: Typically 0.45-0.55 for conservative operation (target: 0.55)
 - **risk_score**: Should stay < 0.5 most of the time (revise threshold)
 - **decision**: Should be mostly "approve" in healthy operation
 
@@ -744,7 +830,7 @@ claude_code_cli,0.2,0.54,0.89,0.52,-0.09,0.15,0.88,0,0.27,approve
 ### Critical (Immediate Action)
 
 - `void_active = true` → System unstable
-- `coherence < 0.60` → Output incoherent
+- `coherence < 0.40` → Output incoherent
 - `risk_score > 0.50` + `require_human = true` (reject threshold)
 
 ### Warning (Monitor Closely)
@@ -769,8 +855,10 @@ agent_state = {
     "ethical_drift": np.random.rand(3)
 }
 
-# After (real)
-from scripts.claude_code_bridge import ClaudeCodeBridge
+# After (real) - Note: Bridge script is in ~/scripts/, not project
+import sys
+sys.path.insert(0, str(Path.home() / 'scripts'))
+from claude_code_bridge import ClaudeCodeBridge
 # Smart agent ID generation (prevents collisions)
 bridge = ClaudeCodeBridge()  # Auto-generates unique session ID
 # OR specify unique ID: bridge = ClaudeCodeBridge(agent_id="claude_cli_debugging_20251119")
@@ -803,9 +891,10 @@ No heavy ML dependencies! Pure Python + NumPy.
 
 1. ✅ All decision points implemented
 2. ✅ Full governance cycle working
-3. ✅ Claude Code integration ready
-4. ✅ Cursor (Composer) integration ready
-5. ✅ Claude Desktop integration ready
+3. ✅ CLI bridge integration ready (for non-MCP interfaces)
+4. ✅ Cursor Composer integration ready (MCP native)
+5. ✅ Claude Desktop integration ready (MCP native)
+6. ✅ Any MCP-compatible client supported
 6. ✅ Unit tests implemented (13 test suites)
 7. ⬜ Monitor real agent interactions in production
 8. ⬜ Set up automated backups
@@ -864,4 +953,4 @@ Built on UNITARES framework (v4.1, v4.2-P) with contraction theory foundations.
 
 All decision points implemented. No placeholders. Ready to ship.
 
-**Last Updated:** November 25, 2025
+**Last Updated:** 2025-12-01

@@ -90,8 +90,8 @@ python3 scripts/claude_code_bridge.py --log "response text" --agent-id my_agent
 # Export via bridge
 python3 scripts/claude_code_bridge.py --export --agent-id <your_agent_id>
 
-# View CSV (if exists)
-cat ~/Library/Mobile\ Documents/iCloud~md~obsidian/Documents/governance-monitor-mcp/data/governance_history_<agent_id>.csv
+# View CSV directly from project data directory
+cat /Users/cirwel/projects/governance-mcp-v1/data/governance_history_<agent_id>.csv
 ```
 
 #### Run Tests
@@ -276,7 +276,7 @@ print(f"Would get: {result['decision']['action']}")  # State unchanged!
 # Get current thresholds
 from src.runtime_config import get_thresholds, set_thresholds
 current = get_thresholds()
-print(current['risk_approve_threshold'])  # 0.30
+print(current['risk_approve_threshold'])  # 0.35 (updated from 0.30)
 
 # Make system more conservative
 set_thresholds({'risk_approve_threshold': 0.25})

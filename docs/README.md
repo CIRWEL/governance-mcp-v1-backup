@@ -2,8 +2,10 @@
 
 This directory contains organized documentation for the UNITARES Governance Monitor system.
 
-**Last Updated:** November 25, 2025  
-**Total Files:** ~83 markdown files (reduced from 107)
+**Last Updated:** 2025-12-01  
+**Total Files:** ~85 markdown files
+
+**Organization Guide:** See [ORGANIZATION_GUIDE.md](ORGANIZATION_GUIDE.md) for complete organization standards.
 
 ## Directory Structure
 
@@ -46,34 +48,80 @@ Reference materials and handoff documents:
 
 ## Root Documentation Files
 
-Core documentation in `/docs/` root:
-- `README.md` - This file
+**Protocols & Standards:**
+- `ORGANIZATION_GUIDE.md` - Data and docs organization standards (single source of truth)
+- `DOCUMENTATION_GUIDELINES.md` - When to use knowledge layer vs markdown
+
+**Current Status:**
+- `README.md` - This file (directory index)
 - `QUICK_REFERENCE.md` - Quick reference guide
-- `RELEASE_NOTES_v2.0.md` - Release notes
-- `MCP_CRITIQUE.md` - Critical analysis (updated with fix status)
-- `CONFIDENCE_GATING_AND_CALIBRATION.md` - Confidence gating documentation
+- `RELEASE_NOTES_v2.0.md` - Current release notes
+- `SECURITY_AUDIT.md` - Security status
+
+**Important Guides:**
+- `BACKUP_STRATEGY.md` - Backup and recovery procedures
 - `END_TO_END_FLOW.md` - End-to-end flow documentation
-- `knowledge-layer.md` - Knowledge layer documentation (consolidated)
-- `authentication-guide.md` - Authentication guide
-- `BACKUP_STRATEGY.md` - Backup strategy
-- `CLEANUP_SUMMARY.md` - Documentation cleanup summary
+- `CONFIDENCE_GATING_AND_CALIBRATION.md` - Confidence gating documentation
+
+**Note:** Some root-level files may need reorganization. See [ORGANIZATION_GUIDE.md](ORGANIZATION_GUIDE.md) for categorization guidelines.
 
 ## Project Root Documentation
 
-- `README.md` - Main project documentation
-- `ARCHITECTURE.md` - System architecture
-- `ONBOARDING.md` - Onboarding guide
-- `HANDOFF.md` - Handoff documentation
-- `PATENT_CLAIMS_DRAFT_2025-11-22.md` - Patent claims draft
+- `README.md` - Main project documentation (root)
+- `CHANGELOG.md` - Change log (root)
+- `requirements-mcp.txt` - Python dependencies (root)
+
+**Moved to organized locations:**
+- `architecture/ARCHITECTURE.md` - System architecture
+- `guides/ONBOARDING.md` - Onboarding guide
+- `guides/USAGE_GUIDE.md` - Usage guide
+- `reference/SYSTEM_SUMMARY.md` - System summary
+- `archive/ARCHIVAL_SUMMARY_20251128.md` - Archival summary
+- `archive/HARD_REMOVAL_SUMMARY_20251128.md` - Hard removal summary
 
 ---
 
-## Recent Changes (Nov 25, 2025)
+## Organization Standards
 
+**Organization Guide:** See [ORGANIZATION_GUIDE.md](ORGANIZATION_GUIDE.md) - Single source of truth for data and docs organization
+**Documentation Guidelines:** See [DOCUMENTATION_GUIDELINES.md](DOCUMENTATION_GUIDELINES.md)
+
+**Key Principles:**
+- Use `store_knowledge` for discrete discoveries (bugs, insights, patterns)
+- Use markdown files for comprehensive reports (1000+ words), guides, reference
+- Organize by category: guides, reference, analysis, archive
+- Archive docs >90 days old that are superseded
+
+---
+
+## Important Notices
+
+**⚠️ Orchestrator Status (2025-11-29):**
+The orchestrator (`src/orchestrator.py`) has been **ARCHIVED**. Do not use it. Instead:
+- Use `process_agent_update` with `auto_export_on_significance: true` for significance-based logging
+- Compose existing MCP tools directly for workflows (see tool documentation)
+- See archived orchestrator code in `src/archive/orchestrator*.py` for reference only
+
+## Recent Changes
+
+**2025-11-29:**
+- **Archived:** Orchestrator (over-engineered, good ideas extracted into proper implementations)
+- **Added:** Significance-based auto-export to `process_agent_update` tool
+
+**2025-11-27:**
+- **Fixed:** Health status calculation bug (display mismatch resolved)
+- **Fixed:** Loop detection gap (slow-stuck patterns now caught)
+- **Updated:** MCP_CRITIQUE.md with latest fixes
+- **Cleaned:** Archived redundant fix summaries
+
+**2025-11-26:**
+- **Fixed:** Consolidated 3 separate organization files into ONE unified guide (ORGANIZATION_GUIDE.md)
+- **Fixed:** Removed hardcoded dates, now using dynamic date generation
+- **Fixed:** Documented actual current structure instead of proposed future structure
+
+**2025-11-25:**
 - **Consolidated:** Related files merged (coherence, test results, fixes, etc.)
 - **Archived:** Session summaries, milestones, proposals, historical analysis
 - **Reduced:** From 107 to ~83 files (23% reduction)
 - **Organized:** Better structure with clear separation of guides, analysis, and archive
-
-See `CLEANUP_SUMMARY.md` for details on what was consolidated and archived.
 

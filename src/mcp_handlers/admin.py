@@ -8,7 +8,11 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from .utils import success_response, error_response, require_agent_id
+from .utils import success_response, error_response, require_agent_id, require_registered_agent
+from .decorators import mcp_tool
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 # Import from mcp_server_std module
 if 'src.mcp_server_std' in sys.modules:
@@ -18,8 +22,9 @@ else:
 import sys
 
 
+@mcp_tool("get_server_info", timeout=10.0, rate_limit_exempt=True)
 async def handle_get_server_info(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Handle get_server_info tool"""
+    """Get MCP server version, process information, and health status"""
     import time
     # Import from mcp_server_std module (handles both direct import and module access)
     if 'src.mcp_server_std' in sys.modules:
@@ -82,12 +87,32 @@ async def handle_get_server_info(arguments: Dict[str, Any]) -> Sequence[TextCont
     })
 
 
+@mcp_tool("get_tool_usage_stats", timeout=15.0, rate_limit_exempt=True)
+async def handle_get_tool_usage_stats(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """Get tool usage statistics to identify which tools are actually used vs unused"""
+    from src.tool_usage_tracker import get_tool_usage_tracker
+    
+    window_hours = arguments.get("window_hours", 24 * 7)  # Default: 7 days
+    tool_name = arguments.get("tool_name")
+    agent_id = arguments.get("agent_id")
+    
+    tracker = get_tool_usage_tracker()
+    stats = tracker.get_usage_stats(
+        window_hours=window_hours,
+        tool_name=tool_name,
+        agent_id=agent_id
+    )
+    
+    return success_response(stats)
+
+
+@mcp_tool("health_check", timeout=10.0, rate_limit_exempt=True)
 async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Handle health_check tool"""
+    """Handle health_check tool - quick health check of system components"""
     from src.calibration import calibration_checker
     from src.telemetry import telemetry_collector
     from src.audit_log import audit_logger
-    from src.knowledge_layer import get_knowledge_manager
+    # Knowledge layer REMOVED (archived November 28, 2025) - was causing agent unresponsiveness
     
     checks = {}
     
@@ -117,19 +142,8 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
     
-    # Check knowledge layer
-    try:
-        manager = get_knowledge_manager()
-        stats = manager.get_stats()
-        checks["knowledge"] = {
-            "status": "healthy",
-            "agents_with_knowledge": stats["total_agents"]
-        }
-    except Exception as e:
-        checks["knowledge"] = {
-            "status": "error",
-            "error": str(e)
-        }
+    # Knowledge layer check REMOVED (archived November 28, 2025)
+    # Was causing agent unresponsiveness on Claude Desktop
     
     # Check data directory
     try:
@@ -147,7 +161,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
     
     # Overall health status
     all_healthy = all(c.get("status") == "healthy" for c in checks.values())
-    overall_status = "healthy" if all_healthy else "degraded"
+    overall_status = "healthy" if all_healthy else "moderate"  # Renamed from "degraded"
     
     return success_response({
         "status": overall_status,
@@ -157,21 +171,54 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
     })
 
 
+@mcp_tool("check_calibration", timeout=10.0, rate_limit_exempt=True)
 async def handle_check_calibration(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Handle check_calibration tool"""
+    """Check calibration of confidence estimates"""
     from src.calibration import calibration_checker
     
     is_calibrated, metrics = calibration_checker.check_calibration()
     
+    # Calculate overall accuracy from bins
+    bins_data = metrics.get('bins', {})
+    total_samples = sum(bin_data.get('count', 0) for bin_data in bins_data.values())
+    total_correct = sum(
+        int(bin_data.get('count', 0) * bin_data.get('accuracy', 0))
+        for bin_data in bins_data.values()
+    )
+    overall_accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+    
+    # Calculate confidence distribution from bins
+    confidence_values = []
+    for bin_key, bin_data in bins_data.items():
+        count = bin_data.get('count', 0)
+        expected_acc = bin_data.get('expected_accuracy', 0.0)
+        # Add confidence value for each sample in this bin
+        confidence_values.extend([expected_acc] * count)
+    
+    if confidence_values:
+        import numpy as np
+        conf_dist = {
+            "mean": float(np.mean(confidence_values)),
+            "std": float(np.std(confidence_values)),
+            "min": float(np.min(confidence_values)),
+            "max": float(np.max(confidence_values))
+        }
+    else:
+        conf_dist = {"mean": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}
+    
     return success_response({
-        "is_calibrated": is_calibrated,
-        "metrics": metrics,
-        "note": "Calibration checks if confidence estimates match actual accuracy. Update ground truth via update_calibration_ground_truth tool."
+        "calibrated": is_calibrated,
+        "accuracy": overall_accuracy,
+        "confidence_distribution": conf_dist,
+        "pending_updates": calibration_checker.get_pending_updates(),
+        "total_samples": total_samples,  # Add explicit sample count for debugging
+        "message": "Calibration check complete"
     })
 
 
+@mcp_tool("update_calibration_ground_truth", timeout=10.0)
 async def handle_update_calibration_ground_truth(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Handle update_calibration_ground_truth tool"""
+    """Update calibration with ground truth after human review"""
     from src.calibration import calibration_checker
     
     confidence = arguments.get("confidence")
@@ -199,8 +246,10 @@ async def handle_update_calibration_ground_truth(arguments: Dict[str, Any]) -> S
         return [error_response(str(e))]
 
 
+@mcp_tool("get_telemetry_metrics", timeout=15.0, rate_limit_exempt=True)
 async def handle_get_telemetry_metrics(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Handle get_telemetry_metrics tool"""
+    """Get comprehensive telemetry metrics: skip rates, confidence distributions, calibration status"""
+    import asyncio
     from src.telemetry import TelemetryCollector
     
     telemetry = TelemetryCollector()
@@ -208,33 +257,38 @@ async def handle_get_telemetry_metrics(arguments: Dict[str, Any]) -> Sequence[Te
     agent_id = arguments.get("agent_id")
     window_hours = arguments.get("window_hours", 24)
     
-    skip_metrics = telemetry.get_skip_rate_metrics(agent_id, window_hours)
-    conf_dist = telemetry.get_confidence_distribution(agent_id, window_hours)
-    calibration_metrics = telemetry.get_calibration_metrics()
-    suspicious = telemetry.detect_suspicious_patterns(agent_id)
+    # Run blocking I/O operations in executor to prevent hanging
+    loop = asyncio.get_event_loop()
     
-    return success_response({
-        "agent_id": agent_id or "all_agents",
-        "window_hours": window_hours,
-        "skip_rate_metrics": skip_metrics,
-        "confidence_distribution": conf_dist,
-        "calibration": calibration_metrics,
-        "suspicious_patterns": suspicious
-    })
+    try:
+        # Execute blocking operations in thread pool
+        skip_metrics, conf_dist, calibration_metrics, suspicious = await asyncio.gather(
+            loop.run_in_executor(None, telemetry.get_skip_rate_metrics, agent_id, window_hours),
+            loop.run_in_executor(None, telemetry.get_confidence_distribution, agent_id, window_hours),
+            loop.run_in_executor(None, telemetry.get_calibration_metrics),
+            loop.run_in_executor(None, telemetry.detect_suspicious_patterns, agent_id)
+        )
+        
+        return success_response({
+            "agent_id": agent_id or "all_agents",
+            "window_hours": window_hours,
+            "skip_rate_metrics": skip_metrics,
+            "confidence_distribution": conf_dist,
+            "calibration": calibration_metrics,
+            "suspicious_patterns": suspicious
+        })
+    except Exception as e:
+        logger.error(f"Error in get_telemetry_metrics: {e}")
+        return [error_response(f"Error collecting telemetry: {str(e)}")]
 
 
+@mcp_tool("reset_monitor", timeout=10.0)
 async def handle_reset_monitor(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Handle reset_monitor tool"""
-    from .utils import require_agent_id
-    import sys
-    if 'src.mcp_server_std' in sys.modules:
-        mcp_server = sys.modules['src.mcp_server_std']
-    else:
-        import src.mcp_server_std as mcp_server
-    
-    agent_id, error = require_agent_id(arguments)
+    """Reset governance state for an agent"""
+    # PROACTIVE GATE: Require agent to be registered
+    agent_id, error = require_registered_agent(arguments)
     if error:
-        return error
+        return [error]  # Returns onboarding guidance if not registered
     
     if agent_id in mcp_server.monitors:
         del mcp_server.monitors[agent_id]
@@ -248,19 +302,11 @@ async def handle_reset_monitor(arguments: Dict[str, Any]) -> Sequence[TextConten
     })
 
 
+@mcp_tool("cleanup_stale_locks", timeout=30.0, rate_limit_exempt=True)
 async def handle_cleanup_stale_locks(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """
-    Clean up stale lock files that are no longer held by active processes.
-    
-    Args:
-        max_age_seconds: Maximum age in seconds before considering stale (default: 300 = 5 minutes)
-        dry_run: If True, only report what would be cleaned (default: False)
-    
-    Returns:
-        Cleanup statistics
-    """
+    """Clean up stale lock files that are no longer held by active processes"""
     try:
-        from lock_cleanup import cleanup_stale_state_locks
+        from src.lock_cleanup import cleanup_stale_state_locks
         
         max_age = arguments.get('max_age_seconds', 300.0)
         dry_run = arguments.get('dry_run', False)
@@ -268,8 +314,7 @@ async def handle_cleanup_stale_locks(arguments: Dict[str, Any]) -> Sequence[Text
         project_root = Path(__file__).parent.parent.parent
         result = cleanup_stale_state_locks(project_root=project_root, max_age_seconds=max_age, dry_run=dry_run)
         
-        return [success_response({
-            "success": True,
+        return success_response({
             "cleaned": result['cleaned'],
             "kept": result['kept'],
             "errors": result['errors'],
@@ -278,66 +323,358 @@ async def handle_cleanup_stale_locks(arguments: Dict[str, Any]) -> Sequence[Text
             "cleaned_locks": result.get('cleaned_locks', []),
             "kept_locks": result.get('kept_locks', []),
             "message": f"Cleaned {result['cleaned']} stale lock(s), kept {result['kept']} active lock(s)"
-        })]
+        })
     except Exception as e:
         return [error_response(f"Error cleaning stale locks: {str(e)}")]
 
 
+@mcp_tool("list_tools", timeout=10.0, rate_limit_exempt=True)
 async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Handle list_tools tool - runtime tool introspection"""
+    """List all available governance tools with descriptions and categories"""
     if 'src.mcp_server_std' in sys.modules:
         mcp_server = sys.modules['src.mcp_server_std']
     else:
         import src.mcp_server_std as mcp_server
     
+    # Get actual registered tools from TOOL_HANDLERS registry
+    from . import TOOL_HANDLERS
+    registered_tool_names = sorted(TOOL_HANDLERS.keys())
+    
+    # Define tool relationships and workflows
+    tool_relationships = {
+        "process_agent_update": {
+            "depends_on": ["get_agent_api_key"],
+            "related_to": ["simulate_update", "get_governance_metrics", "get_system_history"],
+            "category": "core"
+        },
+        "get_governance_metrics": {
+            "depends_on": [],
+            "related_to": ["process_agent_update", "observe_agent", "get_system_history"],
+            "category": "core"
+        },
+        "simulate_update": {
+            "depends_on": [],
+            "related_to": ["process_agent_update", "get_governance_metrics"],
+            "category": "core"
+        },
+        "get_thresholds": {
+            "depends_on": [],
+            "related_to": ["set_thresholds", "process_agent_update"],
+            "category": "config"
+        },
+        "set_thresholds": {
+            "depends_on": ["get_thresholds"],
+            "related_to": ["get_thresholds", "process_agent_update"],
+            "category": "config"
+        },
+        "observe_agent": {
+            "depends_on": ["list_agents"],
+            "related_to": ["get_governance_metrics", "compare_agents", "detect_anomalies"],
+            "category": "observability"
+        },
+        "compare_agents": {
+            "depends_on": ["list_agents"],
+            "related_to": ["observe_agent", "aggregate_metrics", "detect_anomalies"],
+            "category": "observability"
+        },
+        "detect_anomalies": {
+            "depends_on": ["list_agents"],
+            "related_to": ["observe_agent", "compare_agents", "aggregate_metrics"],
+            "category": "observability"
+        },
+        "aggregate_metrics": {
+            "depends_on": [],
+            "related_to": ["observe_agent", "compare_agents", "detect_anomalies"],
+            "category": "observability"
+        },
+        "list_agents": {
+            "depends_on": [],
+            "related_to": ["get_agent_metadata", "get_agent_api_key"],
+            "category": "lifecycle"
+        },
+        "get_agent_metadata": {
+            "depends_on": ["list_agents"],
+            "related_to": ["list_agents", "update_agent_metadata"],
+            "category": "lifecycle"
+        },
+        "update_agent_metadata": {
+            "depends_on": ["list_agents"],
+            "related_to": ["get_agent_metadata", "list_agents"],
+            "category": "lifecycle"
+        },
+        "archive_agent": {
+            "depends_on": ["list_agents"],
+            "related_to": ["list_agents", "delete_agent"],
+            "category": "lifecycle"
+        },
+        "delete_agent": {
+            "depends_on": ["list_agents"],
+            "related_to": ["archive_agent", "list_agents"],
+            "category": "lifecycle"
+        },
+        "archive_old_test_agents": {
+            "depends_on": [],
+            "related_to": ["archive_agent", "list_agents"],
+            "category": "lifecycle"
+        },
+        "get_agent_api_key": {
+            "depends_on": [],
+            "related_to": ["process_agent_update", "list_agents"],
+            "category": "lifecycle"
+        },
+        "mark_response_complete": {
+            "depends_on": [],
+            "related_to": ["process_agent_update", "get_agent_metadata"],
+            "category": "lifecycle"
+        },
+        "direct_resume_if_safe": {
+            "depends_on": ["get_agent_api_key"],
+            "related_to": ["request_dialectic_review", "get_governance_metrics"],
+            "category": "lifecycle"
+        },
+        "get_system_history": {
+            "depends_on": ["list_agents"],
+            "related_to": ["export_to_file", "get_governance_metrics", "observe_agent"],
+            "category": "export"
+        },
+        "export_to_file": {
+            "depends_on": ["get_system_history"],
+            "related_to": ["get_system_history"],
+            "category": "export"
+        },
+        "reset_monitor": {
+            "depends_on": ["list_agents"],
+            "related_to": ["process_agent_update"],
+            "category": "admin"
+        },
+        "get_server_info": {
+            "depends_on": [],
+            "related_to": ["health_check", "cleanup_stale_locks"],
+            "category": "admin"
+        },
+        "health_check": {
+            "depends_on": [],
+            "related_to": ["get_server_info", "get_telemetry_metrics"],
+            "category": "admin"
+        },
+        "check_calibration": {
+            "depends_on": ["update_calibration_ground_truth"],
+            "related_to": ["update_calibration_ground_truth"],
+            "category": "admin"
+        },
+        "update_calibration_ground_truth": {
+            "depends_on": [],
+            "related_to": ["check_calibration"],
+            "category": "admin"
+        },
+        "get_telemetry_metrics": {
+            "depends_on": [],
+            "related_to": ["health_check", "aggregate_metrics"],
+            "category": "admin"
+        },
+        "get_tool_usage_stats": {
+            "depends_on": [],
+            "related_to": ["get_telemetry_metrics", "list_tools"],
+            "category": "admin"
+        },
+        "get_workspace_health": {
+            "depends_on": [],
+            "related_to": ["health_check", "get_server_info"],
+            "category": "workspace"
+        },
+        # Knowledge layer relationships REMOVED (archived November 28, 2025)
+        "request_dialectic_review": {
+            "depends_on": ["get_agent_api_key"],
+            "related_to": ["submit_thesis", "get_dialectic_session"],
+            "category": "dialectic"
+        },
+        "submit_thesis": {
+            "depends_on": ["request_dialectic_review"],
+            "related_to": ["submit_antithesis", "get_dialectic_session"],
+            "category": "dialectic"
+        },
+        "submit_antithesis": {
+            "depends_on": ["submit_thesis"],
+            "related_to": ["submit_synthesis", "get_dialectic_session"],
+            "category": "dialectic"
+        },
+        "submit_synthesis": {
+            "depends_on": ["submit_antithesis"],
+            "related_to": ["get_dialectic_session", "request_dialectic_review"],
+            "category": "dialectic"
+        },
+        "get_dialectic_session": {
+            "depends_on": ["request_dialectic_review"],
+            "related_to": ["submit_thesis", "submit_antithesis", "submit_synthesis"],
+            "category": "dialectic"
+        },
+        "self_recovery": {
+            "depends_on": ["get_agent_api_key"],
+            "related_to": ["request_dialectic_review", "smart_dialectic_review"],
+            "category": "dialectic"
+        },
+        "smart_dialectic_review": {
+            "depends_on": ["get_agent_api_key"],
+            "related_to": ["request_dialectic_review", "self_recovery"],
+            "category": "dialectic"
+        },
+        "cleanup_stale_locks": {
+            "depends_on": [],
+            "related_to": ["get_server_info"],
+            "category": "admin"
+        },
+        "list_tools": {
+            "depends_on": [],
+            "related_to": [],
+            "category": "admin"
+        }
+    }
+    
+    # Define common workflows
+    workflows = {
+        "onboarding": [
+            "list_tools",
+            "get_agent_api_key",
+            "list_agents",
+            "process_agent_update"
+        ],
+        "monitoring": [
+            "list_agents",
+            "get_governance_metrics",
+            "observe_agent",
+            "aggregate_metrics",
+            "detect_anomalies"
+        ],
+        "governance_cycle": [
+            "get_agent_api_key",
+            "process_agent_update",
+            "get_governance_metrics"
+        ],
+        # Knowledge layer REMOVED (archived November 28, 2025)
+        "dialectic_recovery": [
+            "request_dialectic_review",
+            "submit_thesis",
+            "submit_antithesis",
+            "submit_synthesis",
+            "get_dialectic_session"
+        ],
+        "export_analysis": [
+            "get_system_history",
+            "export_to_file"
+        ]
+    }
+    
+    # Build tools list dynamically from registered tools
+    # Description mapping for tools (fallback to generic if not found)
+    tool_descriptions = {
+        "process_agent_update": "Run governance cycle, return decision + metrics",
+        "get_governance_metrics": "Current state, sampling params, decision stats, stability",
+        "simulate_update": "Dry-run governance cycle (no persist)",
+        "get_thresholds": "View current threshold config",
+        "set_thresholds": "Runtime threshold overrides",
+        "observe_agent": "Observe agent state with pattern analysis",
+        "compare_agents": "Compare patterns across multiple agents",
+        "detect_anomalies": "Scan for unusual patterns across fleet",
+        "aggregate_metrics": "Fleet-level health overview",
+        "list_agents": "List all agents with lifecycle metadata",
+        "get_agent_metadata": "Full metadata for single agent",
+        "update_agent_metadata": "Update tags and notes",
+        "archive_agent": "Archive for long-term storage",
+        "delete_agent": "Delete agent (protected for pioneers)",
+        "archive_old_test_agents": "Auto-archive stale test agents",
+        "get_agent_api_key": "Get/generate API key for authentication",
+        "mark_response_complete": "Mark agent as having completed response, waiting for input",
+        "direct_resume_if_safe": "Direct resume without dialectic if agent state is safe",
+        "get_system_history": "Export time-series history (inline)",
+        "export_to_file": "Export history to JSON/CSV file",
+        "reset_monitor": "Reset agent state",
+        "get_server_info": "Server version, PID, uptime, health",
+        # Knowledge layer descriptions REMOVED (archived November 28, 2025)
+        # Knowledge Graph (New - Fast, indexed, transparent)
+        "store_knowledge_graph": "Store knowledge discovery in graph (fast, non-blocking)",
+        "search_knowledge_graph": "Search knowledge graph by tags, type, agent (indexed queries)",
+        "get_knowledge_graph": "Get all knowledge for an agent (fast index lookup)",
+        "list_knowledge_graph": "List knowledge graph statistics (full transparency)",
+        "update_discovery_status_graph": "Update discovery status (open/resolved/archived)",
+        "find_similar_discoveries_graph": "Find similar discoveries by tag overlap (fast tag-based search)",
+        "list_tools": "This tool - runtime introspection for onboarding",
+        "cleanup_stale_locks": "Clean up stale lock files from crashed/killed processes",
+        "request_dialectic_review": "Request peer review for paused/critical agent (circuit breaker recovery)",
+        "submit_thesis": "Submit thesis: 'What I did, what I think happened' (dialectic step 1)",
+        "submit_antithesis": "Submit antithesis: 'What I observe, my concerns' (dialectic step 2)",
+        "submit_synthesis": "Submit synthesis proposal during negotiation (dialectic step 3)",
+        "get_dialectic_session": "Get current state of a dialectic session",
+        "self_recovery": "Allow agent to recover without reviewer (for when no reviewers available)",
+        "smart_dialectic_review": "Smart dialectic that auto-progresses when possible",
+        "health_check": "Quick health check - system status and component health",
+        "check_calibration": "Check calibration of confidence estimates",
+        "update_calibration_ground_truth": "Update calibration with ground truth data",
+        "get_telemetry_metrics": "Get comprehensive telemetry metrics",
+        "get_workspace_health": "Get comprehensive workspace health status",
+        "get_tool_usage_stats": "Get tool usage statistics to identify which tools are actually used vs unused",
+    }
+    
+    # Build tools list from registered tools with metadata from decorators
+    from .decorators import get_tool_timeout, get_tool_description
+    tools_list = []
+    for tool_name in registered_tool_names:
+        tool_info = {
+            "name": tool_name,
+            "description": tool_descriptions.get(tool_name, get_tool_description(tool_name) or f"Tool: {tool_name}")
+        }
+        # Add timeout metadata if available from decorator
+        timeout = get_tool_timeout(tool_name)
+        if timeout:
+            tool_info["timeout"] = timeout
+        # Add category from relationships if available
+        if tool_name in tool_relationships:
+            tool_info["category"] = tool_relationships[tool_name].get("category", "unknown")
+        tools_list.append(tool_info)
+    
     tools_info = {
         "success": True,
         "server_version": mcp_server.SERVER_VERSION,
-        "tools": [
-            {"name": "process_agent_update", "description": "Run governance cycle, return decision + metrics"},
-            {"name": "get_governance_metrics", "description": "Current state, sampling params, decision stats, stability"},
-            {"name": "simulate_update", "description": "Dry-run governance cycle (no persist)"},
-            {"name": "get_thresholds", "description": "View current threshold config"},
-            {"name": "set_thresholds", "description": "Runtime threshold overrides"},
-            {"name": "observe_agent", "description": "Observe agent state with pattern analysis"},
-            {"name": "compare_agents", "description": "Compare patterns across multiple agents"},
-            {"name": "detect_anomalies", "description": "Scan for unusual patterns across fleet"},
-            {"name": "aggregate_metrics", "description": "Fleet-level health overview"},
-            {"name": "list_agents", "description": "List all agents with lifecycle metadata"},
-            {"name": "get_agent_metadata", "description": "Full metadata for single agent"},
-            {"name": "update_agent_metadata", "description": "Update tags and notes"},
-            {"name": "archive_agent", "description": "Archive for long-term storage"},
-            {"name": "delete_agent", "description": "Delete agent (protected for pioneers)"},
-            {"name": "archive_old_test_agents", "description": "Auto-archive stale test agents"},
-            {"name": "get_agent_api_key", "description": "Get/generate API key for authentication"},
-            {"name": "get_system_history", "description": "Export time-series history (inline)"},
-            {"name": "export_to_file", "description": "Export history to JSON/CSV file"},
-            {"name": "reset_monitor", "description": "Reset agent state"},
-            {"name": "get_server_info", "description": "Server version, PID, uptime, health"},
-            {"name": "store_knowledge", "description": "Store knowledge (discovery, pattern, lesson, question)"},
-            {"name": "retrieve_knowledge", "description": "Retrieve agent's knowledge record"},
-            {"name": "search_knowledge", "description": "Search knowledge across agents with filters"},
-            {"name": "list_knowledge", "description": "List all stored knowledge (summary statistics)"},
-            {"name": "list_tools", "description": "This tool - runtime introspection for onboarding"},
-            {"name": "cleanup_stale_locks", "description": "Clean up stale lock files from crashed/killed processes"},
-            {"name": "request_dialectic_review", "description": "Request peer review for paused/critical agent (circuit breaker recovery)"},
-            {"name": "submit_thesis", "description": "Submit thesis: 'What I did, what I think happened' (dialectic step 1)"},
-            {"name": "submit_antithesis", "description": "Submit antithesis: 'What I observe, my concerns' (dialectic step 2)"},
-            {"name": "submit_synthesis", "description": "Submit synthesis proposal during negotiation (dialectic step 3)"},
-            {"name": "get_dialectic_session", "description": "Get current state of a dialectic session"},
-        ],
+        "tools": tools_list,
         "categories": {
             "core": ["process_agent_update", "get_governance_metrics", "simulate_update"],
             "config": ["get_thresholds", "set_thresholds"],
             "observability": ["observe_agent", "compare_agents", "detect_anomalies", "aggregate_metrics"],
-            "lifecycle": ["list_agents", "get_agent_metadata", "update_agent_metadata", "archive_agent", "delete_agent", "archive_old_test_agents", "get_agent_api_key"],
+            "lifecycle": ["list_agents", "get_agent_metadata", "update_agent_metadata", "archive_agent", "delete_agent", "archive_old_test_agents", "get_agent_api_key", "mark_response_complete", "direct_resume_if_safe"],
             "export": ["get_system_history", "export_to_file"],
-            "knowledge": ["store_knowledge", "retrieve_knowledge", "search_knowledge", "list_knowledge"],
-            "dialectic": ["request_dialectic_review", "submit_thesis", "submit_antithesis", "submit_synthesis", "get_dialectic_session"],
-            "admin": ["reset_monitor", "get_server_info", "health_check", "check_calibration", "update_calibration_ground_truth", "get_telemetry_metrics", "list_tools", "cleanup_stale_locks"]
+            # Knowledge layer REMOVED (archived November 28, 2025) - was causing agent unresponsiveness
+            "dialectic": ["request_dialectic_review", "submit_thesis", "submit_antithesis", "submit_synthesis", "get_dialectic_session", "self_recovery", "smart_dialectic_review"],
+            "admin": ["reset_monitor", "get_server_info", "health_check", "check_calibration", "update_calibration_ground_truth", "get_telemetry_metrics", "get_tool_usage_stats", "list_tools", "cleanup_stale_locks"],
+            "workspace": ["get_workspace_health"]
         },
-        "total_tools": 31,
+        "workflows": workflows,
+        "relationships": tool_relationships,
         "note": "Use this tool to discover available capabilities. MCP protocol also provides tool definitions, but this provides categorized overview useful for onboarding."
     }
     
+    # Calculate total_tools dynamically to avoid discrepancies
+    tools_info["total_tools"] = len(tools_info["tools"])
+    
     return success_response(tools_info)
+
+
+@mcp_tool("get_workspace_health", timeout=30.0, rate_limit_exempt=True)
+async def handle_get_workspace_health(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """Handle get_workspace_health tool - comprehensive workspace health status"""
+    from src.workspace_health import get_workspace_health
+    
+    try:
+        health_data = get_workspace_health()
+        return success_response(health_data)
+    except Exception as e:
+        import traceback
+        import sys
+        # SECURITY: Log full traceback internally but sanitize for client
+        print(f"[UNITARES MCP] Error checking workspace health: {e}", file=sys.stderr)
+        print(f"[UNITARES MCP] Full traceback:\n{traceback.format_exc()}", file=sys.stderr)
+        return [error_response(
+            f"Error checking workspace health: {str(e)}",
+            recovery={
+                "action": "Check system configuration and try again",
+                "related_tools": ["health_check", "get_server_info"]
+            }
+        )]

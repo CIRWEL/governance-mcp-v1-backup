@@ -187,6 +187,11 @@ class CalibrationChecker:
         
         This allows calibration to work properly by updating actual_correct
         after the fact (e.g., after human review determines if decision was correct).
+        
+        IMPORTANT: Each call to update_ground_truth represents a NEW prediction.
+        If you're updating ground truth for a prediction that was already recorded
+        via record_prediction(), you should track that separately. This method
+        will always increment count to ensure proper accounting.
         """
         # Find the bin
         bin_key = None
@@ -200,17 +205,30 @@ class CalibrationChecker:
         
         stats = self.bin_stats[bin_key]
         
+        # Always record this as a new prediction
+        # This ensures count tracks all predictions, even if record_prediction wasn't called
+        stats['count'] += 1
+        stats['confidence_sum'] += confidence
+        if predicted_correct:
+            stats['predicted_correct'] += 1
+        
         # Update actual correctness
         if actual_correct:
             stats['actual_correct'] += 1
-        # Note: We don't decrement if actual_correct=False because we're adding
-        # new ground truth data, not correcting existing data
+        # Note: We don't increment actual_correct if actual_correct=False because
+        # we're tracking how many were actually correct, not total ground truth updates
+        
+        # Ensure actual_correct never exceeds count (safety check)
+        if stats['actual_correct'] > stats['count']:
+            stats['actual_correct'] = stats['count']
     
     def get_pending_updates(self) -> int:
         """Get count of predictions waiting for ground truth"""
         total_predictions = sum(s['count'] for s in self.bin_stats.values())
         total_ground_truth = sum(s['actual_correct'] for s in self.bin_stats.values())
-        return total_predictions - total_ground_truth
+        pending = total_predictions - total_ground_truth
+        # Ensure pending_updates never goes negative (safety check)
+        return max(0, pending)
     
     def save_state(self):
         """Save calibration state to file"""

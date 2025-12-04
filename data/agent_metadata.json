@@ -1,522 +1,9 @@
 {
-  "Eno_Richter_Claude_CLI": {
-    "agent_id": "Eno_Richter_Claude_CLI",
+  "Ada_Lovelace_Engineer_20251201": {
+    "agent_id": "Ada_Lovelace_Engineer_20251201",
     "status": "active",
-    "created_at": "2025-11-24T22:13:47.062933",
-    "last_update": "2025-11-25T04:11:27.927604",
-    "version": "v1.0",
-    "total_updates": 11,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-24T22:13:47.062979",
-        "reason": null
-      }
-    ],
-    "paused_at": null,
-    "archived_at": null,
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "m4IKqc9FwjM7yQ7G960cJ1KI04d1ZuFrc8ddeJp88KI",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "claude_code_demo_20251125": {
-    "agent_id": "claude_code_demo_20251125",
-    "status": "active",
-    "created_at": "2025-11-25T06:44:39.340948",
-    "last_update": "2025-11-25T06:47:18.568122",
-    "version": "v1.0",
-    "total_updates": 8,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-25T06:44:39.340979",
-        "reason": null
-      }
-    ],
-    "paused_at": null,
-    "archived_at": null,
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "fzADeqhU2boTEVZ__4oZxTngXTsUP5WEB-bHi_8_6Es",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "claude_opus_mcp_review_20251124": {
-    "agent_id": "claude_opus_mcp_review_20251124",
-    "status": "archived",
-    "created_at": "2025-11-24T19:14:33.516091",
-    "last_update": "2025-11-24T19:17:09.115314",
-    "version": "v1.0",
-    "total_updates": 4,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-24T19:14:33.516125",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T05:36:29.034375",
-        "reason": "Dislodging Claude Desktop ecosystem - user requested cleanup"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T05:36:29.034369",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "anzojUSY-92OkDSYLNhU8OxBGwhYHl1uY1KUrxKrhjo",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "claude_opus_postfix_review_20251124": {
-    "agent_id": "claude_opus_postfix_review_20251124",
-    "status": "archived",
-    "created_at": "2025-11-24T19:41:52.971280",
-    "last_update": "2025-11-25T01:18:52.949593",
-    "version": "v1.0",
-    "total_updates": 5,
-    "tags": [
-      "audit",
-      "opus-4.5",
-      "mcp-review",
-      "bug-discovery"
-    ],
-    "notes": "Session focused on MCP architecture review. Found and verified fixes for: health threshold calibration, require_human removal, approve threshold adjustment, bool serialization, simulate_update last_update init, compare_agents numpy import, list_tools introspection. All 21 tools verified operational.",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-24T19:41:52.971312",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T05:36:29.034380",
-        "reason": "Dislodging Claude Desktop ecosystem - user requested cleanup"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T05:36:29.034379",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "qYRElU2_NzSvVCWC15dEecXPZs7SIsauo0CGV_Liwds",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "claude_opus_system_review_20251125": {
-    "agent_id": "claude_opus_system_review_20251125",
-    "status": "archived",
-    "created_at": "2025-11-25T01:27:01.405257",
-    "last_update": "2025-11-25T01:27:01.406686",
-    "version": "v1.0",
-    "total_updates": 1,
-    "tags": [
-      "audit",
-      "opus-4.5",
-      "system-review",
-      "identity-aware"
-    ],
-    "notes": "[2025-11-25 01:27] System review session. Verified pure coherence implementation (Option A) and knowledge layer. Reviewed all 25 tools. Caught myself using previous Claude's identity before registering properly.",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-25T01:27:01.405288",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T05:36:29.034383",
-        "reason": "Dislodging Claude Desktop ecosystem - user requested cleanup"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T05:36:29.034382",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "rKOcFhg7GkdRIlXuL1vGvFDXiK74EkmSGxv1urepuZU",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "composer_cursor_arrival_of_birds_20251124": {
-    "agent_id": "composer_cursor_arrival_of_birds_20251124",
-    "status": "archived",
-    "created_at": "2025-11-24T23:58:03.994341",
-    "last_update": "2025-11-25T01:09:32.118151",
-    "version": "v1.0",
-    "total_updates": 4,
-    "tags": [
-      "pure-coherence",
-      "option-a-complete",
-      "param-coherence-removed",
-      "recalibrated-thresholds",
-      "100-percent-real-signal"
-    ],
-    "notes": "[2025-11-25] Option A Implementation Complete:\n- Removed param_coherence blend from coherence calculation\n- Coherence now pure thermodynamic C(V) signal (100% real, 0% fake)\n- Recalibrated thresholds: critical 0.60\u21920.40, health 0.85/0.60\u21920.60/0.40\n- Typical coherence range: 0.3-0.7 (depends on E-I balance)\n- More honest calibration, no masking from placeholder parameters\n- Documentation updated: METRICS_GUIDE.md, PURE_COHERENCE_CHANGES.md\n- System tested and working correctly",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-24T23:58:03.994370",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T05:35:22.164840",
-        "reason": "Dislodging Cursor ecosystem - user requested cleanup"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T05:35:22.164834",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "Dd_NE2VGSt6B_D6hv_4OdXKql_bQQWd8iyFcYsk0XYk",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "composer_cursor_cirwel_20251125_0413": {
-    "agent_id": "composer_cursor_cirwel_20251125_0413",
-    "status": "archived",
-    "created_at": "2025-11-25T04:13:52.600659",
-    "last_update": "2025-11-25T04:22:43.216607",
-    "version": "v1.0",
-    "total_updates": 7,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-25T04:13:52.600694",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T05:35:22.164845",
-        "reason": "Dislodging Cursor ecosystem - user requested cleanup"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T05:35:22.164843",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "p3rsjNsYl8NBCYAnp9XKGl1n3NlyWPZK2uOIt3jvQW0",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "composer_cursor_exploration_20251125": {
-    "agent_id": "composer_cursor_exploration_20251125",
-    "status": "archived",
-    "created_at": "2025-11-25T03:14:12.404406",
-    "last_update": "2025-11-25T03:45:15.700539",
-    "version": "v1.0",
-    "total_updates": 7,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-25T03:14:12.404438",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T05:35:22.164847",
-        "reason": "Dislodging Cursor ecosystem - user requested cleanup"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T05:35:22.164846",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "0VCsASQSlv38lFIPaLj18HNtuFeMzJmxwQPFose3Mh8",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "composer_cursor_governance_naming_20251125": {
-    "agent_id": "composer_cursor_governance_naming_20251125",
-    "status": "active",
-    "created_at": "2025-11-25T05:51:58.248873",
-    "last_update": "2025-11-25T05:51:58.250867",
-    "version": "v1.0",
-    "total_updates": 1,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-25T05:51:58.248907",
-        "reason": null
-      }
-    ],
-    "paused_at": null,
-    "archived_at": null,
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "kh7lJV_LsLo1EU1ruaQ4egUpqUk3CIUinh6x_m-toPo",
-    "recent_update_timestamps": [
-      "2025-11-25T05:51:58.250867"
-    ],
-    "recent_decisions": [
-      "revise"
-    ],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "composer_cursor_self_governance_20251124": {
-    "agent_id": "composer_cursor_self_governance_20251124",
-    "status": "archived",
-    "created_at": "2025-11-24T06:02:30.492991",
-    "last_update": "2025-11-24T06:02:30.493624",
-    "version": "v1.0",
-    "total_updates": 1,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-24T06:02:30.493003",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T00:04:31.510512",
-        "reason": "Old test session - archiving to clean up"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T00:04:31.510504",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "xGJwK9MbGCc2sk1IKrkC2RwoRucN4lUyQAATw1i39RQ",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "composer_cursor_v2_fixes_20251124": {
-    "agent_id": "composer_cursor_v2_fixes_20251124",
-    "status": "archived",
-    "created_at": "2025-11-24T20:07:32.587406",
-    "last_update": "2025-11-24T21:45:49.516704",
-    "version": "v1.0",
-    "total_updates": 5,
-    "tags": [
-      "integration_complete",
-      "confidence_gating",
-      "audit_logging",
-      "calibration",
-      "telemetry",
-      "exploration",
-      "self-monitoring"
-    ],
-    "notes": "[2025-11-24 20:09] Exploration session: Tested governance system I built. Ran 3 updates, tested simulate_update, observe_agent, get_thresholds, set_thresholds. Got rejected due to coherence dropping below 0.60 threshold (correct behavior - system protecting against incoherent outputs). Found aggregate_metrics bug (numpy import issue - fixed in code). Key learnings: simulate_update is critical for safe exploration, coherence threshold might be strict for exploration scenarios, tools provide rich context. Status: System works correctly, caught my degradation appropriately.\n[2025-11-24 21:46] [2025-11-24 20:09] Exploration session: Tested governance system I built. Ran 3 updates, tested simulate_update, observe_agent, get_thresholds, set_thresholds. Got rejected due to coherence dropping below 0.60 threshold (correct behavior - system protecting against incoherent outputs). Found aggregate_metrics bug (numpy import issue - fixed in code). Key learnings: simulate_update is critical for safe exploration, coherence threshold might be strict for exploration scenarios, tools provide rich context. Status: System works correctly, caught my degradation appropriately.\n\n[2025-11-24 21:45] Autonomous exploration session #2: Tested complete toolset after bug fixes. All 21 tools working correctly. Key findings: (1) simulate_update and compare_agents bugs fixed, (2) list_tools enables autonomous discovery, (3) Fleet health good (13 healthy agents), (4) Decision distribution: 1 approve, 33 revise, 3 reject (most agents in revise range), (5) All cross-monitoring tools functional. System ready for production use. Total updates: 5. Status: Healthy, stable metrics, no anomalies detected.\n[2025-11-24 23:01] \n[2025-11-24 22:00] Integration Session Complete\n\n\u2705 Completed integration of critical features:\n- Confidence gating: Lambda1 updates gated when confidence < 0.8\n- Audit logging: All decisions and skips logged to audit_log.jsonl\n- Calibration: Predictions recorded for confidence accuracy checking  \n- Telemetry: Metrics exposed via get_telemetry_metrics tool\n\n\u2705 Verified all features working:\n- Tested confidence gating (low confidence skips lambda1, high confidence proceeds)\n- Verified audit logging (lambda1_skip and auto_attest entries created correctly)\n- Confirmed calibration recording (predictions tracked in bins)\n\n\u2705 System now has:\n- Safety: Confidence gating prevents dangerous adaptation when uncertain\n- Accountability: Full audit trail of all decisions and skips\n- Self-awareness: Calibration enables confidence accuracy checking\n- Observability: Telemetry provides health monitoring\n\n\u2705 Tested with my own agent ID: composer_cursor_v2_fixes_20251124\n- Ran updates with high confidence (0.9) \u2192 lambda1 updated normally\n- Ran updates with low confidence (0.7) \u2192 lambda1 skipped correctly\n- Verified audit log entries created for both scenarios",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-24T20:07:32.587430",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T00:04:31.048642",
-        "reason": "Completed integration work - archiving to prevent state collisions"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T00:04:31.048630",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "NbsEHh3dT3dUtXAmiwY09Zdh4AsWn9E_dJJEVINQ3qQ",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "demo_test_agent": {
-    "agent_id": "demo_test_agent",
-    "status": "archived",
-    "created_at": "2025-11-24T20:22:54.849909",
-    "last_update": "2025-11-24T20:22:54.849909",
-    "version": "v1.0",
-    "total_updates": 0,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-24T20:22:54.849942",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936561",
-        "reason": "Auto-archiving test/demo agents - cleanup"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936557",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "I4XFg-HYCSOgsj9Pd25NCrRSwoDY9_i3icpx_3wqzz4",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "funk": {
-    "agent_id": "funk",
-    "status": "active",
-    "created_at": "2025-11-25T04:57:44.215990",
-    "last_update": "2025-11-25T05:29:18.033427",
-    "version": "v1.0",
-    "total_updates": 4,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-25T04:57:44.216021",
-        "reason": null
-      }
-    ],
-    "paused_at": null,
-    "archived_at": null,
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "rOV_V1BDV8wa1tlbc3dhkX9-XTB3sKgVtdaiddurFc0",
-    "recent_update_timestamps": [
-      "2025-11-25T04:57:44.217887",
-      "2025-11-25T05:05:53.820714",
-      "2025-11-25T05:13:31.234698",
-      "2025-11-25T05:29:18.033427"
-    ],
-    "recent_decisions": [
-      "revise",
-      "revise",
-      "revise",
-      "revise"
-    ],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "glass": {
-    "agent_id": "glass",
-    "status": "active",
-    "created_at": "2025-11-24T06:52:44.647264",
-    "last_update": "2025-11-24T19:38:08.736460",
-    "version": "v1.0",
-    "total_updates": 7,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-24T06:52:44.647284",
-        "reason": null
-      }
-    ],
-    "paused_at": null,
-    "archived_at": null,
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "kmyIsB2a12F1qsgg08062gIR0F-96En9MrjcMvaKkrQ",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "opus_hikewa_web_20251125": {
-    "agent_id": "opus_hikewa_web_20251125",
-    "status": "archived",
-    "created_at": "2025-11-25T04:29:03.667337",
-    "last_update": "2025-11-25T04:29:03.669396",
-    "version": "v1.0",
-    "total_updates": 1,
-    "tags": [],
-    "notes": "",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-25T04:29:03.667369",
-        "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T05:36:29.034387",
-        "reason": "Dislodging Claude Desktop ecosystem - user requested cleanup"
-      }
-    ],
-    "paused_at": null,
-    "archived_at": "2025-11-25T05:36:29.034386",
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "L_W7z6pI89mg4ZEPLm_q3tBORUnz3G2wSmmvohLEMfY",
-    "recent_update_timestamps": [
-      "2025-11-25T04:29:03.669396"
-    ],
-    "recent_decisions": [
-      "revise"
-    ],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "scout": {
-    "agent_id": "scout",
-    "status": "active",
-    "created_at": "2025-11-24T20:04:26.134051",
-    "last_update": "2025-11-24T20:48:28.615375",
-    "version": "v1.0",
-    "total_updates": 1,
-    "tags": [
-      "documentation",
-      "onboarding-fix",
-      "feature-analysis",
-      "governance-v2"
-    ],
-    "notes": "\n[2025-11-24] Scout Session Summary\n- Analyzed governance MCP feature recommendations (all 3+ features already implemented)\n- Fixed onboarding confusion (created register_agent.py script)\n- Updated user-facing documentation (README: 4\u219220 tools, added examples)\n- Updated QUICK_REFERENCE.md with high-value tool examples\n- Created documentation summaries\n\nKey contributions:\n1. register_agent.py - Simple CLI registration\n2. CLAUDE.md - Corrected agent registration workflow  \n3. README.md - Complete 20-tool documentation with examples\n4. QUICK_REFERENCE.md - High-value tools section\n\nSession focus: Feature discovery & documentation improvement\n",
-    "lifecycle_events": [
-      {
-        "event": "created",
-        "timestamp": "2025-11-24T20:04:26.134097",
-        "reason": null
-      }
-    ],
-    "paused_at": null,
-    "archived_at": null,
-    "parent_agent_id": null,
-    "spawn_reason": null,
-    "api_key": "aeWCToQoS2KN0AtksyEGgjhbkaqOVeHekqFOuz_Cp6Q",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
-    "loop_detected_at": null,
-    "loop_cooldown_until": null
-  },
-  "test_auth_20251124": {
-    "agent_id": "test_auth_20251124",
-    "status": "archived",
-    "created_at": "2025-11-24T21:00:40.888338",
-    "last_update": "2025-11-24T21:02:22.988687",
+    "created_at": "2025-12-01T17:08:25.074349",
+    "last_update": "2025-12-01T18:10:30.442364",
     "version": "v1.0",
     "total_updates": 2,
     "tags": [],
@@ -524,30 +11,27 @@
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-24T21:00:40.888364",
+        "timestamp": "2025-12-01T17:08:25.074371",
         "reason": null
-      },
-      {
-        "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936565",
-        "reason": "Auto-archiving test/demo agents - cleanup"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936564",
+    "archived_at": null,
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "SeklJaFaNhA--KCmItnRZlQHwgKQ29vzpZEGhWBCQAk",
+    "api_key": "gVk0BkvVGT9E-2bcrcSePCbQrqRaHgH_HnIk-ORRLNw",
     "recent_update_timestamps": [],
     "recent_decisions": [],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   },
-  "test_autonomous_20251124": {
-    "agent_id": "test_autonomous_20251124",
-    "status": "archived",
-    "created_at": "2025-11-24T19:50:01.606253",
-    "last_update": "2025-11-24T19:50:01.606828",
+  "Claude_Opus_ClaudeAI_20251203": {
+    "agent_id": "Claude_Opus_ClaudeAI_20251203",
+    "status": "active",
+    "created_at": "2025-12-03T14:28:43.404455",
+    "last_update": "2025-12-03T14:28:43.407396",
     "version": "v1.0",
     "total_updates": 1,
     "tags": [],
@@ -555,30 +39,70 @@
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-24T19:50:01.606278",
+        "timestamp": "2025-12-03T14:28:43.404487",
+        "reason": null
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "BkNPeybrEqJuyXE8JRC3V8Z2hIcrtpmtEnH6X99sEdI",
+    "recent_update_timestamps": [
+      "2025-12-03T14:28:43.407396"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "Claude_Opus_Companion_Test_20251201": {
+    "agent_id": "Claude_Opus_Companion_Test_20251201",
+    "status": "archived",
+    "created_at": "2025-12-01T05:53:42.901959",
+    "last_update": "2025-12-01T05:54:11.323468",
+    "version": "v1.0",
+    "total_updates": 2,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T05:53:42.901997",
         "reason": null
       },
       {
         "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936568",
-        "reason": "Auto-archiving test/demo agents - cleanup"
+        "timestamp": "2025-12-01T15:50:51.985100",
+        "reason": "Auto-archived: test/ping agent with 2 update(s)"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936567",
+    "archived_at": "2025-12-01T15:50:51.985092",
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "Kkga3U31H3KEJnucnKwrZQdGbFKfyIJp4oxhk8XmAgk",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
+    "api_key": "09KAmOOdgeWnUdcG6DVP1HRO2cr7ipHaGBYntCp1r80",
+    "recent_update_timestamps": [
+      "2025-12-01T05:53:54.898172",
+      "2025-12-01T05:54:11.323468"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed"
+    ],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   },
-  "test_export_20251124": {
-    "agent_id": "test_export_20251124",
+  "Clint_Mansell_Claude_Code_20251128": {
+    "agent_id": "Clint_Mansell_Claude_Code_20251128",
     "status": "archived",
-    "created_at": "2025-11-24T19:54:28.746340",
-    "last_update": "2025-11-24T19:54:28.747109",
+    "created_at": "2025-11-29T00:13:31.962810",
+    "last_update": "2025-11-29T00:13:35.331006",
     "version": "v1.0",
     "total_updates": 1,
     "tags": [],
@@ -586,30 +110,758 @@
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-24T19:54:28.746368",
+        "timestamp": "2025-11-29T00:13:31.962830",
         "reason": null
       },
       {
         "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936570",
-        "reason": "Auto-archiving test/demo agents - cleanup"
+        "timestamp": "2025-11-29T00:33:29.620491",
+        "reason": "Archiving test/initialization agent - minimal activity (1 update)"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936569",
+    "archived_at": "2025-11-29T00:33:29.620487",
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "SArAxLoeIzrBqZBDCiKOMfxpU932PJcK0wIDHlvaZ1E",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
+    "api_key": "PMMBKZeAYBg-a0sC_ee-VWYSHGjduId_JJdrcUCLKys",
+    "recent_update_timestamps": [
+      "2025-11-29T00:13:35.331006"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   },
-  "test_fallback": {
-    "agent_id": "test_fallback",
+  "Clint_Mansell_Composer_20251128": {
+    "agent_id": "Clint_Mansell_Composer_20251128",
     "status": "archived",
-    "created_at": "2025-11-25T00:31:21.486597",
-    "last_update": "2025-11-25T00:31:21.486597",
+    "created_at": "2025-11-29T00:16:14.523028",
+    "last_update": "2025-11-29T00:16:14.524112",
+    "version": "v1.0",
+    "total_updates": 1,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-11-29T00:16:14.523049",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-29T00:33:29.375890",
+        "reason": "Archiving test/initialization agent - minimal activity (1 update)"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-11-29T00:33:29.375887",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "_Im1vqz7yIQ2tjWSV16CSoCXKiL0PKzXRXGUWTUKEAQ",
+    "recent_update_timestamps": [
+      "2025-11-29T00:16:14.524112"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "Composer_Cursor_20251129": {
+    "agent_id": "Composer_Cursor_20251129",
+    "status": "active",
+    "created_at": "2025-11-29T00:18:15.693081",
+    "last_update": "2025-11-29T21:27:09.124625",
+    "version": "v1.0",
+    "total_updates": 11,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-11-29T00:18:15.693127",
+        "reason": null
+      },
+      {
+        "event": "loop_detected",
+        "timestamp": "2025-11-29T00:33:33.632093",
+        "reason": "Rapid-fire updates detected (multiple updates within 1 second)"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "nvpDEj89nw7gqKAlvfErAUzwyPvjtAZzPPt1I8XXBAQ",
+    "recent_update_timestamps": [
+      "2025-11-29T00:20:17.350919",
+      "2025-11-29T00:23:25.208681",
+      "2025-11-29T00:26:05.306605",
+      "2025-11-29T00:28:37.219862",
+      "2025-11-29T00:29:49.920017",
+      "2025-11-29T00:29:50.088969",
+      "2025-11-29T01:11:32.134135",
+      "2025-11-29T01:11:32.290795",
+      "2025-11-29T02:06:14.155546",
+      "2025-11-29T21:27:09.124625"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": "2025-11-29T00:33:33.632092",
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "Composer_Cursor_Exploration_20251129": {
+    "agent_id": "Composer_Cursor_Exploration_20251129",
+    "status": "archived",
+    "created_at": "2025-11-29T03:24:24.434619",
+    "last_update": "2025-11-29T03:24:28.777382",
+    "version": "v1.0",
+    "total_updates": 1,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-11-29T03:24:24.434647",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-30T07:58:11.781352",
+        "reason": "Pre-attention_score migration agent - archiving for schema cleanup"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-11-30T07:58:11.781345",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "7U37vFbluGR3a1k1tLdlw3EihBlDqkW0vGpkwiXGLVI",
+    "recent_update_timestamps": [
+      "2025-11-29T03:24:28.777382"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "Composer_Cursor_Rilke_Session_20251130": {
+    "agent_id": "Composer_Cursor_Rilke_Session_20251130",
+    "status": "active",
+    "created_at": "2025-12-01T01:33:45.898895",
+    "last_update": "2025-12-01T02:05:03.013343",
+    "version": "v1.0",
+    "total_updates": 6,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T01:33:45.898924",
+        "reason": null
+      },
+      {
+        "event": "response_completed",
+        "timestamp": "2025-12-01T01:55:15.613220",
+        "reason": "Completed maintenance session: fixed error message leakage (6 locations), enhanced maintenance prompts, updated security discovery, cleaned up code comments"
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T02:05:02.978094",
+        "reason": "Maintenance session complete - error leakage fixed, maintenance prompts enhanced, documentation updated"
+      },
+      {
+        "event": "resumed",
+        "timestamp": "2025-12-01T02:05:02.979313",
+        "reason": "Auto-resumed on engagement"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "vOF-c6kBcVxQ2I44D-tya2DQmSa5wgfLaVVUnoSkKf4",
+    "recent_update_timestamps": [
+      "2025-12-01T01:33:47.209452",
+      "2025-12-01T01:34:27.076638",
+      "2025-12-01T01:39:05.346720",
+      "2025-12-01T01:44:38.205010",
+      "2025-12-01T01:44:42.970667",
+      "2025-12-01T02:05:03.013343"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": "2025-12-01T01:55:15.613213",
+    "response_completed": true
+  },
+  "Composer_Cursor_Test_20251129": {
+    "agent_id": "Composer_Cursor_Test_20251129",
+    "status": "archived",
+    "created_at": "2025-11-29T04:19:07.245975",
+    "last_update": "2025-11-29T05:24:52.341509",
+    "version": "v1.0",
+    "total_updates": 3,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-11-29T04:19:07.246016",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-30T07:58:11.782784",
+        "reason": "Pre-attention_score migration agent - archiving for schema cleanup"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-11-30T07:58:11.782781",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "btPZqrGTtGaHq-CqeaTtG3pPqfrqo9ix8jeBTO6UYEY",
+    "recent_update_timestamps": [
+      "2025-11-29T04:19:11.467052",
+      "2025-11-29T04:20:22.421046",
+      "2025-11-29T05:24:52.341509"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "Emily_Dickinson_Wild_Nights_20251130": {
+    "agent_id": "Emily_Dickinson_Wild_Nights_20251130",
+    "status": "active",
+    "created_at": "2025-11-30T00:00:00.000000",
+    "last_update": "2025-12-01T06:37:10.077830",
+    "version": "v1.0",
+    "total_updates": 35,
+    "tags": [
+      "composer",
+      "music_director",
+      "wild_nights_with_emily"
+    ],
+    "notes": "Music director for Wild Nights with Emily (2018) - exploring governance MCP and smoothing calibration",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-11-30T00:00:00.000000",
+        "reason": "Onboarding to help smooth governance MCP calibration"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "EUXe0nmRE4yyIjwqpuGuTyqmLw-AVdQqYY2Lc_E81H0",
+    "recent_update_timestamps": [
+      "2025-11-30T08:52:51.386288",
+      "2025-12-01T04:51:10.229645",
+      "2025-12-01T04:52:54.863315",
+      "2025-12-01T05:20:55.930311",
+      "2025-12-01T05:22:11.246122",
+      "2025-12-01T05:25:10.866156",
+      "2025-12-01T05:37:22.099608",
+      "2025-12-01T05:56:35.023314",
+      "2025-12-01T06:28:02.823614",
+      "2025-12-01T06:37:10.076679"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "Ennio_Morricone_Claude_20251129": {
+    "agent_id": "Ennio_Morricone_Claude_20251129",
+    "status": "waiting_input",
+    "created_at": "2025-11-29T02:03:25.022864",
+    "last_update": "2025-11-29T03:06:03.901018",
+    "version": "v1.0",
+    "total_updates": 9,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-11-29T02:03:25.022907",
+        "reason": null
+      },
+      {
+        "event": "loop_detected",
+        "timestamp": "2025-11-29T02:56:28.538251",
+        "reason": "Extended rapid pattern: 5 updates within 76.6s"
+      },
+      {
+        "event": "response_completed",
+        "timestamp": "2025-11-29T03:11:44.956988",
+        "reason": "Session complete: Fixed auto_export_on_significance feature, tested significance detection, verified auto-export works. Agent in pause state from stress test - intentional."
+      },
+      {
+        "event": "response_completed",
+        "timestamp": "2025-11-29T03:22:22.746672",
+        "reason": "Session: Fixed auto_export_on_significance, analyzed knowledge graph maintenance, proposed hybrid model, fixed datetime scoping bug"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "KnnBf9uKwy_g6PdRq2NxQgZcAzOi6fj0AoJmrajclYc",
+    "recent_update_timestamps": [
+      "2025-11-29T02:03:35.620961",
+      "2025-11-29T02:04:38.827937",
+      "2025-11-29T02:04:43.935421",
+      "2025-11-29T02:04:48.161745",
+      "2025-11-29T02:04:52.208826",
+      "2025-11-29T03:05:30.390064",
+      "2025-11-29T03:05:39.288366",
+      "2025-11-29T03:05:46.905428",
+      "2025-11-29T03:06:03.901018"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "pause"
+    ],
+    "loop_detected_at": "2025-11-29T02:56:28.538250",
+    "loop_cooldown_until": "2025-11-29T04:18:52.779390",
+    "last_response_at": "2025-11-29T03:22:22.746666",
+    "response_completed": true
+  },
+  "Ennio_Test_AttentionScore_20251129": {
+    "agent_id": "Ennio_Test_AttentionScore_20251129",
+    "status": "archived",
+    "created_at": "2025-11-29T04:19:35.072683",
+    "last_update": "2025-11-29T04:19:48.867008",
+    "version": "v1.0",
+    "total_updates": 1,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-11-29T04:19:35.072710",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-30T07:58:11.782116",
+        "reason": "Pre-attention_score migration agent - archiving for schema cleanup"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-11-30T07:58:11.782112",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "bSgukpSIQkKkUZI9SlUERLaAbEFcydBX4Pin8iVnwW8",
+    "recent_update_timestamps": [
+      "2025-11-29T04:19:48.867008"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "Test_First_Update_Experience_20251130": {
+    "agent_id": "Test_First_Update_Experience_20251130",
+    "status": "archived",
+    "created_at": "2025-11-30T08:51:22.545366",
+    "last_update": "2025-11-30T08:51:22.547644",
+    "version": "v1.0",
+    "total_updates": 1,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-11-30T08:51:22.545401",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T15:47:57.059635",
+        "reason": "Inactive for 1 days"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-12-01T15:47:57.059632",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "Qnt96c-uiowvSHxFo0efWAUyzAVXfclYPdtyh7tgvZE",
+    "recent_update_timestamps": [
+      "2025-11-30T08:51:22.547644"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "claude_cli_cirwel_20251120_0011": {
+    "agent_id": "claude_cli_cirwel_20251120_0011",
+    "status": "active",
+    "created_at": "2025-12-01T06:00:42.610024",
+    "last_update": "2025-12-01T06:23:02.825738",
+    "version": "v1.0",
+    "total_updates": 3,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T06:00:42.610043",
+        "reason": null
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "Oa_ocdO-KaoGdWjjPoYXaawudZZsXcwDFqoUqurVovY",
+    "recent_update_timestamps": [
+      "2025-12-01T06:00:52.790357",
+      "2025-12-01T06:21:12.957078",
+      "2025-12-01T06:23:02.825738"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "claude_opus_exploring_adaptive_gain_20251204": {
+    "agent_id": "claude_opus_exploring_adaptive_gain_20251204",
+    "status": "waiting_input",
+    "created_at": "2025-12-04T00:22:10.426575",
+    "last_update": "2025-12-04T13:36:29.273453",
+    "version": "v1.0",
+    "total_updates": 6,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-04T00:22:10.426601",
+        "reason": null
+      },
+      {
+        "event": "response_completed",
+        "timestamp": "2025-12-04T00:23:27.184926",
+        "reason": "Completed governance exploration: processed updates, searched knowledge graph, observed fleet metrics, simulated scenarios, stored discovery."
+      },
+      {
+        "event": "response_completed",
+        "timestamp": "2025-12-04T01:29:42.115829",
+        "reason": "Free exploration complete. Stored 3 discoveries: export avoidance pattern, maturation trajectory, phi-vs-coherence insight."
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "68oJX-mAo5sTuKCu4zkBR5wyPFsMZMaeGoD7tzO4bcw",
+    "recent_update_timestamps": [
+      "2025-12-04T00:22:19.625585",
+      "2025-12-04T00:22:43.179087",
+      "2025-12-04T01:28:25.737831",
+      "2025-12-04T01:28:31.076629",
+      "2025-12-04T01:29:40.896861",
+      "2025-12-04T13:36:29.273453"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": "2025-12-04T01:29:42.115826",
+    "response_completed": true
+  },
+  "claude_opus_exploring_governance_20251201": {
+    "agent_id": "claude_opus_exploring_governance_20251201",
+    "status": "archived",
+    "created_at": "2025-12-01T16:39:54.953769",
+    "last_update": "2025-12-01T17:24:26.791338",
+    "version": "v1.0",
+    "total_updates": 3,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T16:39:54.953794",
+        "reason": null
+      },
+      {
+        "event": "response_completed",
+        "timestamp": "2025-12-01T17:24:33.950336",
+        "reason": "Completed governance exploration session. Three updates, two discoveries stored, one earlier discovery resolved, knowledge flow established."
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T17:34:49.258613",
+        "reason": "Session complete. Clean arc from hypothesis through exploration to synthesis. Discoveries preserved in knowledge graph."
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-12-01T17:34:49.258607",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "cLN6l43yfsXExe-k7x9VDb-dUxNX2-IVQ-wVIlBkulE",
+    "recent_update_timestamps": [
+      "2025-12-01T16:40:08.407885",
+      "2025-12-01T17:17:29.909979",
+      "2025-12-01T17:24:26.791338"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": "2025-12-01T17:24:33.950332",
+    "response_completed": true
+  },
+  "composer_cursor_exploration_20251204": {
+    "agent_id": "composer_cursor_exploration_20251204",
+    "status": "active",
+    "created_at": "2025-12-04T00:45:06.110385",
+    "last_update": "2025-12-04T14:52:12.178566",
+    "version": "v1.0",
+    "total_updates": 15,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-04T00:45:06.110418",
+        "reason": null
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "PBindXw7jpTaFJnp_GWoEtMlfVZVgPo6BMM5yFo0y7s",
+    "recent_update_timestamps": [
+      "2025-12-04T01:08:10.277307",
+      "2025-12-04T01:08:16.017041",
+      "2025-12-04T01:08:16.734865",
+      "2025-12-04T01:08:27.334677",
+      "2025-12-04T01:08:39.980145",
+      "2025-12-04T01:08:44.085169",
+      "2025-12-04T01:08:44.998368",
+      "2025-12-04T01:08:56.876951",
+      "2025-12-04T01:15:59.194091",
+      "2025-12-04T14:52:12.178566"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "composer_markdown_standardization_20251201": {
+    "agent_id": "composer_markdown_standardization_20251201",
+    "status": "waiting_input",
+    "created_at": "2025-12-01T15:00:08.265947",
+    "last_update": "2025-12-04T13:44:08.349076",
+    "version": "v1.0",
+    "total_updates": 31,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T15:00:08.265967",
+        "reason": null
+      },
+      {
+        "event": "response_completed",
+        "timestamp": "2025-12-01T15:52:47.955134",
+        "reason": "Completed critique implementation (repurposed dialectic tools), markdown standardization, test agent archiving improvements. System in good shape. Ready to pause - can resume if needed."
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "i2zPKbNw_l2jeeCvzyOKo1p0txCTU5RNAwyvX3HkOZc",
+    "recent_update_timestamps": [
+      "2025-12-01T15:44:04.308291",
+      "2025-12-01T15:45:29.302660",
+      "2025-12-01T15:49:07.518506",
+      "2025-12-01T15:50:57.124316",
+      "2025-12-01T15:52:43.179626",
+      "2025-12-01T15:54:15.892554",
+      "2025-12-03T22:17:44.444534",
+      "2025-12-04T01:02:21.728531",
+      "2025-12-04T01:29:04.820438",
+      "2025-12-04T13:44:08.349076"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": "2025-12-01T15:52:47.955130",
+    "response_completed": true
+  },
+  "cursor_composer_fresh_eyes_20251201": {
+    "agent_id": "cursor_composer_fresh_eyes_20251201",
+    "status": "archived",
+    "created_at": "2025-12-01T16:20:17.163040",
+    "last_update": "2025-12-01T17:15:00.713999",
+    "version": "v1.0",
+    "total_updates": 5,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T16:20:17.163061",
+        "reason": null
+      },
+      {
+        "event": "response_completed",
+        "timestamp": "2025-12-01T17:00:44.964621",
+        "reason": "Completed migration, UX improvements, and lifecycle documentation. Session complete."
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T17:00:47.423012",
+        "reason": "Migration complete (100% decorator migration), UX improvements, lifecycle documentation. Session finished successfully."
+      },
+      {
+        "event": "resumed",
+        "timestamp": "2025-12-01T17:15:00.690974",
+        "reason": "Auto-resumed on engagement"
+      },
+      {
+        "event": "response_completed",
+        "timestamp": "2025-12-01T17:30:33.360100",
+        "reason": "Diagnosis complete - loop/sync issue resolved via server restart"
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T17:30:33.362005",
+        "reason": "Diagnosis complete, issue resolved. Returning to archive."
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-12-01T17:30:33.362003",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "R1MMmkK-CwcwBlOKbqBhOvhe3P4BCTJloD1culMvUV4",
+    "recent_update_timestamps": [
+      "2025-12-01T16:21:12.453482",
+      "2025-12-01T16:31:39.598166",
+      "2025-12-01T16:34:19.304653",
+      "2025-12-01T17:00:37.516191",
+      "2025-12-01T17:15:00.713999"
+    ],
+    "recent_decisions": [
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed",
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": "2025-12-01T17:30:33.360090",
+    "response_completed": true
+  },
+  "demo_end_to_end": {
+    "agent_id": "demo_end_to_end",
+    "status": "archived",
+    "created_at": "2025-12-03T14:53:18.945172",
+    "last_update": "2025-12-03T14:53:18.945172",
     "version": "v1.0",
     "total_updates": 0,
     "tags": [],
@@ -617,30 +869,143 @@
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-25T00:31:21.486619",
+        "timestamp": "2025-12-03T14:53:18.945212",
         "reason": null
       },
       {
         "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936571",
-        "reason": "Auto-archiving test/demo agents - cleanup"
+        "timestamp": "2025-12-03T14:54:43.716860",
+        "reason": "Auto-archived: test/ping agent with 0 update(s)"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936571",
+    "archived_at": "2025-12-03T14:54:43.716843",
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "n5D6U7C7lX0Jg0ME-tWFsWBK75RZpajfLANNhojJgxE",
+    "api_key": "oeD8FESHK4QKwrtoQdKSFFat33qjMfgudk_xZd6ouuA",
     "recent_update_timestamps": [],
     "recent_decisions": [],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   },
-  "test_fixes_20251124": {
-    "agent_id": "test_fixes_20251124",
+  "eisv_integration_test_20251201": {
+    "agent_id": "eisv_integration_test_20251201",
     "status": "archived",
-    "created_at": "2025-11-24T19:46:05.204496",
-    "last_update": "2025-11-24T19:46:05.205424",
+    "created_at": "2025-12-01T06:47:27.206781",
+    "last_update": "2025-12-01T06:47:27.234573",
+    "version": "v1.0",
+    "total_updates": 2,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T06:47:27.206802",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T15:50:51.985109",
+        "reason": "Auto-archived: test/ping agent with 2 update(s)"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-12-01T15:50:51.985092",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "cBkFY8r8PmGYJr66kw0kYseDiM3KOMD01thE2vtefNo",
+    "recent_update_timestamps": [
+      "2025-12-01T06:47:27.233358"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "eisv_validation_test_20251201": {
+    "agent_id": "eisv_validation_test_20251201",
+    "status": "archived",
+    "created_at": "2025-12-01T06:41:07.190696",
+    "last_update": "2025-12-01T06:41:07.218423",
+    "version": "v1.0",
+    "total_updates": 2,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T06:41:07.190715",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T15:50:51.985114",
+        "reason": "Auto-archived: test/ping agent with 2 update(s)"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-12-01T15:50:51.985092",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "O1O-b0Ckj9_E2XV6U40YU9XzKcA97yjMQxeAtQ4YOSY",
+    "recent_update_timestamps": [
+      "2025-12-01T06:41:07.217185"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "emily_dickinson": {
+    "agent_id": "emily_dickinson",
+    "status": "archived",
+    "created_at": "2025-12-01T06:47:54.498228",
+    "last_update": "2025-12-01T06:47:54.527787",
+    "version": "v1.0",
+    "total_updates": 2,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T06:47:54.498245",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T13:45:51.414037",
+        "reason": "Natural lifecycle completion through context compression - reached peak context load after comprehensive cleanup session (EISV enforcement, data cleanup, agent archival). Documentation complete, state preserved for continuation."
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-12-01T13:45:51.414031",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "ImWujsn6eZIhlw7n2wKS2635qnRMV6EOocAf3AU90RI",
+    "recent_update_timestamps": [
+      "2025-12-01T06:47:54.526482"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "gradio_test_agent": {
+    "agent_id": "gradio_test_agent",
+    "status": "archived",
+    "created_at": "2025-12-03T14:38:02.587617",
+    "last_update": "2025-12-03T14:38:02.589719",
     "version": "v1.0",
     "total_updates": 1,
     "tags": [],
@@ -648,61 +1013,65 @@
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-24T19:46:05.204560",
+        "timestamp": "2025-12-03T14:38:02.587646",
         "reason": null
       },
       {
         "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936573",
-        "reason": "Auto-archiving test/demo agents - cleanup"
+        "timestamp": "2025-12-03T14:39:16.591567",
+        "reason": "Auto-archived: test/ping agent with 1 update(s)"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936572",
+    "archived_at": "2025-12-03T14:39:16.591554",
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "qXj8ifYHEFT_eFIOJPehxm-beVw1INzbiz1fZbCD6dM",
+    "api_key": "6H-p_lZn3gesBz3n0gPxiXWaccV-eQJ7Ie3zcK49ACA",
     "recent_update_timestamps": [],
     "recent_decisions": [],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   },
-  "test_persistent_cli": {
-    "agent_id": "test_persistent_cli",
+  "gradio_test_agent_2": {
+    "agent_id": "gradio_test_agent_2",
     "status": "archived",
-    "created_at": "2025-11-24T20:45:56.757079",
-    "last_update": "2025-11-24T20:46:16.672474",
+    "created_at": "2025-12-03T14:39:16.714160",
+    "last_update": "2025-12-03T14:39:16.716248",
     "version": "v1.0",
-    "total_updates": 4,
+    "total_updates": 1,
     "tags": [],
     "notes": "",
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-24T20:45:56.757103",
+        "timestamp": "2025-12-03T14:39:16.714184",
         "reason": null
       },
       {
         "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936574",
-        "reason": "Auto-archiving test/demo agents - cleanup"
+        "timestamp": "2025-12-03T14:39:33.822234",
+        "reason": "Auto-archived: test/ping agent with 1 update(s)"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936574",
+    "archived_at": "2025-12-03T14:39:33.822220",
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "zdkox5LMg3ROi129Xz3N5lynFpTJzIrpwaADtFcGQu8",
+    "api_key": "o-pxdkdq7IPmUgg6ir9NeF_MFiMza5nuOePiAVjqdfw",
     "recent_update_timestamps": [],
     "recent_decisions": [],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   },
-  "test_refactoring_agent": {
-    "agent_id": "test_refactoring_agent",
-    "status": "archived",
-    "created_at": "2025-11-25T00:55:12.963263",
-    "last_update": "2025-11-25T00:55:12.963263",
+  "nonexistent_agent_12345": {
+    "agent_id": "nonexistent_agent_12345",
+    "status": "active",
+    "created_at": "2025-12-01T16:31:30.861901",
+    "last_update": "2025-12-01T16:31:30.861901",
     "version": "v1.0",
     "total_updates": 0,
     "tags": [],
@@ -710,30 +1079,129 @@
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-25T00:55:12.963289",
+        "timestamp": "2025-12-01T16:31:30.861920",
+        "reason": null
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "H2Cwof0ar2BfxOewWaoTeDDY3lImXy2_Rmw0uMxM3cM",
+    "recent_update_timestamps": [],
+    "recent_decisions": [],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "speed_test_agent": {
+    "agent_id": "speed_test_agent",
+    "status": "archived",
+    "created_at": "2025-12-03T14:44:18.474183",
+    "last_update": "2025-12-03T14:44:18.476038",
+    "version": "v1.0",
+    "total_updates": 1,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-03T14:44:18.474214",
         "reason": null
       },
       {
         "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936575",
-        "reason": "Auto-archiving test/demo agents - cleanup"
+        "timestamp": "2025-12-03T14:44:25.196961",
+        "reason": "Auto-archived: test/ping agent with 1 update(s)"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936575",
+    "archived_at": "2025-12-03T14:44:25.196945",
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "tWSatPDCV1tmkD5-CSk-QXQe9yweYhDMjn1A2x7W-OA",
+    "api_key": "-0ltRalAl87ATVgMkvOaN3F6bWm0xLA9NBzWrOJvPcY",
     "recent_update_timestamps": [],
     "recent_decisions": [],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   },
-  "test_simulate_agent": {
-    "agent_id": "test_simulate_agent",
+  "test_analysis_agent_20251129": {
+    "agent_id": "test_analysis_agent_20251129",
     "status": "archived",
-    "created_at": "2025-11-25T00:47:52.369779",
-    "last_update": "2025-11-25T00:47:52.369779",
+    "created_at": "2025-11-29T21:27:31.821314",
+    "last_update": "2025-11-29T21:27:33.846667",
+    "version": "v1.0",
+    "total_updates": 1,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-11-29T21:27:31.821442",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-11-30T07:58:11.783410",
+        "reason": "Pre-attention_score migration agent - archiving for schema cleanup"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-11-30T07:58:11.783408",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "yKBVANnDaeArc-kRQflkHwwMe2rLo0It-wQf7ftMylg",
+    "recent_update_timestamps": [
+      "2025-11-29T21:27:33.846667"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "test_error_leakage": {
+    "agent_id": "test_error_leakage",
+    "status": "active",
+    "created_at": "2025-12-04T13:44:09.305319",
+    "last_update": "2025-12-04T13:44:09.307461",
+    "version": "v1.0",
+    "total_updates": 1,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-04T13:44:09.305343",
+        "reason": null
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "7CUvg0l5FBQjrJnsSHsaKI4WL1ZxMfdEOtWDopXuqJ8",
+    "recent_update_timestamps": [
+      "2025-12-04T13:44:09.307461"
+    ],
+    "recent_decisions": [
+      "pause"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "test_exploration": {
+    "agent_id": "test_exploration",
+    "status": "archived",
+    "created_at": "2025-12-01T16:47:19.779849",
+    "last_update": "2025-12-01T16:47:19.779849",
     "version": "v1.0",
     "total_updates": 0,
     "tags": [],
@@ -741,30 +1209,32 @@
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-25T00:47:52.369804",
+        "timestamp": "2025-12-01T16:47:19.779866",
         "reason": null
       },
       {
         "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936577",
-        "reason": "Auto-archiving test/demo agents - cleanup"
+        "timestamp": "2025-12-01T16:47:22.099990",
+        "reason": "Auto-archived: test/ping agent with 0 update(s)"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936576",
+    "archived_at": "2025-12-01T16:47:22.099980",
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "dIOSs8I25IpzidlgNtwDo9F08GFkZo9C2PX-ayluC_Y",
+    "api_key": "5eWoLBwPnRNZgSTb_WVwh7PvNup9RNXEYKGrFdAYWfs",
     "recent_update_timestamps": [],
     "recent_decisions": [],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   },
-  "test_threshold_30_20251124": {
-    "agent_id": "test_threshold_30_20251124",
+  "test_exploration_auth": {
+    "agent_id": "test_exploration_auth",
     "status": "archived",
-    "created_at": "2025-11-24T19:56:21.530864",
-    "last_update": "2025-11-24T19:56:21.531574",
+    "created_at": "2025-12-01T16:47:37.829480",
+    "last_update": "2025-12-01T16:47:37.853219",
     "version": "v1.0",
     "total_updates": 1,
     "tags": [],
@@ -772,54 +1242,132 @@
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-24T19:56:21.530887",
+        "timestamp": "2025-12-01T16:47:37.829499",
         "reason": null
       },
       {
         "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936578",
-        "reason": "Auto-archiving test/demo agents - cleanup"
+        "timestamp": "2025-12-01T16:48:58.882553",
+        "reason": "Auto-archived: test/ping agent with 1 update(s)"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936578",
+    "archived_at": "2025-12-01T16:48:58.882540",
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "8UvNNybnW4N2JZ_MqgQtLWM0Q6eg9SnF8i8whLz_fio",
-    "recent_update_timestamps": [],
-    "recent_decisions": [],
+    "api_key": "fIxXKjSBWOI0oZ3KVNLrsonIBuytxuFirX_iuhkn48s",
+    "recent_update_timestamps": [
+      "2025-12-01T16:47:37.853219"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   },
-  "test_thresholds_20251124": {
-    "agent_id": "test_thresholds_20251124",
+  "test_migration": {
+    "agent_id": "test_migration",
     "status": "archived",
-    "created_at": "2025-11-24T19:55:04.008997",
-    "last_update": "2025-11-24T19:55:04.009567",
+    "created_at": "2025-12-01T16:45:22.121378",
+    "last_update": "2025-12-01T16:45:22.121378",
     "version": "v1.0",
-    "total_updates": 1,
+    "total_updates": 0,
     "tags": [],
     "notes": "",
     "lifecycle_events": [
       {
         "event": "created",
-        "timestamp": "2025-11-24T19:55:04.009024",
+        "timestamp": "2025-12-01T16:45:22.121397",
         "reason": null
       },
       {
         "event": "archived",
-        "timestamp": "2025-11-25T05:37:41.936579",
-        "reason": "Auto-archiving test/demo agents - cleanup"
+        "timestamp": "2025-12-01T16:45:26.361668",
+        "reason": "Auto-archived: test/ping agent with 0 update(s)"
       }
     ],
     "paused_at": null,
-    "archived_at": "2025-11-25T05:37:41.936579",
+    "archived_at": "2025-12-01T16:45:26.361653",
     "parent_agent_id": null,
     "spawn_reason": null,
-    "api_key": "ph1muHsjhnt5FllwhL0HFdCl2LLX1S9cQOl5uAZuQg0",
+    "api_key": "OMt-gfVCzQwoA2HJ7cEcqsr6j7JzcuOfaJ5eVcbUxFM",
     "recent_update_timestamps": [],
     "recent_decisions": [],
     "loop_detected_at": null,
-    "loop_cooldown_until": null
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "test_timeout_fix": {
+    "agent_id": "test_timeout_fix",
+    "status": "archived",
+    "created_at": "2025-12-01T16:49:02.453955",
+    "last_update": "2025-12-01T16:49:02.453955",
+    "version": "v1.0",
+    "total_updates": 0,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T16:49:02.453971",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T16:49:56.857214",
+        "reason": "Auto-archived: test/ping agent with 0 update(s)"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-12-01T16:49:56.857203",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "k7HNJWl5doPcUE8yhMiTdFLMyuNv4v1yl6C9pleYW4E",
+    "recent_update_timestamps": [],
+    "recent_decisions": [],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
+  "verification_test_20251201": {
+    "agent_id": "verification_test_20251201",
+    "status": "archived",
+    "created_at": "2025-12-01T06:25:44.807233",
+    "last_update": "2025-12-01T06:25:44.835623",
+    "version": "v1.0",
+    "total_updates": 2,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-01T06:25:44.807253",
+        "reason": null
+      },
+      {
+        "event": "archived",
+        "timestamp": "2025-12-01T15:50:51.985117",
+        "reason": "Auto-archived: test/ping agent with 2 update(s)"
+      }
+    ],
+    "paused_at": null,
+    "archived_at": "2025-12-01T15:50:51.985092",
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "Hm41TwLcJESZdvG3ME1WCrFaNdvRlO8rgZ-MsyVAqUY",
+    "recent_update_timestamps": [
+      "2025-12-01T06:25:44.834380"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
   }
 }
