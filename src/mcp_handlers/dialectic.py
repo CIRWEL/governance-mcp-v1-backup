@@ -3,8 +3,9 @@ MCP Handlers for Circuit Breaker Dialectic Protocol
 
 Implements MCP tools for peer-review dialectic resolution of circuit breaker states.
 """
+from __future__ import annotations
 
-from typing import Dict, Any, Sequence, Optional
+from typing import Dict, Any, Sequence, Optional, List
 from mcp.types import TextContent
 import json
 from datetime import datetime, timedelta

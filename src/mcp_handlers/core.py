@@ -6,7 +6,7 @@ to ensure all metrics (E, I, S, V) are reported together, preventing selection b
 See docs/guides/EISV_COMPLETENESS.md for usage.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Sequence
 from mcp.types import TextContent
 import json
 import sys

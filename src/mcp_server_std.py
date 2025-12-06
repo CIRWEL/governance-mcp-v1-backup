@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 UNITARES Governance MCP Server v1.0 - Standard MCP Protocol Implementation
 
