@@ -32,8 +32,10 @@ logger = get_logger(__name__)
 async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """List all agents currently being monitored with lifecycle metadata and health status"""
     try:
-        # Reload metadata to ensure we have latest state
-        mcp_server.load_metadata()
+        # Reload metadata to ensure we have latest state (non-blocking)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, mcp_server.load_metadata)
         
         grouped = arguments.get("grouped", True)
         include_metrics = arguments.get("include_metrics", True)
@@ -154,7 +156,7 @@ async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]
                     },
                     "by_health": {
                         "healthy": sum(1 for a in agents_list if a.get("health_status") == "healthy"),
-                        "moderate": sum(1 for a in agents_list if a.get("health_status") in ["moderate", "degraded"]),  # Backward compat
+                        "moderate": sum(1 for a in agents_list if a.get("health_status") == "moderate"),
                         "critical": sum(1 for a in agents_list if a.get("health_status") == "critical"),
                         "unknown": sum(1 for a in agents_list if a.get("health_status") == "unknown"),
                         "error": sum(1 for a in agents_list if a.get("health_status") == "error")
@@ -166,7 +168,7 @@ async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]
             if include_metrics:
                 response_data["summary"]["by_health"] = {
                     "healthy": sum(1 for a in agents_list if a.get("health_status") == "healthy"),
-                    "degraded": sum(1 for a in agents_list if a.get("health_status") == "degraded"),
+                    "moderate": sum(1 for a in agents_list if a.get("health_status") == "moderate"),
                     "critical": sum(1 for a in agents_list if a.get("health_status") == "critical"),
                     "unknown": sum(1 for a in agents_list if a.get("health_status") == "unknown"),
                     "error": sum(1 for a in agents_list if a.get("health_status") == "error")
@@ -188,7 +190,7 @@ async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]
             }
             
             if include_metrics:
-                health_statuses = {"healthy": 0, "moderate": 0, "critical": 0, "unknown": 0, "error": 0}  # "moderate" renamed from "degraded"
+                health_statuses = {"healthy": 0, "moderate": 0, "critical": 0, "unknown": 0, "error": 0}
                 for agent in agents_list:
                     status = agent.get("health_status", "unknown")
                     health_statuses[status] = health_statuses.get(status, 0) + 1
@@ -252,8 +254,10 @@ async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[Te
     if error:
         return [error]
     
-    # Reload metadata to ensure we have latest state
-    mcp_server.load_metadata()
+    # Reload metadata to ensure we have latest state (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
     
     if agent_id not in mcp_server.agent_metadata:
         return [error_response(f"Agent '{agent_id}' not found")]
@@ -273,8 +277,10 @@ async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[Te
         else:
             meta.notes = arguments["notes"]
     
-    # Save metadata
-    mcp_server.save_metadata()
+    # Schedule batched metadata save (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await mcp_server.schedule_metadata_save(force=False)
     
     return success_response({
         "success": True,
@@ -293,8 +299,10 @@ async def handle_archive_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
     if error:
         return [error]
     
-    # Reload metadata to ensure we have latest state
-    mcp_server.load_metadata()
+    # Reload metadata to ensure we have latest state (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
     
     if agent_id not in mcp_server.agent_metadata:
         return [error_response(f"Agent '{agent_id}' not found")]
@@ -315,7 +323,10 @@ async def handle_archive_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
     if not keep_in_memory and agent_id in mcp_server.monitors:
         del mcp_server.monitors[agent_id]
     
-    mcp_server.save_metadata()
+    # Schedule batched metadata save (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await mcp_server.schedule_metadata_save(force=False)
     
     return success_response({
         "success": True,
@@ -339,8 +350,10 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
     if not confirm:
         return [error_response("Deletion requires explicit confirmation (confirm=true)")]
     
-    # Reload metadata to ensure we have latest state
-    mcp_server.load_metadata()
+    # Reload metadata to ensure we have latest state (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
     
     if agent_id not in mcp_server.agent_metadata:
         return [error_response(f"Agent '{agent_id}' not found")]
@@ -365,6 +378,7 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
     if backup_first:
         try:
             import json
+            import asyncio
             from pathlib import Path
             backup_dir = Path(mcp_server.project_root) / "data" / "archives"
             backup_dir.mkdir(parents=True, exist_ok=True)
@@ -374,8 +388,15 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
                 "metadata": meta.to_dict(),
                 "backed_up_at": datetime.now().isoformat()
             }
-            with open(backup_file, 'w') as f:
-                json.dump(backup_data, f, indent=2)
+            
+            # Write backup file in executor to avoid blocking event loop
+            loop = asyncio.get_running_loop()
+            def _write_backup_sync():
+                """Synchronous backup write - runs in executor"""
+                with open(backup_file, 'w', encoding='utf-8') as f:
+                    json.dump(backup_data, f, indent=2)
+            
+            await loop.run_in_executor(None, _write_backup_sync)
             backup_path = str(backup_file)
         except Exception as e:
             logger.warning(f"Could not backup agent before deletion: {e}")
@@ -388,7 +409,10 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
     if agent_id in mcp_server.monitors:
         del mcp_server.monitors[agent_id]
     
-    mcp_server.save_metadata()
+    # Schedule batched metadata save (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await mcp_server.schedule_metadata_save(force=False)
     
     return success_response({
         "success": True,
@@ -412,8 +436,10 @@ async def handle_archive_old_test_agents(arguments: Dict[str, Any]) -> Sequence[
     if max_age_hours < 0.1:
         return [error_response("max_age_hours must be at least 0.1 (6 minutes)")]
     
-    # Reload metadata to ensure we have latest state
-    mcp_server.load_metadata()
+    # Reload metadata to ensure we have latest state (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
     
     archived_agents = []
     cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
@@ -453,7 +479,10 @@ async def handle_archive_old_test_agents(arguments: Dict[str, Any]) -> Sequence[
                 del mcp_server.monitors[agent_id]
     
     if archived_agents:
-        mcp_server.save_metadata()
+        # Schedule batched metadata save (non-blocking)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        await mcp_server.schedule_metadata_save(force=False)
     
     return success_response({
         "success": True,
@@ -504,6 +533,13 @@ async def handle_get_agent_api_key(arguments: Dict[str, Any]) -> Sequence[TextCo
     # Get or create metadata (creates agent if new)
     meta = mcp_server.get_or_create_metadata(agent_id)
     
+    # CRITICAL: Force immediate save for new agent creation to prevent key rotation bug
+    # If metadata isn't saved, process_agent_update's load_metadata() will wipe it out
+    if is_new_agent:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        await mcp_server.schedule_metadata_save(force=True)
+    
     # Regenerate API key if requested (requires auth for existing agents)
     if regenerate:
         if not is_new_agent and not api_key:
@@ -511,7 +547,10 @@ async def handle_get_agent_api_key(arguments: Dict[str, Any]) -> Sequence[TextCo
         
         new_key = mcp_server.generate_api_key()
         meta.api_key = new_key
-        mcp_server.save_metadata()
+        # Force immediate save for API key regeneration (critical operation)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        await mcp_server.schedule_metadata_save(force=True)
         
         # Log regeneration for audit
         from src.audit_log import audit_logger
@@ -551,7 +590,7 @@ async def handle_mark_response_complete(arguments: Dict[str, Any]) -> Sequence[T
     if api_key:
         meta = mcp_server.agent_metadata.get(agent_id)
         if meta and hasattr(meta, 'api_key') and meta.api_key != api_key:
-            return [error_response("Invalid API key - authentication failed")]
+            return [error_response("Authentication failed: Invalid API key")]
     
     # Get or create metadata
     meta = mcp_server.get_or_create_metadata(agent_id)
@@ -565,8 +604,10 @@ async def handle_mark_response_complete(arguments: Dict[str, Any]) -> Sequence[T
     summary = arguments.get("summary", "")
     meta.add_lifecycle_event("response_completed", summary if summary else "Response completed, waiting for input")
     
-    # Save metadata (lightweight - no full governance cycle)
-    mcp_server.save_metadata()
+    # Schedule batched metadata save (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await mcp_server.schedule_metadata_save(force=False)
     
     # MAINTENANCE PROMPT: Surface open discoveries from this session
     # Behavioral nudge: Remind agent to resolve discoveries before ending session
@@ -662,7 +703,7 @@ async def handle_direct_resume_if_safe(arguments: Dict[str, Any]) -> Sequence[Te
         return [error_response(f"Agent '{agent_id}' not found")]
     
     if meta.api_key != api_key:
-        return [error_response("Invalid API key - authentication failed")]
+        return [error_response("Authentication failed: Invalid API key")]
     
     # Get current governance metrics
     try:
@@ -682,7 +723,7 @@ async def handle_direct_resume_if_safe(arguments: Dict[str, Any]) -> Sequence[Te
         "coherence_ok": coherence > 0.40,
         "risk_ok": risk_score < 0.60,
         "no_void": not void_active,
-        "status_ok": status in ["paused", "waiting_input", "moderate", "degraded"]  # Backward compat
+        "status_ok": status in ["paused", "waiting_input", "moderate"]
     }
     
     if not all(safety_checks.values()):
@@ -703,8 +744,10 @@ async def handle_direct_resume_if_safe(arguments: Dict[str, Any]) -> Sequence[Te
     meta.paused_at = None
     meta.add_lifecycle_event("resumed", f"Direct resume: {reason}. Conditions: {conditions}")
     
-    # Save metadata
-    mcp_server.save_metadata()
+    # Schedule batched metadata save (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await mcp_server.schedule_metadata_save(force=False)
     
     return success_response({
         "success": True,

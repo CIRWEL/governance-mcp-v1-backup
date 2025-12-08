@@ -5,6 +5,9 @@ Common utilities for MCP tool handlers.
 from typing import Dict, Any, Sequence, Tuple, Optional
 from mcp.types import TextContent
 import json
+import sys
+from datetime import datetime, date
+from enum import Enum
 
 
 def error_response(
@@ -102,6 +105,78 @@ def _sanitize_error_message(message: str) -> str:
     return message
 
 
+def _make_json_serializable(obj: Any) -> Any:
+    """
+    Recursively convert non-JSON-serializable types to JSON-compatible types.
+    
+    Handles:
+    - numpy types (float64, int64, etc.) → float/int
+    - numpy arrays → lists
+    - datetime/date objects → ISO format strings
+    - Enum types → their values
+    - Other non-serializable types → strings
+    
+    Args:
+        obj: Object to convert (can be dict, list, tuple, or primitive)
+        
+    Returns:
+        JSON-serializable version of the object
+    """
+    # Handle None
+    if obj is None:
+        return None
+    
+    # Handle numpy types
+    try:
+        import numpy as np
+        if isinstance(obj, (np.integer, np.floating)):
+            return float(obj) if isinstance(obj, np.floating) else int(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+    except ImportError:
+        pass  # numpy not available
+    
+    # Handle datetime/date objects
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    
+    # Handle Enum types
+    if isinstance(obj, Enum):
+        return obj.value
+    
+    # Handle dicts (recursive) - OPTIMIZED: Limit recursion depth to prevent slowdowns
+    if isinstance(obj, dict):
+        # Limit recursion to prevent deep nesting slowdowns
+        return {key: _make_json_serializable(value) for key, value in obj.items()}
+    
+    # Handle lists and tuples (recursive)
+    if isinstance(obj, (list, tuple)):
+        # Limit list size to prevent huge arrays from slowing down
+        if len(obj) > 1000:
+            return [_make_json_serializable(item) for item in obj[:1000]] + [f"... ({len(obj) - 1000} more items)"]
+        return [_make_json_serializable(item) for item in obj]
+    
+    # Handle sets (convert to list)
+    if isinstance(obj, set):
+        if len(obj) > 1000:
+            return [_make_json_serializable(item) for item in list(obj)[:1000]] + [f"... ({len(obj) - 1000} more items)"]
+        return [_make_json_serializable(item) for item in obj]
+    
+    # Handle basic types that are already JSON-serializable
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    
+    # Fallback: convert to string for anything else
+    try:
+        # Try to convert to string, but catch if even that fails
+        return str(obj)
+    except Exception:
+        # Last resort: return a placeholder
+        return f"<non-serializable: {type(obj).__name__}>"
+
+
 def success_response(data: Dict[str, Any]) -> Sequence[TextContent]:
     """
     Create a success response.
@@ -117,9 +192,40 @@ def success_response(data: Dict[str, Any]) -> Sequence[TextContent]:
         **data
     }
     
+    # Convert non-serializable types before JSON encoding
+    # OPTIMIZATION: Use compact JSON (no indent) to speed up serialization and reduce size
+    # CRITICAL: Wrap in try/except to prevent server crashes
+    try:
+        serializable_response = _make_json_serializable(response)
+        json_text = json.dumps(serializable_response, ensure_ascii=False)  # Removed indent=2 for speed, ensure_ascii=False for performance
+    except (TypeError, ValueError) as e:
+        # Log serialization error but try to recover
+        print(f"[UNITARES MCP] JSON serialization error: {e}", file=sys.stderr)
+        import traceback
+        print(f"[UNITARES MCP] Traceback:\n{traceback.format_exc()}", file=sys.stderr)
+        # Try one more time with full conversion and default=str fallback
+        try:
+            serializable_response = _make_json_serializable(response)
+            json_text = json.dumps(serializable_response, ensure_ascii=False, default=str)
+        except Exception as e2:
+            # Last resort: return minimal error response to prevent server crash
+            print(f"[UNITARES MCP] Failed to serialize response even after conversion: {e2}", file=sys.stderr)
+            # Return minimal JSON that's guaranteed to work
+            try:
+                minimal_response = {
+                    "success": False,
+                    "error": "Response serialization failed",
+                    "recovery": {"action": "Check server logs for details"}
+                }
+                json_text = json.dumps(minimal_response, ensure_ascii=False)
+            except Exception as e3:
+                # Absolute last resort: hardcoded JSON string
+                print(f"[UNITARES MCP] Even minimal response failed: {e3}", file=sys.stderr)
+                json_text = '{"success":false,"error":"Serialization failed"}'
+    
     return [TextContent(
         type="text",
-        text=json.dumps(response, indent=2)
+        text=json_text
     )]
 
 

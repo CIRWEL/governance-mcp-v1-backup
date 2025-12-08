@@ -46,6 +46,7 @@ from .admin import (
     handle_health_check,
     handle_check_calibration,
     handle_update_calibration_ground_truth,
+    handle_backfill_calibration_from_dialectic,
     handle_get_telemetry_metrics,
     handle_list_tools,
     handle_cleanup_stale_locks,
@@ -71,6 +72,9 @@ from .knowledge_graph import (
     handle_list_knowledge_graph,
     handle_update_discovery_status_graph,
     handle_find_similar_discoveries_graph,
+    handle_get_discovery_details,
+    handle_reply_to_question,
+    handle_leave_note,
 )
 # Dialectic (Circuit Breaker Recovery) - Enabled after fixing imports
 from .dialectic import (
@@ -146,6 +150,9 @@ TOOL_HANDLERS: Dict[str, callable] = {
     "list_knowledge_graph": handle_list_knowledge_graph,
     "update_discovery_status_graph": handle_update_discovery_status_graph,
     "find_similar_discoveries_graph": handle_find_similar_discoveries_graph,
+    "get_discovery_details": handle_get_discovery_details,
+    "reply_to_question": handle_reply_to_question,
+    "leave_note": handle_leave_note,
 
     # Dialectic (Circuit Breaker Recovery) - Enabled
     "request_dialectic_review": handle_request_dialectic_review,
