@@ -29,8 +29,10 @@ async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
     if error:
         return [error]  # Returns onboarding guidance if not registered
     
-    # Reload metadata to get latest state (handles multi-process sync)
-    mcp_server.load_metadata()
+    # Reload metadata to get latest state (handles multi-process sync) - non-blocking
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
     
     include_history = arguments.get("include_history", True)
     analyze_patterns_flag = arguments.get("analyze_patterns", True)
@@ -73,8 +75,10 @@ async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
 @mcp_tool("compare_agents", timeout=20.0)
 async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Compare governance patterns across multiple agents"""
-    # Reload metadata to get latest state (handles multi-process sync)
-    mcp_server.load_metadata()
+    # Reload metadata to get latest state (handles multi-process sync) - non-blocking
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
     
     agent_ids = arguments.get("agent_ids", [])
     if not agent_ids or len(agent_ids) < 2:
@@ -94,7 +98,9 @@ async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextConte
     for agent_id in agent_ids:
         monitor = mcp_server.monitors.get(agent_id)
         if monitor is None:
-            persisted_state = mcp_server.load_monitor_state(agent_id)
+            # Load monitor state (non-blocking)
+            loop = asyncio.get_running_loop()
+            persisted_state = await loop.run_in_executor(None, mcp_server.load_monitor_state, agent_id)
             if persisted_state:
                 monitor = UNITARESMonitor(agent_id, load_state=False)
                 monitor.state = persisted_state
@@ -186,8 +192,9 @@ async def handle_detect_anomalies(arguments: Dict[str, Any]) -> Sequence[TextCon
     """Detect anomalies across agents"""
     import asyncio
     
-    # Reload metadata to get latest state (handles multi-process sync)
-    mcp_server.load_metadata()
+    # Reload metadata to get latest state (handles multi-process sync) - non-blocking
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
     
     agent_ids = arguments.get("agent_ids")
     anomaly_types = arguments.get("anomaly_types", ["risk_spike", "coherence_drop"])
@@ -203,7 +210,7 @@ async def handle_detect_anomalies(arguments: Dict[str, Any]) -> Sequence[TextCon
                      if meta.status == "active"][:50]  # Limit to 50 agents max
     
     all_anomalies = []
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
     
     # Process agents in batches to prevent blocking
     async def process_agent(agent_id: str):
@@ -284,8 +291,10 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
     """Get fleet-level health overview"""
     import numpy as np
     
-    # Reload metadata to get latest state (handles multi-process sync)
-    mcp_server.load_metadata()
+    # Reload metadata to get latest state (handles multi-process sync) - non-blocking
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
     
     agent_ids = arguments.get("agent_ids")
     include_health_breakdown = arguments.get("include_health_breakdown", True)
@@ -300,13 +309,15 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
     total_updates = 0
     attention_scores = []  # Renamed from risk_scores
     coherence_scores = []
-    health_statuses = {"healthy": 0, "moderate": 0, "critical": 0, "unknown": 0}  # "moderate" renamed from "degraded"
+    health_statuses = {"healthy": 0, "moderate": 0, "critical": 0, "unknown": 0}
     decision_counts = {"proceed": 0, "pause": 0}  # Two-tier system (backward compat: approve/reflect/reject mapped)
     
     for agent_id in agent_ids:
         monitor = mcp_server.monitors.get(agent_id)
         if monitor is None:
-            persisted_state = mcp_server.load_monitor_state(agent_id)
+            # Load monitor state (non-blocking)
+            loop = asyncio.get_running_loop()
+            persisted_state = await loop.run_in_executor(None, mcp_server.load_monitor_state, agent_id)
             if persisted_state:
                 monitor = UNITARESMonitor(agent_id, load_state=False)
                 monitor.state = persisted_state
@@ -324,10 +335,8 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
                 attention_scores.extend([float(r) for r in monitor.state.risk_history[-10:]])  # Last 10 updates
             coherence_scores.append(float(monitor.state.coherence))
             
-            # Aggregate health status (map "degraded" → "moderate" for backward compat)
+            # Aggregate health status
             status = metrics.get("status", "unknown")
-            if status == "degraded":
-                status = "moderate"  # Backward compatibility
             health_statuses[status] = health_statuses.get(status, 0) + 1
             
             # Aggregate decisions
