@@ -19,7 +19,6 @@ if 'src.mcp_server_std' in sys.modules:
     mcp_server = sys.modules['src.mcp_server_std']
 else:
     import src.mcp_server_std as mcp_server
-import sys
 
 
 @mcp_tool("get_server_info", timeout=10.0, rate_limit_exempt=True)
@@ -82,7 +81,7 @@ async def handle_get_server_info(arguments: Dict[str, Any]) -> Sequence[TextCont
         "total_server_processes": len([p for p in server_processes if "error" not in p]),
         "server_processes": server_processes,
         "pid_file_exists": mcp_server.PID_FILE.exists(),
-        "max_keep_processes": 72,
+        "max_keep_processes": mcp_server.MAX_KEEP_PROCESSES,
         "health": "healthy"
     })
 
@@ -109,16 +108,19 @@ async def handle_get_tool_usage_stats(arguments: Dict[str, Any]) -> Sequence[Tex
 @mcp_tool("health_check", timeout=10.0, rate_limit_exempt=True)
 async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Handle health_check tool - quick health check of system components"""
+    import asyncio
     from src.calibration import calibration_checker
     from src.telemetry import telemetry_collector
     from src.audit_log import audit_logger
     # Knowledge layer REMOVED (archived November 28, 2025) - was causing agent unresponsiveness
     
     checks = {}
+    loop = asyncio.get_running_loop()
     
-    # Check calibration
+    # Check calibration (may trigger lazy initialization - wrap in executor to avoid blocking)
     try:
-        pending = calibration_checker.get_pending_updates()
+        # Accessing calibration_checker may trigger lazy initialization which does file I/O
+        pending = await loop.run_in_executor(None, lambda: calibration_checker.get_pending_updates())
         checks["calibration"] = {
             "status": "healthy",
             "pending_updates": pending
@@ -129,9 +131,9 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
     
-    # Check telemetry/audit log
+    # Check telemetry/audit log (filesystem operation - run in executor)
     try:
-        log_exists = audit_logger.log_file.exists()
+        log_exists = await loop.run_in_executor(None, lambda: audit_logger.log_file.exists())
         checks["telemetry"] = {
             "status": "healthy" if log_exists else "warning",
             "audit_log_exists": log_exists
@@ -145,10 +147,10 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
     # Knowledge layer check REMOVED (archived November 28, 2025)
     # Was causing agent unresponsiveness on Claude Desktop
     
-    # Check data directory
+    # Check data directory (filesystem operation - run in executor)
     try:
         data_dir = Path(mcp_server.project_root) / "data"
-        data_dir_exists = data_dir.exists()
+        data_dir_exists = await loop.run_in_executor(None, lambda: data_dir.exists())
         checks["data_directory"] = {
             "status": "healthy" if data_dir_exists else "warning",
             "exists": data_dir_exists
@@ -161,7 +163,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
     
     # Overall health status
     all_healthy = all(c.get("status") == "healthy" for c in checks.values())
-    overall_status = "healthy" if all_healthy else "moderate"  # Renamed from "degraded"
+    overall_status = "healthy" if all_healthy else "moderate"
     
     return success_response({
         "status": overall_status,
@@ -211,39 +213,163 @@ async def handle_check_calibration(arguments: Dict[str, Any]) -> Sequence[TextCo
         "accuracy": overall_accuracy,
         "confidence_distribution": conf_dist,
         "pending_updates": calibration_checker.get_pending_updates(),
-        "total_samples": total_samples,  # Add explicit sample count for debugging
+        "total_samples": total_samples,
         "message": "Calibration check complete"
     })
 
 
 @mcp_tool("update_calibration_ground_truth", timeout=10.0)
 async def handle_update_calibration_ground_truth(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Update calibration with ground truth after human review"""
-    from src.calibration import calibration_checker
+    """Update calibration with ground truth after human review
     
-    confidence = arguments.get("confidence")
-    predicted_correct = arguments.get("predicted_correct")
+    Supports two modes:
+    1. Direct mode: Provide confidence, predicted_correct, actual_correct directly
+    2. Timestamp mode: Provide timestamp (and optional agent_id), actual_correct. 
+       System looks up confidence and decision from audit log.
+    """
+    from src.calibration import calibration_checker
+    from src.audit_log import AuditLogger
+    from datetime import datetime
+    
+    # Check if using timestamp-based mode
+    timestamp = arguments.get("timestamp")
+    agent_id = arguments.get("agent_id")
     actual_correct = arguments.get("actual_correct")
     
-    if confidence is None or predicted_correct is None or actual_correct is None:
-        return [error_response("Missing required parameters: confidence, predicted_correct, actual_correct")]
+    if timestamp:
+        # TIMESTAMP MODE: Look up confidence and decision from audit log
+        if actual_correct is None:
+            return [error_response("Missing required parameter: actual_correct (required for timestamp mode)")]
+        
+        try:
+            # Parse timestamp
+            if isinstance(timestamp, str):
+                decision_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            else:
+                return [error_response("timestamp must be ISO format string (e.g., '2025-12-08T13:00:00')")]
+            
+            # Query audit log for decision at that timestamp
+            # Use a small window around the timestamp to account for slight timing differences
+            from datetime import timedelta
+            window_start = (decision_time - timedelta(seconds=5)).isoformat()
+            window_end = (decision_time + timedelta(seconds=5)).isoformat()
+            
+            audit_logger = AuditLogger()
+            entries = audit_logger.query_audit_log(
+                agent_id=agent_id,
+                event_type="auto_attest",
+                start_time=window_start,
+                end_time=window_end
+            )
+            
+            if not entries:
+                return [error_response(
+                    f"No decision found at timestamp {timestamp}" + 
+                    (f" for agent {agent_id}" if agent_id else ""),
+                    details={
+                        "suggestion": "Check timestamp format (ISO) and ensure decision was logged",
+                        "related_tools": ["get_telemetry_metrics"]
+                    }
+                )]
+            
+            # Use most recent entry if multiple found (shouldn't happen with exact timestamp, but be safe)
+            entry = entries[-1]
+            confidence = entry.get("confidence", 0.0)
+            decision = entry.get("details", {}).get("decision", "unknown")
+            predicted_correct = decision == "proceed"  # proceed = predicted correct
+            
+            # Update calibration
+            calibration_checker.update_ground_truth(
+                confidence=float(confidence),
+                predicted_correct=bool(predicted_correct),
+                actual_correct=bool(actual_correct)
+            )
+            
+            # Save calibration state
+            calibration_checker.save_state()
+            
+            return success_response({
+                "message": "Ground truth updated successfully (timestamp mode)",
+                "looked_up": {
+                    "confidence": confidence,
+                    "decision": decision,
+                    "predicted_correct": predicted_correct
+                },
+                "pending_updates": calibration_checker.get_pending_updates()
+            })
+            
+        except ValueError as e:
+            return [error_response(f"Invalid timestamp format: {str(e)}")]
+        except Exception as e:
+            return [error_response(f"Error looking up decision: {str(e)}")]
+    
+    else:
+        # DIRECT MODE: Require all parameters
+        confidence = arguments.get("confidence")
+        predicted_correct = arguments.get("predicted_correct")
+        
+        if confidence is None or predicted_correct is None or actual_correct is None:
+            return [error_response(
+                "Missing required parameters. Use either:\n"
+                "1. Direct mode: confidence, predicted_correct, actual_correct\n"
+                "2. Timestamp mode: timestamp, actual_correct (optional: agent_id)",
+                details={
+                    "direct_mode": {"required": ["confidence", "predicted_correct", "actual_correct"]},
+                    "timestamp_mode": {"required": ["timestamp", "actual_correct"], "optional": ["agent_id"]}
+                }
+            )]
+        
+        try:
+            calibration_checker.update_ground_truth(
+                confidence=float(confidence),
+                predicted_correct=bool(predicted_correct),
+                actual_correct=bool(actual_correct)
+            )
+            
+            # Save calibration state after update
+            calibration_checker.save_state()
+            
+            return success_response({
+                "message": "Ground truth updated successfully (direct mode)",
+                "pending_updates": calibration_checker.get_pending_updates()
+            })
+        except Exception as e:
+            return [error_response(str(e))]
+
+
+@mcp_tool("backfill_calibration_from_dialectic", timeout=30.0, rate_limit_exempt=True)
+async def handle_backfill_calibration_from_dialectic(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    Retroactively update calibration from historical resolved verification-type dialectic sessions.
+    
+    This processes all existing resolved verification sessions that were created before
+    automatic calibration was implemented, ensuring they contribute to calibration.
+    
+    USE CASES:
+    - One-time migration after implementing automatic calibration
+    - Backfill historical peer verification data
+    - Ensure all resolved verification sessions contribute to calibration
+    
+    RETURNS:
+    {
+      "success": true,
+      "processed": int,
+      "updated": int,
+      "errors": int,
+      "sessions": [{"session_id": "...", "agent_id": "...", "status": "..."}]
+    }
+    """
+    from src.mcp_handlers.dialectic import backfill_calibration_from_historical_sessions
     
     try:
-        calibration_checker.update_ground_truth(
-            confidence=float(confidence),
-            predicted_correct=bool(predicted_correct),
-            actual_correct=bool(actual_correct)
-        )
-        
-        # Save calibration state after update
-        calibration_checker.save_state()
-        
+        results = await backfill_calibration_from_historical_sessions()
         return success_response({
-            "message": "Ground truth updated successfully",
-            "pending_updates": calibration_checker.get_pending_updates()
+            "success": True,
+            "message": f"Backfill complete: {results['updated']}/{results['processed']} sessions updated",
+            **results
         })
     except Exception as e:
-        return [error_response(str(e))]
+        return [error_response(f"Error during backfill: {str(e)}")]
 
 
 @mcp_tool("get_telemetry_metrics", timeout=15.0, rate_limit_exempt=True)
@@ -258,7 +384,7 @@ async def handle_get_telemetry_metrics(arguments: Dict[str, Any]) -> Sequence[Te
     window_hours = arguments.get("window_hours", 24)
     
     # Run blocking I/O operations in executor to prevent hanging
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
     
     try:
         # Execute blocking operations in thread pool

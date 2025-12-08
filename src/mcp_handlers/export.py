@@ -72,9 +72,13 @@ async def handle_export_to_file(arguments: Dict[str, Any]) -> Sequence[TextConte
         
         # Validation checks
         # Check if state exists (monitor is loaded, state file exists, or monitor has history)
+        # Check if state exists (non-blocking)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        persisted_state = await loop.run_in_executor(None, mcp_server.load_monitor_state, agent_id)
         state_exists = monitor is not None and (
             len(monitor.state.V_history) > 0 or 
-            mcp_server.load_monitor_state(agent_id) is not None
+            persisted_state is not None
         )
         
         validation_checks = {
@@ -98,16 +102,6 @@ async def handle_export_to_file(arguments: Dict[str, Any]) -> Sequence[TextConte
             "validation": validation_checks
         }
         
-        # Convert to requested format
-        if format_type == "json":
-            export_data = json.dumps(package, indent=2)
-        else:
-            # CSV not supported for complete package (too complex)
-            return [error_response(
-                "CSV format not supported for complete package export. Use 'json' format.",
-                {"format": format_type, "complete_package": True}
-            )]
-        
         # Determine filename
         if custom_filename:
             filename = f"{custom_filename}_complete.{format_type}"
@@ -117,6 +111,19 @@ async def handle_export_to_file(arguments: Dict[str, Any]) -> Sequence[TextConte
         
         # Use data/exports/ for complete packages
         export_dir = os.path.join(mcp_server.project_root, "data", "exports")
+        
+        # Convert to requested format - wrap in executor to avoid blocking
+        if format_type == "json":
+            # JSON serialization is CPU-bound and can block for large packages
+            import asyncio
+            loop = asyncio.get_running_loop()
+            export_data = await loop.run_in_executor(None, lambda: json.dumps(package, indent=2))
+        else:
+            # CSV not supported for complete package (too complex)
+            return [error_response(
+                "CSV format not supported for complete package export. Use 'json' format.",
+                {"format": format_type, "complete_package": True}
+            )]
     else:
         # Original behavior: export history only (backward compatible)
         history_data = monitor.export_history(format=format_type)
@@ -134,16 +141,23 @@ async def handle_export_to_file(arguments: Dict[str, Any]) -> Sequence[TextConte
     
     os.makedirs(export_dir, exist_ok=True)
     
-    # Write file
+    # Write file (non-blocking - run in executor)
     file_path = os.path.join(export_dir, filename)
     try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(export_data)
-            f.flush()  # Ensure buffered data written
-            os.fsync(f.fileno())  # Ensure written to disk
+        import asyncio
+        loop = asyncio.get_running_loop()
         
-        # Get file size
-        file_size = os.path.getsize(file_path)
+        def _write_file_sync():
+            """Synchronous file write function - runs in executor to avoid blocking event loop"""
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(export_data)
+                f.flush()  # Ensure buffered data written
+                os.fsync(f.fileno())  # Ensure written to disk
+            # Get file size after write
+            return os.path.getsize(file_path)
+        
+        # Run file I/O in executor to avoid blocking event loop
+        file_size = await loop.run_in_executor(None, _write_file_sync)
         
         return success_response({
             "message": "Complete package exported successfully" if complete_package else "History exported successfully",

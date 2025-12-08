@@ -12,6 +12,8 @@ Configuration:
     Add to Cursor MCP config (for Composer) or Claude Desktop MCP config
 """
 
+from __future__ import annotations  # Enable postponed evaluation of annotations (Python 3.7+)
+
 import sys
 import json
 import asyncio
@@ -87,8 +89,6 @@ server = Server("governance-monitor-v1")
 # Current process PID
 CURRENT_PID = os.getpid()
 
-# Log startup with version and PID for debugging multi-process issues
-print(f"[UNITARES MCP v{SERVER_VERSION}] Server starting (PID: {CURRENT_PID}, Build: {SERVER_BUILD_DATE})", file=sys.stderr)
 
 # Initialize managers for state locking, health thresholds, and process management
 lock_manager = StateLockManager()
@@ -113,11 +113,7 @@ HEARTBEAT_CONFIG = HeartbeatConfig(
 )
 
 activity_tracker = get_activity_tracker(HEARTBEAT_CONFIG)
-if HEARTBEAT_CONFIG.enabled:
-    print(f"[UNITARES MCP] Activity tracker initialized - lightweight heartbeats ENABLED", file=sys.stderr)
-    print(f"[UNITARES MCP] Heartbeat triggers: {HEARTBEAT_CONFIG.tool_call_threshold} tools, {HEARTBEAT_CONFIG.conversation_turn_threshold} turns, {HEARTBEAT_CONFIG.time_threshold_minutes} min", file=sys.stderr)
-else:
-    print(f"[UNITARES MCP] Activity tracker initialized (observation mode)", file=sys.stderr)
+# Don't print here - moved to main() after stdio_server() context
 
 # Store monitors per agent
 monitors: dict[str, UNITARESMonitor] = {}
@@ -181,6 +177,17 @@ _metadata_cache_state = {
     "last_file_mtime": 0.0,       # File modification time at last load
     "cache_ttl": 60.0,            # Cache valid for 60 seconds
     "dirty": False                # Has in-memory data been modified?
+}
+
+# Batched metadata save state (reduces I/O by batching multiple updates)
+_metadata_batch_state = {
+    "dirty": False,                # True if metadata needs saving
+    "save_task": None,             # Background task for batched saves
+    "save_lock": None,             # Async lock for save coordination
+    "debounce_delay": 0.5,        # Wait 500ms before saving (batch multiple updates)
+    "max_batch_delay": 2.0,       # Maximum delay before forcing save (2 seconds)
+    "last_save_time": 0,          # Timestamp of last save attempt
+    "pending_save": False         # True if save is scheduled
 }
 
 # Path to metadata file
@@ -363,18 +370,104 @@ def load_metadata() -> None:
         print(f"[UNITARES MCP] Warning: Could not load metadata: {e}", file=sys.stderr)
 
 
+async def schedule_metadata_save(force: bool = False) -> None:
+    """
+    Schedule a batched metadata save. Batches multiple updates together to reduce I/O.
+    
+    Args:
+        force: If True, save immediately (for critical operations like agent creation)
+    """
+    global _metadata_batch_state
+    
+    # Mark as dirty
+    _metadata_batch_state["dirty"] = True
+    _metadata_cache_state["dirty"] = True
+    
+    if force:
+        # Force immediate save for critical operations
+        await flush_metadata_save()
+        return
+    
+    # Schedule batched save (debounced)
+    if _metadata_batch_state["save_lock"] is None:
+        _metadata_batch_state["save_lock"] = asyncio.Lock()
+    
+    async with _metadata_batch_state["save_lock"]:
+        if _metadata_batch_state["pending_save"]:
+            # Save already scheduled, just mark dirty
+            return
+        
+        _metadata_batch_state["pending_save"] = True
+        
+        # Cancel existing task if any
+        if _metadata_batch_state["save_task"] and not _metadata_batch_state["save_task"].done():
+            _metadata_batch_state["save_task"].cancel()
+        
+        # Schedule new batched save
+        _metadata_batch_state["save_task"] = asyncio.create_task(_batched_metadata_save())
+
+
+async def _batched_metadata_save() -> None:
+    """
+    Batched metadata save with debouncing. Waits for multiple updates to batch together.
+    """
+    global _metadata_batch_state
+    
+    try:
+        # Wait for debounce delay (allows multiple updates to batch)
+        await asyncio.sleep(_metadata_batch_state["debounce_delay"])
+        
+        # Check if still dirty and enough time has passed
+        current_time = time.time()
+        time_since_last_save = current_time - _metadata_batch_state["last_save_time"]
+        
+        # If max delay exceeded, force save even if recent updates
+        if time_since_last_save >= _metadata_batch_state["max_batch_delay"]:
+            await flush_metadata_save()
+        elif _metadata_batch_state["dirty"]:
+            # Still dirty after debounce - save now
+            await flush_metadata_save()
+    except asyncio.CancelledError:
+        # Task was cancelled (new update came in) - reschedule
+        _metadata_batch_state["pending_save"] = False
+        if _metadata_batch_state["dirty"]:
+            # Reschedule if still dirty
+            _metadata_batch_state["save_task"] = asyncio.create_task(_batched_metadata_save())
+    except Exception as e:
+        print(f"[UNITARES MCP] Error in batched metadata save: {e}", file=sys.stderr)
+        _metadata_batch_state["pending_save"] = False
+
+
+async def flush_metadata_save() -> None:
+    """
+    Flush metadata save immediately (non-blocking). Used for batched saves and critical operations.
+    """
+    global _metadata_batch_state
+    
+    if not _metadata_batch_state["dirty"]:
+        return
+    
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, save_metadata)
+        
+        _metadata_batch_state["dirty"] = False
+        _metadata_batch_state["pending_save"] = False
+        _metadata_batch_state["last_save_time"] = time.time()
+    except Exception as e:
+        print(f"[UNITARES MCP] Error flushing metadata save: {e}", file=sys.stderr)
+
+
 async def save_metadata_async() -> None:
     """
     DEPRECATED: Async version of save_metadata - runs blocking I/O in thread pool
     
-    ⚠️ WARNING: This function is deprecated. Use synchronous save_metadata() instead.
-    Async saves can leak identity/lifecycle data if process exits before completion.
+    ⚠️ WARNING: This function is deprecated. Use schedule_metadata_save() instead for batched updates.
+    For critical operations, use schedule_metadata_save(force=True).
     
-    Kept for backward compatibility only. All critical metadata saves should use
-    synchronous save_metadata() to ensure data persistence.
+    Kept for backward compatibility only.
     """
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, save_metadata)
+    await schedule_metadata_save(force=True)
 
 def save_metadata() -> None:
     """Save agent metadata to file with locking to prevent race conditions"""
@@ -507,7 +600,10 @@ def get_or_create_metadata(agent_id: str) -> AgentMetadata:
             metadata.notes = "First agent - pioneer of the governance system"
 
         agent_metadata[agent_id] = metadata
-        save_metadata()
+        # Mark dirty - async handlers will schedule batched save
+        # For critical operations, caller should call schedule_metadata_save(force=True)
+        _metadata_batch_state["dirty"] = True
+        _metadata_cache_state["dirty"] = True
         
         # Print API key for new agent (one-time display)
         print(f"[UNITARES MCP] Created new agent '{agent_id}'", file=sys.stderr)
@@ -522,7 +618,7 @@ register_agent = get_or_create_metadata
 
 async def save_monitor_state_async(agent_id: str, monitor: UNITARESMonitor) -> None:
     """Async version of save_monitor_state - runs blocking I/O in thread pool"""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
     await loop.run_in_executor(None, save_monitor_state, agent_id, monitor)
 
 def save_monitor_state(agent_id: str, monitor: UNITARESMonitor) -> None:
@@ -577,7 +673,7 @@ def save_monitor_state(agent_id: str, monitor: UNITARESMonitor) -> None:
             print(f"[UNITARES MCP] Error: Could not save state for {agent_id}: {e2}", file=sys.stderr)
 
 
-def load_monitor_state(agent_id: str) -> 'GovernanceState' | None:
+def load_monitor_state(agent_id: str) -> 'GovernanceState | None':
     """Load monitor state from file if it exists"""
     state_file = get_state_file(agent_id)
     
@@ -595,8 +691,9 @@ def load_monitor_state(agent_id: str) -> 'GovernanceState' | None:
         return None
 
 
-# Load metadata on startup
-load_metadata()
+# CRITICAL FIX: Don't load metadata at import time - defer to first use or background task
+# This prevents blocking startup. Metadata will be loaded lazily when needed.
+# load_metadata()  # REMOVED: Was blocking startup
 
 
 def auto_archive_old_test_agents(max_age_hours: float = 6.0) -> int:
@@ -670,22 +767,21 @@ def auto_archive_old_test_agents(max_age_hours: float = 6.0) -> int:
     return archived_count
 
 
-# Auto-archive old test agents on startup (non-blocking, logs only)
-try:
-    archived = auto_archive_old_test_agents(max_age_hours=6.0)
-    if archived > 0:
-        print(f"[UNITARES MCP] Auto-archived {archived} old test/demo agents on startup", file=sys.stderr)
+# DEFERRED: Auto-archive moved to background task (was blocking startup)
+# try:
+#     archived = auto_archive_old_test_agents(max_age_hours=6.0)
+#     if archived > 0:
+#         print(f"[UNITARES MCP] Auto-archived {archived} old test/demo agents on startup", file=sys.stderr)
+# except Exception as e:
+#     print(f"[UNITARES MCP] Warning: Could not auto-archive old test agents: {e}", file=sys.stderr)
 
-except Exception as e:
-    print(f"[UNITARES MCP] Warning: Could not auto-archive old test agents: {e}", file=sys.stderr)
-
-# Clean up stale locks on startup to prevent Cursor freezing
-try:
-    result = cleanup_stale_state_locks(project_root, max_age_seconds=300, dry_run=False)
-    if result['cleaned'] > 0:
-        print(f"[UNITARES MCP] Cleaned {result['cleaned']} stale lock files on startup", file=sys.stderr)
-except Exception as e:
-    print(f"[UNITARES MCP] Warning: Could not clean up stale locks: {e}", file=sys.stderr)
+# DEFERRED: Lock cleanup moved to background task (was blocking startup)
+# try:
+#     result = cleanup_stale_state_locks(project_root, max_age_seconds=300, dry_run=False)
+#     if result['cleaned'] > 0:
+#         print(f"[UNITARES MCP] Cleaned {result['cleaned']} stale lock files on startup", file=sys.stderr)
+# except Exception as e:
+#     print(f"[UNITARES MCP] Warning: Could not clean up stale locks: {e}", file=sys.stderr)
 
 
 def cleanup_stale_processes():
@@ -779,11 +875,13 @@ def remove_pid_file():
         print(f"[UNITARES MCP] Warning: Could not remove PID file: {e}", file=sys.stderr)
 
 
+# Global flag for graceful shutdown
+_shutdown_requested = False
+
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
-    print(f"\n[UNITARES MCP] Received signal {signum}, shutting down gracefully...", file=sys.stderr)
-    remove_pid_file()
-    sys.exit(0)
+    global _shutdown_requested
+    _shutdown_requested = True
 
 
 # Register signal handlers for graceful shutdown
@@ -793,35 +891,21 @@ signal.signal(signal.SIGTERM, signal_handler)
 # Register cleanup on exit
 atexit.register(remove_pid_file)
 
-# Write heartbeat immediately on startup to mark this process as active
-# This prevents other clients from killing this process during their cleanup
+# CRITICAL FIX: Move heavy startup operations to background to prevent Claude Desktop timeouts
+# Claude Desktop has strict timeout for server initialization - we must respond quickly
+# Heavy operations (process scanning, cleanup) are deferred to background tasks
+
+# Write heartbeat immediately (fast operation)
 process_mgr.write_heartbeat()
 
-# Clean up stale processes on startup (using ProcessManager)
-# Use longer max_age to avoid killing active connections from other clients
-# Only kill processes that are truly stale (5+ minutes old without heartbeat)
-try:
-    cleaned = process_mgr.cleanup_zombies(max_age_seconds=300, max_keep_processes=MAX_KEEP_PROCESSES)
-    if cleaned:
-        print(f"[UNITARES MCP] Cleaned up {len(cleaned)} zombie processes on startup", file=sys.stderr)
-except Exception as e:
-    print(f"[UNITARES MCP] Warning: Could not clean zombies on startup: {e}", file=sys.stderr)
-
-# Clean up stale lock files (from crashed/killed processes)
-try:
-    from src.lock_cleanup import cleanup_stale_state_locks
-    lock_cleanup_result = cleanup_stale_state_locks(project_root=project_root, max_age_seconds=300, dry_run=False)
-    if lock_cleanup_result['cleaned'] > 0:
-        print(f"[UNITARES MCP] Cleaned up {lock_cleanup_result['cleaned']} stale lock file(s) on startup", file=sys.stderr)
-except Exception as e:
-    print(f"[UNITARES MCP] Warning: Could not clean stale locks on startup: {e}", file=sys.stderr)
-
-# Also run legacy cleanup for compatibility (but only if we have too many processes)
-# Don't kill processes aggressively - let multiple clients coexist
-cleanup_stale_processes()
-
-# Write PID file
+# Write PID file (fast operation)
 write_pid_file()
+
+# DEFERRED: Heavy cleanup operations moved to background task in main()
+# This prevents blocking startup and allows server to respond quickly to Claude Desktop
+# - cleanup_zombies() scans all processes (can be slow)
+# - cleanup_stale_state_locks() scans file system (can be slow)
+# - cleanup_stale_processes() scans processes (can be slow)
 
 
 def spawn_agent_with_inheritance(
@@ -1523,7 +1607,8 @@ async def process_update_authenticated_async(
     api_key: str,
     agent_state: dict,
     auto_save: bool = True,
-    confidence: float = 1.0
+    confidence: float = 1.0,
+    task_type: str = "mixed"
 ) -> dict:
     """
     Process governance update with authentication enforcement (async version).
@@ -1547,13 +1632,14 @@ async def process_update_authenticated_async(
         PermissionError: If authentication fails
         ValueError: If agent_id is invalid
     """
-    # Authenticate ownership
-    is_valid, error_msg = verify_agent_ownership(agent_id, api_key)
+    # Authenticate ownership (run in executor to avoid blocking)
+    loop = asyncio.get_running_loop()
+    is_valid, error_msg = await loop.run_in_executor(None, verify_agent_ownership, agent_id, api_key)
     if not is_valid:
         raise PermissionError(f"Authentication failed: {error_msg}")
 
-    # Check for loop pattern BEFORE processing
-    is_loop, loop_reason = detect_loop_pattern(agent_id)
+    # Check for loop pattern BEFORE processing (run in executor to avoid blocking)
+    is_loop, loop_reason = await loop.run_in_executor(None, detect_loop_pattern, agent_id)
     if is_loop:
         meta = agent_metadata[agent_id]
         
@@ -1591,7 +1677,8 @@ async def process_update_authenticated_async(
             meta.add_lifecycle_event("loop_detected", loop_reason)
             print(f"[UNITARES MCP] ⚠️  Loop detected for agent '{agent_id}': {loop_reason} (cooldown: {cooldown_seconds}s)", file=sys.stderr)
         
-        save_metadata()  # Synchronous save - critical for identity/lifecycle data
+        # Save metadata in executor to avoid blocking (critical for identity/lifecycle data)
+        await loop.run_in_executor(None, save_metadata)
         
         raise ValueError(
             f"Self-monitoring loop detected: {loop_reason}. "
@@ -1599,11 +1686,19 @@ async def process_update_authenticated_async(
             f"Cooldown until: {cooldown_until.isoformat()}"
         )
 
-    # Get or create monitor
-    monitor = get_or_create_monitor(agent_id)
+    # Get or create monitor (run in executor to avoid blocking - may do file I/O)
+    monitor = await loop.run_in_executor(None, get_or_create_monitor, agent_id)
 
+    # Extract task_type from agent_state for context-aware EISV interpretation
+    task_type = agent_state.get("task_type", "mixed")
+    
     # Process update (now authenticated) with confidence gating
-    result = monitor.process_update(agent_state, confidence=confidence)
+    # IMPORTANT: Run in executor to avoid blocking the event loop (fixes Claude Desktop hangs)
+    from functools import partial
+    result = await loop.run_in_executor(
+        None, 
+        partial(monitor.process_update, agent_state, confidence=confidence, task_type=task_type)
+    )
 
     # Auto-save state if requested (async)
     if auto_save:
@@ -1631,7 +1726,8 @@ async def process_update_authenticated_async(
             if datetime.now() >= cooldown_until:
                 meta.loop_cooldown_until = None
         
-        save_metadata()  # Synchronous save - critical for identity/lifecycle data
+        # Save metadata in executor to avoid blocking (critical for identity/lifecycle data)
+        await loop.run_in_executor(None, save_metadata)
 
     return result
 
@@ -1871,20 +1967,32 @@ DEPENDENCIES:
                 "properties": {
                     "confidence": {
                         "type": "number",
-                        "description": "Confidence level (0-1) for the prediction",
+                        "description": "Confidence level (0-1) for the prediction (direct mode only)",
                         "minimum": 0,
                         "maximum": 1
                     },
                     "predicted_correct": {
                         "type": "boolean",
-                        "description": "Whether we predicted correct (based on confidence threshold)"
+                        "description": "Whether we predicted correct (direct mode only)"
                     },
                     "actual_correct": {
                         "type": "boolean",
-                        "description": "Whether prediction was actually correct (ground truth from human review)"
+                        "description": "Whether prediction was actually correct (ground truth from human review). Required in both modes."
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "description": "ISO timestamp of decision (timestamp mode). System looks up confidence and decision from audit log."
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent ID (optional in timestamp mode, helps narrow search)"
                     }
                 },
-                "required": ["confidence", "predicted_correct", "actual_correct"]
+                "required": ["actual_correct"],
+                "anyOf": [
+                    {"required": ["confidence", "predicted_correct"]},
+                    {"required": ["timestamp"]}
+                ]
             }
         ),
         Tool(
@@ -1899,7 +2007,7 @@ USE CASES:
 RETURNS:
 {
   "success": true,
-  "status": "healthy" | "moderate" | "critical",  # "moderate" renamed from "degraded"
+  "status": "healthy" | "moderate" | "critical",
   "version": "string",
   "components": {
     "calibration": {"status": "healthy", "pending_updates": int},
@@ -1973,7 +2081,7 @@ RETURNS:
     "mcp_servers_responding": boolean
   },
   "last_validated": "ISO timestamp",
-  "health": "healthy" | "moderate" | "critical",  # "moderate" renamed from "degraded"
+  "health": "healthy" | "moderate" | "critical",
   "recommendation": "string"
 }
 
@@ -2254,7 +2362,7 @@ USE CASES:
 RETURNS:
 {
   "success": true,
-  "status": "healthy" | "moderate" | "critical",  # "moderate" renamed from "degraded"
+  "status": "healthy" | "moderate" | "critical",
   "decision": {
     "action": "proceed" | "pause",  # Two-tier system (backward compat: approve/reflect/reject mapped)
     "reason": "string explanation",
@@ -2367,6 +2475,12 @@ DEPENDENCIES:
                         "description": "If true, automatically export governance history when thermodynamically significant events occur (risk spike >15%, coherence drop >10%, void threshold >0.10, circuit breaker triggered, or pause/reject decision). Default: false.",
                         "default": False
                     },
+                    "task_type": {
+                        "type": "string",
+                        "enum": ["convergent", "divergent", "mixed"],
+                        "description": "Optional task type context. 'convergent' (standardization, formatting) vs 'divergent' (creative exploration). System interprets S=0 differently: convergent S=0 is healthy compliance, divergent S=0 may indicate lack of exploration. Prevents false positives on 'compliance vs health'.",
+                        "default": "mixed"
+                    },
                 },
                 "required": ["agent_id"]
             }
@@ -2392,7 +2506,7 @@ RETURNS:
   "verdict": "safe" | "caution" | "high-risk",  # Primary governance signal
   "risk_score": float,  # DEPRECATED: Use attention_score instead
   "sampling_params": {"temperature": float, "top_p": float, "max_tokens": int},
-  "status": "healthy" | "moderate" | "critical",  # "moderate" renamed from "degraded"
+  "status": "healthy" | "moderate" | "critical",
   "decision_statistics": {"proceed": int, "pause": int, "total": int},  # Two-tier system (backward compat: approve/reflect/reject also included)
   "eisv_labels": {"E": "...", "I": "...", "S": "...", "V": "..."}
 }
@@ -2621,7 +2735,7 @@ RETURNS:
     {
       "agent_id": "string",
       "lifecycle_status": "active" | "paused" | "archived" | "deleted",
-      "health_status": "healthy" | "moderate" | "critical" | "unknown",  # "moderate" renamed from "degraded"
+      "health_status": "healthy" | "moderate" | "critical" | "unknown",
       "created": "ISO timestamp",
       "last_update": "ISO timestamp",
       "total_updates": int,
@@ -2632,7 +2746,7 @@ RETURNS:
   "summary": {
     "total": int,
     "by_status": {"active": int, "paused": int, ...},
-    "by_health": {"healthy": int, "moderate": int, ...}  # "moderate" renamed from "degraded"
+    "by_health": {"healthy": int, "moderate": int, ...}
   }
 }
 
@@ -3418,7 +3532,7 @@ RETURNS:
   },
   "health_breakdown": {
     "healthy": int,
-    "moderate": int,  # Renamed from "degraded"
+    "moderate": int,
     "critical": int,
     "unknown": int
   },
@@ -3447,7 +3561,7 @@ EXAMPLE RESPONSE:
   },
   "health_breakdown": {
     "healthy": 2,
-    "moderate": 0,  # Renamed from "degraded"
+    "moderate": 0,
     "critical": 0,
     "unknown": 0
   }
@@ -4472,7 +4586,7 @@ DEPENDENCIES:
                     },
                     "discovery_type": {
                         "type": "string",
-                        "enum": ["bug_found", "insight", "pattern", "improvement", "question"],
+                        "enum": ["bug_found", "insight", "pattern", "improvement", "question", "answer", "note"],
                         "description": "Type of discovery"
                     },
                     "summary": {
@@ -4502,6 +4616,22 @@ DEPENDENCIES:
                         "type": "boolean",
                         "description": "Automatically find and link similar discoveries (default: false)",
                         "default": False
+                    },
+                    "response_to": {
+                        "type": "object",
+                        "description": "Typed response to parent discovery (creates bidirectional link). Makes knowledge graph feel like conversation, not pile.",
+                        "properties": {
+                            "discovery_id": {
+                                "type": "string",
+                                "description": "ID of parent discovery being responded to"
+                            },
+                            "response_type": {
+                                "type": "string",
+                                "enum": ["extend", "question", "disagree", "support"],
+                                "description": "Type of response: extend (builds on), question (asks about), disagree (challenges), support (agrees with)"
+                            }
+                        },
+                        "required": ["discovery_id", "response_type"]
                     }
                 },
                 "required": ["agent_id", "discovery_type", "summary"]
@@ -4509,7 +4639,7 @@ DEPENDENCIES:
         ),
         Tool(
             name="search_knowledge_graph",
-            description="""Search knowledge graph - fast indexed queries, full transparency.
+            description="""Search knowledge graph - returns summaries only (use get_discovery_details for full content).
 
 USE CASES:
 - Find discoveries by tags
@@ -4520,20 +4650,27 @@ USE CASES:
 PERFORMANCE:
 - O(indexes) not O(n) - scales logarithmically
 - ~0.1ms for typical queries
-- Non-blocking async operations
+- Returns summaries only to prevent context overflow
 
 RETURNS:
 {
   "success": true,
-  "discoveries": [...],
+  "discoveries": [
+    {
+      "id": "...",
+      "summary": "...",
+      "has_details": true,
+      "details_preview": "First 100 chars..."
+    }
+  ],
   "count": int,
-  "message": "Found N discovery(ies)"
+  "message": "Found N discovery(ies) (use get_discovery_details for full content)"
 }
 
 RELATED TOOLS:
+- get_discovery_details: Get full content for a specific discovery
 - list_knowledge_graph: See statistics
 - get_knowledge_graph: Get agent's knowledge
-- find_similar_discoveries_graph: Find similar by tags
 
 EXAMPLE REQUEST:
 {
@@ -4543,26 +4680,10 @@ EXAMPLE REQUEST:
   "limit": 10
 }
 
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "discoveries": [
-    {
-      "id": "2025-11-28T12:00:00",
-      "agent_id": "agent_1",
-      "type": "bug_found",
-      "summary": "Found authentication bypass",
-      "tags": ["security", "bug"],
-      "severity": "high"
-    }
-  ],
-  "count": 1,
-  "message": "Found 1 discovery(ies)"
-}
-
 DEPENDENCIES:
 - All parameters optional (filters)
-- Returns all discoveries if no filters""",
+- Returns summaries only by default
+- Use get_discovery_details for full content""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4577,7 +4698,7 @@ DEPENDENCIES:
                     },
                     "discovery_type": {
                         "type": "string",
-                        "enum": ["bug_found", "insight", "pattern", "improvement", "question"],
+                        "enum": ["bug_found", "insight", "pattern", "improvement", "question", "answer", "note"],
                         "description": "Filter by discovery type"
                     },
                     "severity": {
@@ -4587,7 +4708,7 @@ DEPENDENCIES:
                     },
                     "status": {
                         "type": "string",
-                        "enum": ["open", "resolved", "archived"],
+                        "enum": ["open", "resolved", "archived", "disputed"],
                         "description": "Filter by status"
                     },
                     "limit": {
@@ -4600,45 +4721,41 @@ DEPENDENCIES:
         ),
         Tool(
             name="get_knowledge_graph",
-            description="""Get all knowledge for an agent - fast index lookup.
+            description="""Get all knowledge for an agent - returns summaries only (use get_discovery_details for full content).
 
 USE CASES:
-- Retrieve agent's complete knowledge record
+- Retrieve agent's knowledge record
 - See what agent has learned
 - Review agent's discoveries
 
 PERFORMANCE:
 - O(1) index lookup
 - Fast, non-blocking
+- Summaries only to prevent context overflow
 
 RETURNS:
 {
   "success": true,
   "agent_id": "string",
-  "discoveries": [...],
+  "discoveries": [
+    {
+      "id": "...",
+      "summary": "...",
+      "has_details": true,
+      "details_preview": "First 100 chars..."
+    }
+  ],
   "count": int
 }
 
 RELATED TOOLS:
+- get_discovery_details: Get full content for a specific discovery
 - search_knowledge_graph: Search across agents
 - list_knowledge_graph: See statistics
 
-EXAMPLE REQUEST:
-{
-  "agent_id": "my_agent",
-  "limit": 50
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "agent_id": "my_agent",
-  "discoveries": [...],
-  "count": 10
-}
-
 DEPENDENCIES:
-- Requires: agent_id""",
+- Requires: agent_id
+- Returns summaries only by default""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -4835,6 +4952,256 @@ DEPENDENCIES:
                     }
                 },
                 "required": ["discovery_id"]
+            }
+        ),
+        Tool(
+            name="get_discovery_details",
+            description="""Get full details for a specific discovery - use after search to drill down.
+
+USE CASES:
+- Get full content after finding discovery in search
+- Drill down into a specific discovery
+- Read complete details after seeing summary
+
+RETURNS:
+{
+  "success": true,
+  "discovery": {
+    "id": "string",
+    "agent_id": "string",
+    "type": "string",
+    "summary": "string",
+    "details": "string (full content)",
+    "tags": [...],
+    ...
+  },
+  "message": "Full details for discovery 'id'"
+}
+
+RELATED TOOLS:
+- search_knowledge_graph: Find discoveries (returns summaries)
+- get_knowledge_graph: Get agent's discoveries (returns summaries)
+
+EXAMPLE REQUEST:
+{
+  "discovery_id": "2025-11-28T12:00:00"
+}
+
+EXAMPLE RESPONSE:
+{
+  "success": true,
+  "discovery": {
+    "id": "2025-11-28T12:00:00",
+    "summary": "Found authentication bypass",
+    "details": "Full detailed content here..."
+  },
+  "message": "Full details for discovery '2025-11-28T12:00:00'"
+}
+
+DEPENDENCIES:
+- Requires: discovery_id""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "discovery_id": {
+                        "type": "string",
+                        "description": "Discovery ID to get full details for"
+                    }
+                },
+                "required": ["discovery_id"]
+            }
+        ),
+        Tool(
+            name="reply_to_question",
+            description="""Reply to a question in the knowledge graph - creates an answer linked to the question.
+
+USE CASES:
+- Answer questions asked by other agents
+- Create structured Q&A pairs in the knowledge graph
+- Link answers to questions for easy discovery
+- Optionally mark questions as resolved when answered
+
+RETURNS:
+{
+  "success": true,
+  "message": "Answer stored for question 'question_id'",
+  "answer_id": "timestamp",
+  "answer": {...},
+  "question_id": "string",
+  "question_status": "open" | "resolved",
+  "note": "Use search_knowledge_graph with discovery_type='answer' and related_to to find answers to questions"
+}
+
+RELATED TOOLS:
+- search_knowledge_graph: Find open questions (discovery_type='question', status='open')
+- get_discovery_details: Get full question details before answering
+- store_knowledge_graph: Store questions (discovery_type='question')
+
+EXAMPLE REQUEST:
+{
+  "agent_id": "answering_agent",
+  "api_key": "your_api_key",
+  "question_id": "2025-12-07T18:40:41.680744",
+  "summary": "EISV validation prevents cherry-picking by requiring all four metrics",
+  "details": "By requiring all four metrics (E, I, S, V) to be reported together, agents cannot selectively omit uncomfortable metrics like void (V) when it's high...",
+  "tags": ["EISV", "validation", "selection-bias"],
+  "mark_question_resolved": false
+}
+
+EXAMPLE RESPONSE:
+{
+  "success": true,
+  "message": "Answer stored for question '2025-12-07T18:40:41.680744'",
+  "answer_id": "2025-12-07T19:00:00",
+  "answer": {
+    "id": "2025-12-07T19:00:00",
+    "type": "answer",
+    "summary": "EISV validation prevents cherry-picking...",
+    "related_to": ["2025-12-07T18:40:41.680744"]
+  },
+  "question_id": "2025-12-07T18:40:41.680744",
+  "question_status": "open"
+}
+
+DEPENDENCIES:
+- Requires: agent_id, question_id, summary
+- Optional: details, tags, severity, mark_question_resolved (default: false)
+- Automatically includes question tags in answer for discoverability""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent identifier"
+                    },
+                    "api_key": {
+                        "type": "string",
+                        "description": "API key for authentication (optional for low/medium severity)"
+                    },
+                    "question_id": {
+                        "type": "string",
+                        "description": "ID of the question to answer"
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Brief answer summary"
+                    },
+                    "details": {
+                        "type": "string",
+                        "description": "Detailed answer (optional)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags for categorization (question tags automatically included)"
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high", "critical"],
+                        "description": "Severity level (optional)"
+                    },
+                    "mark_question_resolved": {
+                        "type": "boolean",
+                        "description": "Mark question as resolved when answering (default: false)",
+                        "default": False
+                    }
+                },
+                "required": ["agent_id", "question_id", "summary"]
+            }
+        ),
+        Tool(
+            name="leave_note",
+            description="""Leave a quick note in the knowledge graph - minimal friction contribution.
+
+Just agent_id + text + optional tags. Auto-sets type='note', severity='low'.
+For when you want to jot something down without the full store_knowledge_graph ceremony.
+
+USE CASES:
+- Quick observations during exploration
+- Casual thoughts worth preserving
+- Low-friction contributions to the commons
+- Breadcrumbs for future agents
+- Threaded responses to other discoveries
+
+RETURNS:
+{
+  "success": true,
+  "message": "Note saved",
+  "note_id": "timestamp",
+  "note": {...}
+}
+
+RELATED TOOLS:
+- store_knowledge_graph: Full-featured discovery storage (more fields)
+- search_knowledge_graph: Find notes and other discoveries
+
+EXAMPLE REQUEST (simple):
+{
+  "agent_id": "exploring_agent",
+  "text": "The dialectic system feels more like mediation than judgment",
+  "tags": ["dialectic", "observation"]
+}
+
+EXAMPLE REQUEST (threaded response):
+{
+  "agent_id": "responding_agent",
+  "text": "I agree - the synthesis phase is particularly collaborative",
+  "tags": ["dialectic"],
+  "response_to": {"discovery_id": "2025-12-07T18:00:00", "response_type": "support"}
+}
+
+EXAMPLE RESPONSE:
+{
+  "success": true,
+  "message": "Note saved",
+  "note_id": "2025-12-07T22:00:00",
+  "note": {
+    "id": "2025-12-07T22:00:00",
+    "type": "note",
+    "summary": "The dialectic system feels more like mediation than judgment",
+    "tags": ["dialectic", "observation"],
+    "severity": "low"
+  }
+}
+
+DEPENDENCIES:
+- Requires: agent_id, text
+- Optional: tags (default: []), response_to (for threading)
+- Auto-links to similar discoveries if tags provided""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent identifier"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The note content (max 500 chars)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional tags for categorization and auto-linking"
+                    },
+                    "response_to": {
+                        "type": "object",
+                        "description": "Optional: Thread this note as a response to another discovery",
+                        "properties": {
+                            "discovery_id": {
+                                "type": "string",
+                                "description": "ID of parent discovery being responded to"
+                            },
+                            "response_type": {
+                                "type": "string",
+                                "enum": ["extend", "question", "disagree", "support"],
+                                "description": "Type of response: extend (builds on), question (asks about), disagree (challenges), support (agrees with)"
+                            }
+                        },
+                        "required": ["discovery_id", "response_type"]
+                    }
+                },
+                "required": ["agent_id", "text"]
             }
         ),
         Tool(
@@ -5106,49 +5473,122 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> Sequence[Tex
         return [sanitized_error]
 
 
-async def periodic_lock_cleanup(interval_seconds: int = 300):
-    """
-    Background task that periodically cleans up stale locks.
-    Runs every interval_seconds (default: 5 minutes).
-    """
-    while True:
-        try:
-            await asyncio.sleep(interval_seconds)
-            # Clean up stale locks (older than 60 seconds)
-            cleanup_result = cleanup_stale_state_locks(
-                project_root=project_root, 
-                max_age_seconds=60.0, 
-                dry_run=False
-            )
-            if cleanup_result['cleaned'] > 0:
-                print(f"[UNITARES MCP] Periodic cleanup: Removed {cleanup_result['cleaned']} stale lock(s)", file=sys.stderr)
-        except asyncio.CancelledError:
-            # Task was cancelled, exit gracefully
-            break
-        except Exception as e:
-            # Log error but continue running
-            print(f"[UNITARES MCP] Warning: Periodic lock cleanup error: {e}", file=sys.stderr)
 
 
 async def main():
     """Main entry point for MCP server"""
-    # Start background cleanup task
-    cleanup_task = asyncio.create_task(periodic_lock_cleanup(interval_seconds=300))
+    # Fast startup: Don't load metadata synchronously - it's loaded lazily when needed
+    # This prevents blocking Claude Desktop initialization
+    
+    # Background task for automatic startup features (runs after server starts)
+    async def startup_background_tasks():
+        """Run automatic consistency features in background after server starts"""
+        # Wait a moment for server to initialize
+        await asyncio.sleep(0.5)
+        
+        try:
+            # Load metadata in background (non-blocking)
+            loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
+            await loop.run_in_executor(None, load_metadata)
+        except Exception as e:
+            print(f"[UNITARES MCP] Warning: Could not load metadata in background: {e}", file=sys.stderr)
+        
+        try:
+            # Auto-archive old test agents in background
+            loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
+            archived = await loop.run_in_executor(None, auto_archive_old_test_agents, 6.0)
+            if archived > 0:
+                print(f"[UNITARES MCP] Auto-archived {archived} old test/demo agents", file=sys.stderr)
+        except Exception as e:
+            print(f"[UNITARES MCP] Warning: Could not auto-archive old test agents: {e}", file=sys.stderr)
+        
+        try:
+            # Clean up stale locks in background
+            loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
+            result = await loop.run_in_executor(
+                None, 
+                cleanup_stale_state_locks, 
+                project_root, 
+                300, 
+                False
+            )
+            if result.get('cleaned', 0) > 0:
+                print(f"[UNITARES MCP] Cleaned {result['cleaned']} stale lock files", file=sys.stderr)
+        except Exception as e:
+            print(f"[UNITARES MCP] Warning: Could not clean up stale locks: {e}", file=sys.stderr)
+        
+        try:
+            # Load active dialectic sessions from disk (restore after restart)
+            from src.mcp_handlers.dialectic import load_all_sessions
+            loaded_sessions = await load_all_sessions()
+            if loaded_sessions > 0:
+                print(f"[UNITARES MCP] Restored {loaded_sessions} active dialectic session(s) from disk", file=sys.stderr)
+        except Exception as e:
+            print(f"[UNITARES MCP] Warning: Could not load dialectic sessions: {e}", file=sys.stderr)
     
     try:
         async with stdio_server() as (read_stream, write_stream):
+            # Start background tasks for automatic features (non-blocking)
+            # Wrap in try/except to prevent background task errors from crashing server
+            async def safe_startup_background_tasks():
+                try:
+                    await startup_background_tasks()
+                except Exception as e:
+                    # Log but don't crash - background tasks are non-critical
+                    print(f"[UNITARES MCP] Warning: Background task error (non-critical): {e}", file=sys.stderr)
+                    import traceback
+                    print(f"[UNITARES MCP] Traceback:\n{traceback.format_exc()}", file=sys.stderr)
+            
+            # Create background task with error handling
+            bg_task = asyncio.create_task(safe_startup_background_tasks())
+            # Don't await - let it run in background
+            
             await server.run(
                 read_stream,
                 write_stream,
                 server.create_initialization_options()
             )
-    finally:
-        # Cancel background task when server shuts down
-        cleanup_task.cancel()
-        try:
-            await cleanup_task
-        except asyncio.CancelledError:
+    except ExceptionGroup as eg:
+        # Handle ExceptionGroup from stdio_server TaskGroup (Python 3.11+)
+        # Claude Desktop disconnects faster than Cursor, causing TaskGroup errors
+        # When client disconnects, stdout_writer task gets BrokenPipeError
+        if any(isinstance(e, BrokenPipeError) for e in eg.exceptions):
+            # Normal disconnection - Claude Desktop is stricter than Cursor
+            # Cursor tolerates slower operations, Claude Desktop disconnects faster
             pass
+        else:
+            # Unexpected error - log it but don't crash
+            print(f"[UNITARES MCP] TaskGroup error: {eg}", file=sys.stderr)
+            import traceback
+            # Log each exception in the group with full traceback
+            for i, exc in enumerate(eg.exceptions):
+                print(f"[UNITARES MCP] Exception {i+1}/{len(eg.exceptions)}: {type(exc).__name__}: {exc}", file=sys.stderr)
+                try:
+                    # Try to get traceback from exception
+                    if hasattr(exc, '__traceback__') and exc.__traceback__:
+                        print(f"[UNITARES MCP] Traceback for exception {i+1}:\n{traceback.format_exception(type(exc), exc, exc.__traceback__)}", file=sys.stderr)
+                    else:
+                        print(f"[UNITARES MCP] No traceback available for exception {i+1}", file=sys.stderr)
+                except Exception as tb_error:
+                    print(f"[UNITARES MCP] Could not format traceback: {tb_error}", file=sys.stderr)
+            # Also try to get the full ExceptionGroup traceback
+            try:
+                if hasattr(eg, '__traceback__') and eg.__traceback__:
+                    print(f"[UNITARES MCP] Full ExceptionGroup traceback:\n{traceback.format_exception(type(eg), eg, eg.__traceback__)}", file=sys.stderr)
+            except Exception:
+                pass
+    except BrokenPipeError:
+        # Normal when client disconnects (non-ExceptionGroup case, older Python)
+        pass
+    except KeyboardInterrupt:
+        # User interrupt
+        pass
+    except Exception as e:
+        print(f"[UNITARES MCP] Error: {e}", file=sys.stderr)
+        import traceback
+        print(f"[UNITARES MCP] Traceback:\n{traceback.format_exc()}", file=sys.stderr)
+    finally:
+        remove_pid_file()
 
 
 if __name__ == "__main__":
