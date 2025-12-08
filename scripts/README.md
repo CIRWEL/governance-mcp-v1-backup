@@ -5,7 +5,7 @@
 **If you have MCP access (Cursor, Claude Desktop, etc.):**
 - ✅ **Use MCP tools directly** - Don't use scripts
 - ✅ **See `tools/README.md`** - Tools are the primary interface
-- ✅ **44+ tools available** - Full feature set via MCP protocol
+- ✅ **Full tool suite available** - Use list_tools() for current count (43 as of Dec 2025)
 
 **If you DON'T have MCP access (CLI-only):**
 - ⚠️ **Use scripts below** - Only for CLI-only interfaces
