@@ -27,10 +27,11 @@ list_tools()
 ```
 
 **Returns:**
-- All 44+ tools with descriptions
+- All available tools with descriptions (currently 43)
 - Categories (core, lifecycle, export, etc.)
 - Workflows (onboarding, monitoring, governance_cycle)
 - Tool relationships
+- Dynamic count via len(tools) - always current
 
 ---
 
