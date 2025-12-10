@@ -857,6 +857,38 @@
     "last_response_at": "2025-12-01T17:30:33.360090",
     "response_completed": true
   },
+  "debug_test_agent": {
+    "agent_id": "debug_test_agent",
+    "status": "active",
+    "created_at": "2025-12-06T12:13:00.167098",
+    "last_update": "2025-12-06T12:13:00.185438",
+    "version": "v1.0",
+    "total_updates": 1,
+    "tags": [],
+    "notes": "",
+    "lifecycle_events": [
+      {
+        "event": "created",
+        "timestamp": "2025-12-06T12:13:00.167165",
+        "reason": null
+      }
+    ],
+    "paused_at": null,
+    "archived_at": null,
+    "parent_agent_id": null,
+    "spawn_reason": null,
+    "api_key": "avbz4gTo1Aeq5m0ZahAK3yRWnO0zBF-v3r9SbvRq2DU",
+    "recent_update_timestamps": [
+      "2025-12-06T12:13:00.185438"
+    ],
+    "recent_decisions": [
+      "proceed"
+    ],
+    "loop_detected_at": null,
+    "loop_cooldown_until": null,
+    "last_response_at": null,
+    "response_completed": false
+  },
   "demo_end_to_end": {
     "agent_id": "demo_end_to_end",
     "status": "archived",
