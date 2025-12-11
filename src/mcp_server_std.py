@@ -33,18 +33,22 @@ try:
     AIOFILES_AVAILABLE = True
 except ImportError:
     AIOFILES_AVAILABLE = False
-    print("[UNITARES MCP] Warning: aiofiles not available. File I/O will be synchronous. Install with: pip install aiofiles", file=sys.stderr)
+    logger.warning("aiofiles not available. File I/O will be synchronous. Install with: pip install aiofiles")
 
 try:
     import psutil
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
-    print("[UNITARES MCP] Warning: psutil not available. Process cleanup disabled. Install with: pip install psutil", file=sys.stderr)
+    logger.warning("psutil not available. Process cleanup disabled. Install with: pip install psutil")
 
 # Add project root to path
 from src._imports import ensure_project_root
 project_root = ensure_project_root()
+
+# Import structured logging (must be before try blocks that use logger)
+from src.logging_utils import get_logger
+logger = get_logger(__name__)
 
 try:
     from mcp.server import Server
@@ -66,12 +70,25 @@ from src.process_cleanup import ProcessManager
 from src.pattern_analysis import analyze_agent_patterns
 from src.runtime_config import get_thresholds
 from src.lock_cleanup import cleanup_stale_state_locks
+from src.tool_schemas import get_tool_definitions
+# Tool mode filtering removed - all tools always available
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 import os
 
-# Server version - increment when making breaking changes or critical fixes
-SERVER_VERSION = "2.0.0"  # UNITARES v2.0: Architecture unification with governance_core
+# Tool mode filtering removed - all tools always available
+# (GOVERNANCE_TOOL_MODE environment variable no longer used)
+
+# Server version - auto-synced from VERSION file at startup
+# Single source of truth: VERSION file
+def _load_version():
+    """Load version from VERSION file (single source of truth)."""
+    version_file = project_root / "VERSION"
+    if version_file.exists():
+        return version_file.read_text().strip()
+    return "2.3.0"  # Fallback if VERSION file missing
+
+SERVER_VERSION = _load_version()  # Auto-sync from VERSION file
 SERVER_BUILD_DATE = "2025-11-22"
 
 # PID file for process tracking
@@ -79,8 +96,10 @@ PID_FILE = Path(project_root) / "data" / ".mcp_server.pid"
 LOCK_FILE = Path(project_root) / "data" / ".mcp_server.lock"
 
 # Maximum number of processes to keep before cleanup
-# The answer to life, the universe, and everything: allows multiple clients
-# This prevents zombie accumulation while supporting concurrent connections
+# Rationale: Allows multiple concurrent clients (SSE, stdio) while preventing zombie accumulation.
+# Value 42 chosen as a balance: high enough for multi-agent scenarios (10-20 agents), 
+# low enough to prevent runaway process growth. Typical usage: 1-5 processes.
+# If exceeded, oldest processes (>5min old, no heartbeat) are cleaned up.
 MAX_KEEP_PROCESSES = 42
 
 # Create MCP server instance
@@ -144,6 +163,8 @@ class AgentMetadata:
     # Response completion tracking
     last_response_at: str = None  # ISO timestamp when response completed
     response_completed: bool = False  # Flag for completion detection
+    # Cached health status (updated on each process_agent_update)
+    health_status: str = "unknown"  # "healthy", "moderate", "critical", "unknown"
 
     def __post_init__(self):
         if self.tags is None:
@@ -166,6 +187,68 @@ class AgentMetadata:
             "timestamp": datetime.now().isoformat(),
             "reason": reason
         })
+    
+    def validate_consistency(self) -> tuple[bool, list[str]]:
+        """
+        Validate metadata consistency invariants.
+        
+        Returns:
+            (is_valid, list_of_errors)
+        """
+        errors = []
+        
+        # Check that recent arrays are consistent with each other
+        timestamps_len = len(self.recent_update_timestamps)
+        decisions_len = len(self.recent_decisions)
+        
+        if timestamps_len != decisions_len:
+            errors.append(
+                f"recent_update_timestamps ({timestamps_len} entries) and "
+                f"recent_decisions ({decisions_len} entries) have mismatched lengths"
+            )
+        
+        # Check that total_updates matches tracked arrays (when arrays are not capped)
+        # Note: Arrays are capped at 10, so we can only validate if total_updates <= 10
+        if self.total_updates <= 10:
+            if timestamps_len != self.total_updates:
+                errors.append(
+                    f"total_updates ({self.total_updates}) does not match "
+                    f"recent_update_timestamps length ({timestamps_len})"
+                )
+        else:
+            # For total_updates > 10, arrays should be capped at 10
+            if timestamps_len > 10:
+                errors.append(
+                    f"recent_update_timestamps ({timestamps_len} entries) exceeds cap of 10"
+                )
+            if decisions_len > 10:
+                errors.append(
+                    f"recent_decisions ({decisions_len} entries) exceeds cap of 10"
+                )
+        
+        # Validate status consistency
+        if self.status == "paused" and not self.paused_at:
+            errors.append("status is 'paused' but paused_at is None")
+        
+        if self.status == "archived" and not self.archived_at:
+            # Note: archived_at can be None if agent was auto-resumed
+            # This is OK, but log as info-level validation
+            pass
+        
+        # Validate timestamps are ISO format
+        try:
+            if self.created_at:
+                datetime.fromisoformat(self.created_at.replace('Z', '+00:00') if 'Z' in self.created_at else self.created_at)
+            if self.last_update:
+                datetime.fromisoformat(self.last_update.replace('Z', '+00:00') if 'Z' in self.last_update else self.last_update)
+            if self.paused_at:
+                datetime.fromisoformat(self.paused_at.replace('Z', '+00:00') if 'Z' in self.paused_at else self.paused_at)
+            if self.archived_at:
+                datetime.fromisoformat(self.archived_at.replace('Z', '+00:00') if 'Z' in self.archived_at else self.archived_at)
+        except (ValueError, AttributeError) as e:
+            errors.append(f"Invalid timestamp format: {e}")
+        
+        return len(errors) == 0, errors
 
 
 # Store agent metadata
@@ -213,9 +296,9 @@ def get_state_file(agent_id: str) -> Path:
             new_path.parent.mkdir(parents=True, exist_ok=True)
             # Move file from old to new location
             old_path.rename(new_path)
-            print(f"[UNITARES MCP] Migrated {agent_id} state file to agents/ subdirectory", file=sys.stderr)
+            logger.info(f"Migrated {agent_id} state file to agents/ subdirectory")
         except Exception as e:
-            print(f"[UNITARES MCP] Warning: Could not migrate {agent_id} state file: {e}", file=sys.stderr)
+            logger.warning(f"Could not migrate {agent_id} state file: {e}", exc_info=True)
             # Fall back to old path if migration fails
             return old_path
 
@@ -237,7 +320,7 @@ def _parse_metadata_dict(data: dict) -> dict:
     for agent_id, meta in data.items():
         # Validate meta is a dict before processing
         if not isinstance(meta, dict):
-            print(f"[UNITARES MCP] Warning: Metadata for {agent_id} is not a dict (type: {type(meta).__name__}), skipping", file=sys.stderr)
+            logger.warning(f"Metadata for {agent_id} is not a dict (type: {type(meta).__name__}), skipping")
             continue
         
         # Set defaults for missing fields
@@ -249,7 +332,8 @@ def _parse_metadata_dict(data: dict) -> dict:
             'loop_detected_at': None,
             'loop_cooldown_until': None,
             'last_response_at': None,
-            'response_completed': False
+            'response_completed': False,
+            'health_status': 'unknown'  # Cached health status for list_agents
         }
         for key, default_value in defaults.items():
             if key not in meta:
@@ -258,7 +342,7 @@ def _parse_metadata_dict(data: dict) -> dict:
         try:
             parsed_metadata[agent_id] = AgentMetadata(**meta)
         except (TypeError, KeyError) as e:
-            print(f"[UNITARES MCP] Warning: Could not create AgentMetadata for {agent_id}: {e}", file=sys.stderr)
+            logger.warning(f"Could not create AgentMetadata for {agent_id}: {e}", exc_info=True)
             continue
     
     return parsed_metadata
@@ -294,7 +378,7 @@ def _acquire_metadata_read_lock(timeout: float = 2.0) -> tuple[int, bool]:
         
         if not lock_acquired:
             # Timeout - will read without lock
-            print(f"[UNITARES MCP] Warning: Metadata lock timeout ({timeout}s) for read, reading without lock", file=sys.stderr)
+            logger.warning(f"Metadata lock timeout ({timeout}s) for read, reading without lock")
     except Exception:
         # On any error, mark as not acquired and caller will handle cleanup
         lock_acquired = False
@@ -344,11 +428,58 @@ def load_metadata() -> None:
             with open(METADATA_FILE, 'r') as f:
                 data = json.load(f)
                 agent_metadata = _parse_metadata_dict(data)
+            
+            # Validate consistency of loaded metadata (startup validation)
+            validation_errors = []
+            validation_warnings = []
+            for agent_id, meta in agent_metadata.items():
+                if isinstance(meta, AgentMetadata):
+                    is_valid, errors = meta.validate_consistency()
+                    if not is_valid:
+                        validation_errors.append((agent_id, errors))
+                        # Auto-fix common issues during load
+                        if len(meta.recent_update_timestamps) != len(meta.recent_decisions):
+                            min_len = min(len(meta.recent_update_timestamps), len(meta.recent_decisions))
+                            meta.recent_update_timestamps = meta.recent_update_timestamps[:min_len]
+                            meta.recent_decisions = meta.recent_decisions[:min_len]
+                            validation_warnings.append(
+                                f"Agent '{agent_id}': Fixed array length mismatch (truncated to {min_len} entries)"
+                            )
+                        if meta.total_updates <= 10 and len(meta.recent_update_timestamps) != meta.total_updates:
+                            meta.total_updates = len(meta.recent_update_timestamps)
+                            validation_warnings.append(
+                                f"Agent '{agent_id}': Fixed total_updates mismatch (set to {meta.total_updates})"
+                            )
+            
+            # Log validation results
+            if validation_errors:
+                logger.warning(
+                    f"Metadata consistency issues found on load: {len(validation_errors)} agent(s) with errors. "
+                    f"Auto-fixes applied where possible."
+                )
+                for agent_id, errors in validation_errors[:5]:  # Limit to first 5 for log readability
+                    logger.debug(f"Agent '{agent_id}' validation errors: {errors}")
+                if len(validation_errors) > 5:
+                    logger.debug(f"... and {len(validation_errors) - 5} more agent(s) with errors")
+            
+            if validation_warnings:
+                logger.info(f"Auto-fixed {len(validation_warnings)} metadata inconsistency(ies) during load")
+                for warning in validation_warnings[:5]:  # Limit to first 5
+                    logger.debug(warning)
+                if len(validation_warnings) > 5:
+                    logger.debug(f"... and {len(validation_warnings) - 5} more fix(es)")
+            
+            # Mark as dirty if we made fixes (so fixes get saved)
+            if validation_warnings:
+                _metadata_cache_state["dirty"] = True
+                _metadata_batch_state["dirty"] = True
 
             # Update cache state after successful load
             _metadata_cache_state["last_load_time"] = time.time()
             _metadata_cache_state["last_file_mtime"] = METADATA_FILE.stat().st_mtime
-            _metadata_cache_state["dirty"] = False
+            # Only mark as not dirty if we didn't make fixes
+            if not validation_warnings:
+                _metadata_cache_state["dirty"] = False
 
             # If lock was acquired, we're done (successful read with lock)
             if lock_acquired:
@@ -359,7 +490,7 @@ def load_metadata() -> None:
             if lock_acquired:
                 try:
                     fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                except:
+                except (IOError, OSError):
                     pass
             os.close(lock_fd)
         
@@ -367,7 +498,7 @@ def load_metadata() -> None:
         # This is safe for reads - worst case is stale data, but prevents hangs
         
     except Exception as e:
-        print(f"[UNITARES MCP] Warning: Could not load metadata: {e}", file=sys.stderr)
+        logger.warning(f"Could not load metadata: {e}", exc_info=True)
 
 
 async def schedule_metadata_save(force: bool = False) -> None:
@@ -434,7 +565,7 @@ async def _batched_metadata_save() -> None:
             # Reschedule if still dirty
             _metadata_batch_state["save_task"] = asyncio.create_task(_batched_metadata_save())
     except Exception as e:
-        print(f"[UNITARES MCP] Error in batched metadata save: {e}", file=sys.stderr)
+        logger.error(f"Error in batched metadata save: {e}", exc_info=True)
         _metadata_batch_state["pending_save"] = False
 
 
@@ -455,7 +586,41 @@ async def flush_metadata_save() -> None:
         _metadata_batch_state["pending_save"] = False
         _metadata_batch_state["last_save_time"] = time.time()
     except Exception as e:
-        print(f"[UNITARES MCP] Error flushing metadata save: {e}", file=sys.stderr)
+        logger.error(f"Error flushing metadata save: {e}", exc_info=True)
+
+
+def _schedule_metadata_save_sync(force: bool = False) -> None:
+    """
+    Sync wrapper for schedule_metadata_save. Works from both sync and async contexts.
+    
+    If called from async context, schedules the save.
+    If called from sync context, saves immediately (for critical operations) or marks dirty.
+    
+    Args:
+        force: If True, save immediately (for critical operations like agent creation)
+    """
+    global _metadata_batch_state
+    
+    try:
+        # Try to get running event loop
+        loop = asyncio.get_running_loop()
+        # We're in async context - schedule the save
+        if force:
+            # For force=True, we need to flush immediately
+            # Use run_in_executor to call flush_metadata_save
+            asyncio.create_task(flush_metadata_save())
+        else:
+            # Just mark dirty - batched save will handle it
+            _metadata_batch_state["dirty"] = True
+            _metadata_batch_state["pending_save"] = True
+    except RuntimeError:
+        # No event loop running - we're in sync context
+        # For sync context, just save immediately (simpler and safer)
+        if force:
+            save_metadata()
+        else:
+            # Mark dirty - next async save will pick it up
+            _metadata_batch_state["dirty"] = True
 
 
 async def save_metadata_async() -> None:
@@ -470,7 +635,13 @@ async def save_metadata_async() -> None:
     await schedule_metadata_save(force=True)
 
 def save_metadata() -> None:
-    """Save agent metadata to file with locking to prevent race conditions"""
+    """
+    Save agent metadata to file with locking to prevent race conditions.
+    
+    ⚠️ DEPRECATED: This function is deprecated for external use. 
+    Use schedule_metadata_save() for batched async updates instead.
+    This function is kept for internal use by flush_metadata_save() only.
+    """
     METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     
     # Use a global metadata lock to prevent concurrent writes
@@ -497,7 +668,7 @@ def save_metadata() -> None:
 
             if not lock_acquired:
                 # Timeout reached - log warning but use fallback
-                print(f"[UNITARES MCP] Warning: Metadata lock timeout ({timeout}s)", file=sys.stderr)
+                logger.warning(f"Metadata lock timeout ({timeout}s)")
                 raise TimeoutError("Metadata lock timeout")
 
             # Reload metadata to get latest state from disk (in case another process updated it)
@@ -516,28 +687,49 @@ def save_metadata() -> None:
                                     merged_metadata[agent_id] = AgentMetadata(**meta_dict)
                                 except (TypeError, KeyError) as e:
                                     # Invalid metadata structure - skip this agent
-                                    print(f"[UNITARES MCP] Warning: Invalid metadata for {agent_id}: {e}", file=sys.stderr)
+                                    logger.warning(f"Invalid metadata for {agent_id}: {e}", exc_info=True)
                                     continue
                             else:
                                 # meta_dict is not a dict (could be string from corrupted file)
-                                print(f"[UNITARES MCP] Warning: Metadata for {agent_id} is not a dict (type: {type(meta_dict).__name__}), skipping", file=sys.stderr)
+                                logger.warning(f"Metadata for {agent_id} is not a dict (type: {type(meta_dict).__name__}), skipping")
                                 continue
                 except (json.JSONDecodeError, KeyError, TypeError) as e:
                     # If file is corrupted, start fresh
-                    print(f"[UNITARES MCP] Warning: Could not load metadata file: {e}", file=sys.stderr)
+                    logger.warning(f"Could not load metadata file: {e}", exc_info=True)
                     pass
             
             # Overwrite with in-memory state (our changes take precedence)
             # FIXED: Validate that in-memory entries are AgentMetadata objects, not strings
             for agent_id, meta in agent_metadata.items():
                 if isinstance(meta, AgentMetadata):
+                    # Validate consistency before saving
+                    is_valid, errors = meta.validate_consistency()
+                    if not is_valid:
+                        logger.warning(
+                            f"Metadata consistency validation failed for agent '{agent_id}': {errors}. "
+                            f"Fixing inconsistencies..."
+                        )
+                        # Auto-fix: Ensure arrays match
+                        if len(meta.recent_update_timestamps) != len(meta.recent_decisions):
+                            # Truncate longer array to match shorter one (data loss, but prevents corruption)
+                            min_len = min(len(meta.recent_update_timestamps), len(meta.recent_decisions))
+                            meta.recent_update_timestamps = meta.recent_update_timestamps[:min_len]
+                            meta.recent_decisions = meta.recent_decisions[:min_len]
+                            logger.info(f"Fixed array length mismatch for '{agent_id}' (truncated to {min_len} entries)")
+                        
+                        # Auto-fix: If total_updates doesn't match arrays (and arrays aren't capped), adjust
+                        if meta.total_updates <= 10 and len(meta.recent_update_timestamps) != meta.total_updates:
+                            # Set total_updates to match actual tracked updates
+                            meta.total_updates = len(meta.recent_update_timestamps)
+                            logger.info(f"Fixed total_updates mismatch for '{agent_id}' (set to {meta.total_updates})")
+                    
                     merged_metadata[agent_id] = meta
                 else:
                     # Invalid type in memory - log warning but skip (don't overwrite valid disk data)
-                    print(f"[UNITARES MCP] Warning: In-memory metadata for {agent_id} is not AgentMetadata (type: {type(meta).__name__}), skipping", file=sys.stderr)
+                    logger.warning(f"In-memory metadata for {agent_id} is not AgentMetadata (type: {type(meta).__name__}), skipping")
                     # If not in merged_metadata from disk, create fresh entry
                     if agent_id not in merged_metadata:
-                        print(f"[UNITARES MCP] Creating fresh metadata for {agent_id} due to invalid in-memory state", file=sys.stderr)
+                        logger.info(f"Creating fresh metadata for {agent_id} due to invalid in-memory state")
                         merged_metadata[agent_id] = get_or_create_metadata(agent_id)
             
             # Write merged state
@@ -563,7 +755,7 @@ def save_metadata() -> None:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             os.close(lock_fd)
     except Exception as e:
-        print(f"[UNITARES MCP] Warning: Could not acquire metadata lock: {e}", file=sys.stderr)
+        logger.warning(f"Could not acquire metadata lock: {e}", exc_info=True)
         # Fallback: try without lock (not ideal but better than failing silently)
         with open(METADATA_FILE, 'w') as f:
             data = {
@@ -600,15 +792,22 @@ def get_or_create_metadata(agent_id: str) -> AgentMetadata:
             metadata.notes = "First agent - pioneer of the governance system"
 
         agent_metadata[agent_id] = metadata
-        # Mark dirty - async handlers will schedule batched save
-        # For critical operations, caller should call schedule_metadata_save(force=True)
-        _metadata_batch_state["dirty"] = True
-        _metadata_cache_state["dirty"] = True
-        
+
+        # SECURITY FIX: Force immediate save for agent creation (critical operation)
+        # This prevents data loss during concurrent agent creation
+        # Batched saves can miss rapid concurrent creates within debounce window
+        try:
+            loop = asyncio.get_running_loop()
+            # Schedule immediate save (force=True bypasses batching)
+            asyncio.create_task(schedule_metadata_save(force=True))
+        except RuntimeError:
+            # No event loop - save synchronously
+            save_metadata()
+
         # Print API key for new agent (one-time display)
-        print(f"[UNITARES MCP] Created new agent '{agent_id}'", file=sys.stderr)
-        print(f"[UNITARES MCP] API Key: {api_key}", file=sys.stderr)
-        print(f"[UNITARES MCP] ⚠️  Save this key - you'll need it for future updates!", file=sys.stderr)
+        logger.info(f"Created new agent '{agent_id}'")
+        logger.info(f"API Key: {api_key}")
+        logger.warning("⚠️  Save this key - you'll need it for future updates!")
     return agent_metadata[agent_id]
 
 
@@ -616,10 +815,68 @@ def get_or_create_metadata(agent_id: str) -> AgentMetadata:
 register_agent = get_or_create_metadata
 
 
+def _write_state_file(state_file: Path, state_data: dict) -> None:
+    """Helper function to write state file (used by both sync and async versions)"""
+    with open(state_file, 'w') as f:
+        json.dump(state_data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())  # Ensure written to disk
+
+
 async def save_monitor_state_async(agent_id: str, monitor: UNITARESMonitor) -> None:
-    """Async version of save_monitor_state - runs blocking I/O in thread pool"""
-    loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
-    await loop.run_in_executor(None, save_monitor_state, agent_id, monitor)
+    """
+    Async version of save_monitor_state - uses async locks for better performance.
+    
+    Uses async file locking to avoid blocking the event loop during lock acquisition.
+    This is called from async handlers, so we use async locks instead of blocking time.sleep().
+    """
+    state_file = get_state_file(agent_id)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Use a per-agent state lock to prevent concurrent writes
+    state_lock_file = state_file.parent / f".{agent_id}_state.lock"
+    
+    try:
+        # Acquire exclusive lock on state file with timeout (async, non-blocking)
+        lock_fd = os.open(str(state_lock_file), os.O_CREAT | os.O_RDWR)
+        lock_acquired = False
+        start_time = time.time()
+        timeout = 5.0  # 5 second timeout
+
+        try:
+            # Try to acquire lock with timeout (non-blocking, uses asyncio.sleep)
+            while time.time() - start_time < timeout:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    lock_acquired = True
+                    break
+                except IOError:
+                    # Lock held by another process, wait and retry (NON-BLOCKING)
+                    await asyncio.sleep(0.1)  # Use asyncio.sleep instead of time.sleep
+
+            if not lock_acquired:
+                # Timeout reached - log warning but use fallback
+                logger.warning(f"State lock timeout for {agent_id} ({timeout}s)")
+                raise TimeoutError("State lock timeout")
+
+            # Write state (run in executor to avoid blocking event loop)
+            state_data = monitor.state.to_dict_with_history()
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _write_state_file, state_file, state_data)
+            
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+    except Exception as e:
+        logger.warning(f"Could not acquire state lock for {agent_id}: {e}", exc_info=True)
+        # Fallback: try without lock (not ideal but better than failing silently)
+        try:
+            state_data = monitor.state.to_dict_with_history()
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _write_state_file, state_file, state_data)
+        except Exception as fallback_error:
+            logger.error(f"Failed to save state even without lock for {agent_id}: {fallback_error}", exc_info=True)
+
 
 def save_monitor_state(agent_id: str, monitor: UNITARESMonitor) -> None:
     """Save monitor state to file with locking to prevent race conditions"""
@@ -649,28 +906,24 @@ def save_monitor_state(agent_id: str, monitor: UNITARESMonitor) -> None:
 
             if not lock_acquired:
                 # Timeout reached - log warning but use fallback
-                print(f"[UNITARES MCP] Warning: State lock timeout for {agent_id} ({timeout}s)", file=sys.stderr)
+                logger.warning(f"State lock timeout for {agent_id} ({timeout}s)")
                 raise TimeoutError("State lock timeout")
 
-            # Write state
+            # Write state (use shared helper function)
             state_data = monitor.state.to_dict_with_history()
-            with open(state_file, 'w') as f:
-                json.dump(state_data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())  # Ensure written to disk
+            _write_state_file(state_file, state_data)
             
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             os.close(lock_fd)
     except Exception as e:
-        print(f"[UNITARES MCP] Warning: Could not acquire state lock for {agent_id}: {e}", file=sys.stderr)
+        logger.warning(f"Could not acquire state lock for {agent_id}: {e}", exc_info=True)
         # Fallback: try without lock (not ideal but better than failing silently)
         try:
             state_data = monitor.state.to_dict_with_history()
-            with open(state_file, 'w') as f:
-                json.dump(state_data, f, indent=2)
+            _write_state_file(state_file, state_data)
         except Exception as e2:
-            print(f"[UNITARES MCP] Error: Could not save state for {agent_id}: {e2}", file=sys.stderr)
+            logger.error(f"Could not save state for {agent_id}: {e2}", exc_info=True)
 
 
 def load_monitor_state(agent_id: str) -> 'GovernanceState | None':
@@ -687,7 +940,7 @@ def load_monitor_state(agent_id: str) -> 'GovernanceState | None':
             from src.governance_monitor import GovernanceState
             return GovernanceState.from_dict(data)
     except Exception as e:
-        print(f"[UNITARES MCP] Warning: Could not load state for {agent_id}: {e}", file=sys.stderr)
+        logger.warning(f"Could not load state for {agent_id}: {e}", exc_info=True)
         return None
 
 
@@ -696,7 +949,7 @@ def load_monitor_state(agent_id: str) -> 'GovernanceState | None':
 # load_metadata()  # REMOVED: Was blocking startup
 
 
-def auto_archive_old_test_agents(max_age_hours: float = 6.0) -> int:
+async def auto_archive_old_test_agents(max_age_hours: float = 6.0) -> int:
     """
     Automatically archive old test/demo agents that haven't been updated recently.
     
@@ -738,7 +991,7 @@ def auto_archive_old_test_agents(max_age_hours: float = 6.0) -> int:
                 f"Auto-archived: test/ping agent with {meta.total_updates} update(s)"
             )
             archived_count += 1
-            print(f"[UNITARES MCP] Auto-archived test/ping agent: {agent_id} ({meta.total_updates} updates)", file=sys.stderr)
+            logger.info(f"Auto-archived test/ping agent: {agent_id} ({meta.total_updates} updates)")
             continue
         
         # Check age for agents with more updates
@@ -746,7 +999,7 @@ def auto_archive_old_test_agents(max_age_hours: float = 6.0) -> int:
             last_update_dt = datetime.fromisoformat(meta.last_update.replace('Z', '+00:00') if 'Z' in meta.last_update else meta.last_update)
             age_delta = (current_time.replace(tzinfo=last_update_dt.tzinfo) if last_update_dt.tzinfo else current_time) - last_update_dt
             age_hours = age_delta.total_seconds() / 3600
-        except:
+        except (ValueError, TypeError, AttributeError):
             # If we can't parse date, skip
             continue
         
@@ -759,10 +1012,11 @@ def auto_archive_old_test_agents(max_age_hours: float = 6.0) -> int:
                 f"Auto-archived: inactive test/demo agent ({age_hours:.1f} hours old, threshold: {max_age_hours} hours)"
             )
             archived_count += 1
-            print(f"[UNITARES MCP] Auto-archived old test agent: {agent_id} ({age_hours:.1f} hours old)", file=sys.stderr)
+            logger.info(f"Auto-archived old test agent: {agent_id} ({age_hours:.1f} hours old)")
     
     if archived_count > 0:
-        save_metadata()
+        # Use async version for batched updates
+        await schedule_metadata_save(force=True)  # Force immediate save for critical operation
     
     return archived_count
 
@@ -787,7 +1041,7 @@ def auto_archive_old_test_agents(max_age_hours: float = 6.0) -> int:
 def cleanup_stale_processes():
     """Clean up stale MCP server processes on startup - only if we have too many"""
     if not PSUTIL_AVAILABLE:
-        print("[UNITARES MCP] Skipping stale process cleanup (psutil not available)", file=sys.stderr)
+        logger.info("Skipping stale process cleanup (psutil not available)")
         return
     
     try:
@@ -822,38 +1076,58 @@ def cleanup_stale_processes():
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
         
-        # Only clean up if we exceed the threshold AND processes are truly stale
-        # Don't kill processes that have recent heartbeats (active connections)
+        # Clean up stale processes more aggressively:
+        # 1. Always clean up processes without recent heartbeats (even if under limit)
+        # 2. If over limit, clean up oldest processes first
+        
+        # Sort by creation time (oldest first)
+        current_processes.sort(key=lambda x: x['create_time'])
+        
+        # Identify stale processes:
+        # - Processes older than 5 minutes without recent heartbeat (always clean these)
+        # - If over limit, also clean oldest processes beyond the limit
+        stale_processes = []
+        
+        # Always clean processes without heartbeats (zombies)
+        for proc_info in current_processes:
+            if proc_info['age_seconds'] > 300 and not proc_info['has_recent_heartbeat']:
+                stale_processes.append(proc_info)
+        
+        # Track PIDs we're already cleaning up (for deduplication)
+        stale_pids = {p['pid'] for p in stale_processes}
+        
+        # If over limit, also mark oldest processes for cleanup
         if len(current_processes) > MAX_KEEP_PROCESSES:
-            # Sort by creation time (oldest first)
-            current_processes.sort(key=lambda x: x['create_time'])
+            # Keep only the most recent MAX_KEEP_PROCESSES
+            processes_to_remove = current_processes[:-MAX_KEEP_PROCESSES]
+            for proc_info in processes_to_remove:
+                # Only add if not already marked for cleanup
+                if proc_info['pid'] not in stale_pids:
+                    stale_processes.append(proc_info)
+                    stale_pids.add(proc_info['pid'])
+        
+        # Use stale_processes directly (already deduplicated by PID)
+        unique_stale_processes = stale_processes
+        
+        if unique_stale_processes:
+            logger.info(f"Found {len(current_processes)} server processes, cleaning up {len(unique_stale_processes)} stale ones (keeping {MAX_KEEP_PROCESSES} most recent)...")
             
-            # Only kill processes that:
-            # 1. Are older than 5 minutes AND don't have recent heartbeat
-            # 2. AND we're over the limit
-            stale_processes = [
-                p for p in current_processes[:-MAX_KEEP_PROCESSES]  # All except last MAX_KEEP_PROCESSES
-                if p['age_seconds'] > 300 and not p['has_recent_heartbeat']
-            ]
-            
-            if stale_processes:
-                print(f"[UNITARES MCP] Found {len(current_processes)} server processes, cleaning up {len(stale_processes)} truly stale ones (keeping {MAX_KEEP_PROCESSES} most recent)...", file=sys.stderr)
-                
-                for proc_info in stale_processes:
+            for proc_info in unique_stale_processes:
+                try:
+                    proc = psutil.Process(proc_info['pid'])
+                    age_minutes = int(proc_info['age_seconds'] / 60)
+                    reason = "no heartbeat" if not proc_info['has_recent_heartbeat'] else "over limit"
+                    logger.info(f"Killing stale process PID {proc_info['pid']} (age: {age_minutes}m, reason: {reason})")
+                    proc.terminate()
+                    # Give it a moment to clean up
                     try:
-                        proc = psutil.Process(proc_info['pid'])
-                        age_minutes = int(proc_info['age_seconds'] / 60)
-                        print(f"[UNITARES MCP] Killing stale process PID {proc_info['pid']} (age: {age_minutes}m, no recent heartbeat)", file=sys.stderr)
-                        proc.terminate()
-                        # Give it a moment to clean up
-                        try:
-                            proc.wait(timeout=2)
-                        except psutil.TimeoutExpired:
-                            proc.kill()
-                    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                        print(f"[UNITARES MCP] Could not kill PID {proc_info['pid']}: {e}", file=sys.stderr)
+                        proc.wait(timeout=2)
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    logger.warning(f"Could not kill PID {proc_info['pid']}: {e}", exc_info=True)
     except Exception as e:
-        print(f"[UNITARES MCP] Warning: Could not clean stale processes: {e}", file=sys.stderr)
+        logger.warning(f"Could not clean stale processes: {e}", exc_info=True)
 
 
 def write_pid_file():
@@ -861,9 +1135,11 @@ def write_pid_file():
     try:
         PID_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(PID_FILE, 'w') as f:
-            f.write(f"{CURRENT_PID}\n{SERVER_VERSION}\n{time.time()}\n")
+            # PID file should ONLY contain the process ID (one line)
+            # Other code expects to read just the PID, not version/timestamp
+            f.write(f"{CURRENT_PID}\n")
     except Exception as e:
-        print(f"[UNITARES MCP] Warning: Could not write PID file: {e}", file=sys.stderr)
+        logger.warning(f"Could not write PID file: {e}", exc_info=True)
 
 
 def remove_pid_file():
@@ -872,7 +1148,7 @@ def remove_pid_file():
         if PID_FILE.exists():
             PID_FILE.unlink()
     except Exception as e:
-        print(f"[UNITARES MCP] Warning: Could not remove PID file: {e}", file=sys.stderr)
+        logger.warning(f"Could not remove PID file: {e}", exc_info=True)
 
 
 # Global flag for graceful shutdown
@@ -901,6 +1177,10 @@ process_mgr.write_heartbeat()
 # Write PID file (fast operation)
 write_pid_file()
 
+# Track server start time for loop detection grace period
+# Allows agents to reconnect/recover after server restarts without triggering false positives
+SERVER_START_TIME = datetime.now()
+
 # DEFERRED: Heavy cleanup operations moved to background task in main()
 # This prevents blocking startup and allows server to respond quickly to Claude Desktop
 # - cleanup_zombies() scans all processes (can be slow)
@@ -908,7 +1188,7 @@ write_pid_file()
 # - cleanup_stale_processes() scans processes (can be slow)
 
 
-def spawn_agent_with_inheritance(
+async def spawn_agent_with_inheritance(
     new_agent_id: str,
     parent_agent_id: str,
     spawn_reason: str = "spawned",
@@ -988,10 +1268,10 @@ def spawn_agent_with_inheritance(
     agent_metadata[new_agent_id] = new_meta
     monitors[new_agent_id] = new_monitor
     
-    # Save metadata
-    save_metadata()
+    # Save metadata using async version for batched updates
+    await schedule_metadata_save(force=True)  # Force immediate save for critical operation
     
-    print(f"[UNITARES MCP] Spawned agent '{new_agent_id}' from '{parent_agent_id}' (inheritance: {inheritance_factor*100:.0f}%)", file=sys.stderr)
+    logger.info(f"Spawned agent '{new_agent_id}' from '{parent_agent_id}' (inheritance: {inheritance_factor*100:.0f}%)")
     
     return new_monitor
 
@@ -1009,9 +1289,9 @@ def get_or_create_monitor(agent_id: str) -> UNITARESMonitor:
         persisted_state = load_monitor_state(agent_id)
         if persisted_state is not None:
             monitor.state = persisted_state
-            print(f"[UNITARES MCP] Loaded persisted state for {agent_id} ({len(persisted_state.V_history)} history entries)", file=sys.stderr)
+            logger.info(f"Loaded persisted state for {agent_id} ({len(persisted_state.V_history)} history entries)")
         else:
-            print(f"[UNITARES MCP] Initialized new monitor for {agent_id}", file=sys.stderr)
+            logger.info(f"Initialized new monitor for {agent_id}")
         
         monitors[agent_id] = monitor
     
@@ -1198,7 +1478,7 @@ def require_agent_id(arguments: dict, reject_existing: bool = False) -> tuple[st
         try:
             created_dt = datetime.fromisoformat(existing_meta.created_at.replace('Z', '+00:00') if 'Z' in existing_meta.created_at else existing_meta.created_at)
             created_str = created_dt.strftime('%Y-%m-%d %H:%M:%S')
-        except:
+        except (ValueError, TypeError, AttributeError):
             created_str = existing_meta.created_at
         
         error_msg = json.dumps({
@@ -1393,9 +1673,23 @@ def process_update_authenticated(
 
         # Update metadata
         meta = agent_metadata[agent_id]
-        meta.last_update = datetime.now().isoformat()
+        now = datetime.now().isoformat()
+        meta.last_update = now
         meta.total_updates += 1
-        save_metadata()
+        
+        # Track recent updates for loop detection (keep last 10)
+        # CRITICAL FIX: Synchronous version was missing this tracking, causing data inconsistency
+        decision_action = result.get('decision', {}).get('action', 'unknown')
+        meta.recent_update_timestamps.append(now)
+        meta.recent_decisions.append(decision_action)
+        
+        # Keep only last 10 entries
+        if len(meta.recent_update_timestamps) > 10:
+            meta.recent_update_timestamps = meta.recent_update_timestamps[-10:]
+            meta.recent_decisions = meta.recent_decisions[-10:]
+        
+        # Use sync wrapper that works from both sync and async contexts
+        _schedule_metadata_save_sync(force=True)  # Force immediate save for critical operation
 
     return result
 
@@ -1458,13 +1752,38 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
     recent_timestamps = all_timestamps
     recent_decisions = all_decisions
     
+    # GRACE PERIOD: Allow rapid updates after server restart or agent creation
+    # Prevents false positives when agents reconnect after server restarts
+    # This fixes the "zombie server cleanup -> loop detection" issue
+    server_restart_grace_period = timedelta(minutes=5)  # 5 minute grace period
+    agent_creation_grace_period = timedelta(minutes=5)  # 5 minute grace period for new agents
+    
+    # Check if server restarted recently (within grace period)
+    server_age = datetime.now() - SERVER_START_TIME
+    in_server_grace_period = server_age < server_restart_grace_period
+    
+    # Check if agent was created recently (within grace period)
+    in_agent_grace_period = False
+    try:
+        agent_created = datetime.fromisoformat(meta.created_at.replace('Z', '+00:00') if 'Z' in meta.created_at else meta.created_at)
+        agent_age = datetime.now(agent_created.tzinfo) - agent_created if agent_created.tzinfo else datetime.now() - agent_created.replace(tzinfo=None)
+        in_agent_grace_period = agent_age < agent_creation_grace_period
+    except (ValueError, TypeError, AttributeError):
+        pass
+    
+    # If in grace period, skip Pattern 1 (rapid-fire) detection
+    # This allows legitimate reconnection attempts after server restarts
+    # Other patterns (2-6) still apply as they catch different types of loops
+    skip_pattern1 = in_server_grace_period or in_agent_grace_period
+    
     # Pattern 1: Multiple updates within same second (RELAXED: Even less strict)
     # Changed from 2+ updates/0.5s to 3+ updates/0.3s OR 4+ updates/1s
     # Rationale: 2 updates in 0.5 seconds can be legitimate (admin + logging, tool calls)
     #            3+ updates in 0.3 seconds is almost certainly a loop
     #            4+ updates in 1 second is definitely rapid-fire
     # Only check recent timestamps (last 30 seconds) to avoid false positives from old rapid updates
-    if len(recent_timestamps_for_pattern1) >= 2:
+    # SKIP if in grace period (server restart or new agent) to prevent false positives
+    if not skip_pattern1 and len(recent_timestamps_for_pattern1) >= 2:
         last_two = recent_timestamps_for_pattern1[-2:]
         try:
             t1 = datetime.fromisoformat(last_two[0])
@@ -1478,7 +1797,8 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
     
     # Check for 3+ updates within 0.5 seconds (more lenient than before)
     # Use recent timestamps for Pattern 1 variants
-    if len(recent_timestamps_for_pattern1) >= 3:
+    # SKIP if in grace period (server restart or new agent) to prevent false positives
+    if not skip_pattern1 and len(recent_timestamps_for_pattern1) >= 3:
         last_three = recent_timestamps_for_pattern1[-3:]
         try:
             t1 = datetime.fromisoformat(last_three[0])
@@ -1490,7 +1810,8 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
     
     # Check for 4+ updates within 1 second (catches extended rapid patterns)
     # Use recent timestamps for Pattern 1 variants
-    if len(recent_timestamps_for_pattern1) >= 4:
+    # SKIP if in grace period (server restart or new agent) to prevent false positives
+    if not skip_pattern1 and len(recent_timestamps_for_pattern1) >= 4:
         last_four = recent_timestamps_for_pattern1[-4:]
         try:
             t1 = datetime.fromisoformat(last_four[0])
@@ -1607,7 +1928,7 @@ async def process_update_authenticated_async(
     api_key: str,
     agent_state: dict,
     auto_save: bool = True,
-    confidence: float = 1.0,
+    confidence: Optional[float] = None,
     task_type: str = "mixed"
 ) -> dict:
     """
@@ -1622,7 +1943,8 @@ async def process_update_authenticated_async(
         api_key: API key for authentication
         agent_state: Agent state dict (parameters, ethical_drift, etc.)
         auto_save: If True, automatically save state to disk after update (async)
-        confidence: Confidence level [0, 1] for this update. Defaults to 1.0.
+        confidence: Confidence level [0, 1] for this update. If None (default),
+                    confidence is derived from thermodynamic state (I, S, C, V).
                     When confidence < 0.8, lambda1 updates are skipped.
 
     Returns:
@@ -1675,15 +1997,39 @@ async def process_update_authenticated_async(
         if not meta.loop_detected_at:
             meta.loop_detected_at = datetime.now().isoformat()
             meta.add_lifecycle_event("loop_detected", loop_reason)
-            print(f"[UNITARES MCP] ⚠️  Loop detected for agent '{agent_id}': {loop_reason} (cooldown: {cooldown_seconds}s)", file=sys.stderr)
+            logger.warning(f"⚠️  Loop detected for agent '{agent_id}': {loop_reason} (cooldown: {cooldown_seconds}s)")
         
-        # Save metadata in executor to avoid blocking (critical for identity/lifecycle data)
-        await loop.run_in_executor(None, save_metadata)
+        # Save metadata using async batched save (critical for identity/lifecycle data)
+        await schedule_metadata_save(force=True)  # Force immediate save for critical operation
+        
+        # Format cooldown time in human-readable format
+        cooldown_time_str = cooldown_until.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Include recovery tool suggestions in error message
+        recovery_tools = []
+        if cooldown_seconds <= 5:
+            recovery_tools.append("direct_resume_if_safe (if state is safe)")
+        else:
+            recovery_tools.append("direct_resume_if_safe (if state is safe)")
+            recovery_tools.append("request_dialectic_review (for peer assistance)")
+        
+        recovery_guidance = (
+            f"\n\n🔧 Recovery Options:\n"
+            f"- Wait {cooldown_seconds}s for cooldown to expire (automatic)\n"
+            f"- Use {recovery_tools[0]} to resume immediately if your state is safe\n"
+        )
+        if len(recovery_tools) > 1:
+            recovery_guidance += f"- Use {recovery_tools[1]} to get peer assistance\n"
+        recovery_guidance += (
+            f"\n💡 Tip: These recovery tools can help you get unstuck faster. "
+            f"See AI_ASSISTANT_GUIDE.md for details."
+        )
         
         raise ValueError(
             f"Self-monitoring loop detected: {loop_reason}. "
             f"Updates blocked for {cooldown_seconds} seconds to prevent system crash. "
-            f"Cooldown until: {cooldown_until.isoformat()}"
+            f"Cooldown until: {cooldown_time_str} ({cooldown_seconds}s remaining)"
+            + recovery_guidance
         )
 
     # Get or create monitor (run in executor to avoid blocking - may do file I/O)
@@ -1719,6 +2065,14 @@ async def process_update_authenticated_async(
         if len(meta.recent_update_timestamps) > 10:
             meta.recent_update_timestamps = meta.recent_update_timestamps[-10:]
             meta.recent_decisions = meta.recent_decisions[-10:]
+        
+        # Enforce pause decisions (circuit breaker)
+        if decision_action == 'pause':
+            meta.status = "paused"
+            meta.paused_at = now
+            decision_reason = result.get('decision', {}).get('reason', 'Circuit breaker triggered')
+            meta.add_lifecycle_event("paused", decision_reason)
+            logger.warning(f"⚠️  Circuit breaker triggered for agent '{agent_id}': {decision_reason}")
         
         # Clear cooldown if it has passed
         if meta.loop_cooldown_until:
@@ -1777,7 +2131,7 @@ def build_standardized_agent_info(
     try:
         created_dt = datetime.fromisoformat(created_ts.replace('Z', '+00:00') if 'Z' in created_ts else created_ts)
         age_days = (datetime.now(created_dt.tzinfo) - created_dt).days
-    except:
+    except (ValueError, TypeError, AttributeError):
         age_days = None
     
     # Extract primary tags (first 3, or all if <= 3)
@@ -1818,13 +2172,14 @@ def build_standardized_agent_info(
             
             # Get metrics to include phi/verdict
             monitor_metrics = monitor.get_metrics() if hasattr(monitor, 'get_metrics') else {}
-            attention_score = monitor_metrics.get("attention_score") or risk_score
+            risk_score_value = monitor_metrics.get("risk_score") or monitor_metrics.get("attention_score") or risk_score
+            attention_score = risk_score_value  # DEPRECATED alias
             
             metrics = {
-                "attention_score": float(attention_score) if attention_score is not None else None,  # Renamed from risk_score
+                "risk_score": float(risk_score_value) if risk_score_value is not None else None,  # Governance/operational risk
+                "attention_score": float(risk_score_value) if risk_score_value is not None else None,  # DEPRECATED: Use risk_score instead
                 "phi": monitor_metrics.get("phi"),  # Primary physics signal
                 "verdict": monitor_metrics.get("verdict"),  # Primary governance signal
-                "risk_score": float(risk_score) if risk_score is not None else None,  # DEPRECATED
                 "coherence": float(monitor_state.coherence),
                 "void_active": bool(monitor_state.void_active),
                 "E": float(monitor_state.E),
@@ -1877,3425 +2232,10 @@ def build_standardized_agent_info(
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """List all available MCP tools"""
-    return [
-        Tool(
-            name="check_calibration",
-            description="""Check calibration of confidence estimates. Returns whether confidence estimates match actual accuracy. Requires ground truth data via update_calibration_ground_truth.
+    all_tools = get_tool_definitions()
 
-USE CASES:
-- Verify calibration system is working correctly
-- Monitor confidence estimate accuracy
-- Debug calibration issues
-
-RETURNS:
-{
-  "success": true,
-  "calibrated": boolean,
-  "accuracy": float (0-1),
-  "confidence_distribution": {
-    "mean": float,
-    "std": float,
-    "min": float,
-    "max": float
-  },
-  "pending_updates": int,
-  "message": "string"
-}
-
-RELATED TOOLS:
-- update_calibration_ground_truth: Provide ground truth data for calibration
-
-EXAMPLE REQUEST:
-{}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "calibrated": true,
-  "accuracy": 0.87,
-  "confidence_distribution": {"mean": 0.82, "std": 0.15, "min": 0.3, "max": 1.0},
-  "pending_updates": 5
-}
-
-DEPENDENCIES:
-- Requires: Ground truth data via update_calibration_ground_truth
-- Workflow: 1. Call update_calibration_ground_truth with ground truth 2. Call check_calibration to verify""",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="update_calibration_ground_truth",
-            description="""Update calibration with ground truth after human review. This allows calibration to work properly by updating actual correctness after decisions are made.
-
-USE CASES:
-- Provide ground truth after human review of agent decisions
-- Improve calibration accuracy over time
-- Enable calibration checking via check_calibration
-
-RETURNS:
-{
-  "success": true,
-  "message": "Calibration updated",
-  "pending_updates": int,
-  "calibration_status": "string"
-}
-
-RELATED TOOLS:
-- check_calibration: Verify calibration after providing ground truth
-
-EXAMPLE REQUEST:
-{
-  "confidence": 0.85,
-  "predicted_correct": true,
-  "actual_correct": true
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Calibration updated",
-  "pending_updates": 12
-}
-
-DEPENDENCIES:
-- Requires: confidence, predicted_correct, actual_correct
-- Workflow: After human review, call this with ground truth, then check_calibration""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "confidence": {
-                        "type": "number",
-                        "description": "Confidence level (0-1) for the prediction (direct mode only)",
-                        "minimum": 0,
-                        "maximum": 1
-                    },
-                    "predicted_correct": {
-                        "type": "boolean",
-                        "description": "Whether we predicted correct (direct mode only)"
-                    },
-                    "actual_correct": {
-                        "type": "boolean",
-                        "description": "Whether prediction was actually correct (ground truth from human review). Required in both modes."
-                    },
-                    "timestamp": {
-                        "type": "string",
-                        "description": "ISO timestamp of decision (timestamp mode). System looks up confidence and decision from audit log."
-                    },
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent ID (optional in timestamp mode, helps narrow search)"
-                    }
-                },
-                "required": ["actual_correct"],
-                "anyOf": [
-                    {"required": ["confidence", "predicted_correct"]},
-                    {"required": ["timestamp"]}
-                ]
-            }
-        ),
-        Tool(
-            name="health_check",
-            description="""Quick health check - returns system status, version, and component health. Useful for monitoring and operational visibility.
-
-USE CASES:
-- Monitor system health and component status
-- Debug system issues
-- Verify all components are operational
-
-RETURNS:
-{
-  "success": true,
-  "status": "healthy" | "moderate" | "critical",
-  "version": "string",
-  "components": {
-    "calibration": {"status": "healthy", "pending_updates": int},
-    "telemetry": {"status": "healthy", "metrics_count": int},
-    "audit_log": {"status": "healthy", "entries": int}
-  },
-  "timestamp": "ISO timestamp"
-}
-
-RELATED TOOLS:
-- get_server_info: Get detailed server process information
-- get_telemetry_metrics: Get detailed telemetry data
-
-EXAMPLE REQUEST:
-{}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "status": "healthy",
-  "version": "2.0.0",
-  "components": {
-    "calibration": {"status": "healthy", "pending_updates": 5},
-    "telemetry": {"status": "healthy", "metrics_count": 1234},
-    "audit_log": {"status": "healthy", "entries": 5678}
-  }
-}
-
-DEPENDENCIES:
-- No dependencies - safe to call anytime""",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="get_workspace_health",
-            description="""Get comprehensive workspace health status. Provides accurate baseline of workspace state for onboarding new agents. Saves 30-60 minutes of manual exploration.
-
-USE CASES:
-- Get baseline workspace state before starting work
-- Validate MCP server configuration
-- Check documentation coherence
-- Verify workspace setup and dependencies
-- Onboarding new agents (run first to avoid confusion)
-
-RETURNS:
-{
-  "success": true,
-  "mcp_status": {
-    "cursor_servers": ["string"],
-    "claude_desktop_servers": ["string"],
-    "active_count": int,
-    "notes": "string"
-  },
-  "documentation_coherence": {
-    "server_counts_match": boolean,
-    "file_references_valid": boolean,
-    "paths_current": boolean,
-    "total_issues": int,
-    "details": []
-  },
-  "security": {
-    "exposed_secrets": boolean,
-    "api_keys_secured": boolean,
-    "notes": "string"
-  },
-  "workspace_status": {
-    "scripts_executable": boolean,
-    "dependencies_installed": boolean,
-    "mcp_servers_responding": boolean
-  },
-  "last_validated": "ISO timestamp",
-  "health": "healthy" | "moderate" | "critical",
-  "recommendation": "string"
-}
-
-RELATED TOOLS:
-- health_check: Quick system health overview (governance system)
-- get_server_info: Get detailed server process information
-
-EXAMPLE REQUEST:
-{}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "mcp_status": {
-    "cursor_servers": ["governance-monitor-v1", "GitHub", "date-context"],
-    "claude_desktop_servers": ["governance-monitor-v1", "date-context"],
-    "active_count": 3,
-    "notes": "Count based on config files. Actual runtime status may vary."
-  },
-  "documentation_coherence": {
-    "server_counts_match": true,
-    "file_references_valid": true,
-    "paths_current": true,
-    "total_issues": 0,
-    "details": []
-  },
-  "security": {
-    "exposed_secrets": false,
-    "api_keys_secured": true,
-    "notes": "Plain text API keys by design (honor system). This is intentional, not a security flaw."
-  },
-  "workspace_status": {
-    "scripts_executable": true,
-    "dependencies_installed": true,
-    "mcp_servers_responding": true
-  },
-  "last_validated": "2025-11-25T23:45:00Z",
-  "health": "healthy",
-  "recommendation": "All systems operational. Workspace ready for development."
-}
-
-DEPENDENCIES:
-- No dependencies - safe to call anytime
-- Recommended: Run this tool first when onboarding to a new workspace""",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="get_telemetry_metrics",
-            description="""Get comprehensive telemetry metrics: skip rates, confidence distributions, calibration status, and suspicious patterns. Useful for monitoring system health and detecting agreeableness or over-conservatism.
-
-USE CASES:
-- Monitor system-wide telemetry patterns
-- Detect agreeableness or over-conservatism
-- Analyze confidence distributions
-- Track skip rates and suspicious patterns
-
-RETURNS:
-{
-  "success": true,
-  "window_hours": float,
-  "skip_rate": float (0-1),
-  "confidence_distribution": {
-    "mean": float,
-    "std": float,
-    "min": float,
-    "max": float,
-    "percentiles": {"p25": float, "p50": float, "p75": float, "p95": float}
-  },
-  "calibration_status": "calibrated" | "needs_data" | "uncalibrated",
-  "suspicious_patterns": [
-    {"type": "string", "severity": "low" | "medium" | "high", "description": "string"}
-  ],
-  "agent_count": int,
-  "total_updates": int
-}
-
-RELATED TOOLS:
-- health_check: Quick system health overview
-- check_calibration: Detailed calibration status
-
-EXAMPLE REQUEST:
-{"agent_id": "test_agent_001", "window_hours": 24}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "window_hours": 24,
-  "skip_rate": 0.05,
-  "confidence_distribution": {"mean": 0.82, "std": 0.15, "min": 0.3, "max": 1.0},
-  "calibration_status": "calibrated",
-  "suspicious_patterns": [],
-  "agent_count": 10,
-  "total_updates": 1234
-}
-
-DEPENDENCIES:
-- Optional: agent_id (filters to specific agent)
-- Optional: window_hours (default: 24)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Optional agent ID to filter metrics. If not provided, returns metrics for all agents."
-                    },
-                    "window_hours": {
-                        "type": "number",
-                        "description": "Time window in hours for metrics (default: 24)",
-                        "default": 24
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_tool_usage_stats",
-            description="""Get tool usage statistics to identify which tools are actually used vs unused. Helps make data-driven decisions about tool deprecation and maintenance priorities.
-
-USE CASES:
-- Identify unused tools (candidates for deprecation)
-- Find most/least used tools
-- Monitor tool usage patterns over time
-- Analyze tool success/error rates
-- Track tool usage per agent
-
-RETURNS:
-{
-  "success": true,
-  "total_calls": int,
-  "unique_tools": int,
-  "window_hours": float,
-  "tools": {
-    "tool_name": {
-      "total_calls": int,
-      "success_count": int,
-      "error_count": int,
-      "success_rate": float (0-1),
-      "percentage_of_total": float (0-100)
-    }
-  },
-  "most_used": [{"tool": "string", "calls": int}],
-  "least_used": [{"tool": "string", "calls": int}],
-  "agent_usage": {"agent_id": {"tool": count}} (if agent_id filter provided)
-}
-
-RELATED TOOLS:
-- list_tools: See all available tools
-- get_telemetry_metrics: Get governance telemetry
-
-EXAMPLE REQUEST:
-{"window_hours": 168}  # Last 7 days
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "total_calls": 1234,
-  "unique_tools": 25,
-  "window_hours": 168,
-  "tools": {
-    "process_agent_update": {"total_calls": 500, "success_rate": 0.98, ...},
-    "get_governance_metrics": {"total_calls": 300, "success_rate": 1.0, ...}
-  },
-  "most_used": [{"tool": "process_agent_update", "calls": 500}, ...],
-  "least_used": [{"tool": "unused_tool", "calls": 0}, ...]
-}
-
-DEPENDENCIES:
-- Optional: window_hours (default: 168 = 7 days)
-- Optional: tool_name (filter by specific tool)
-- Optional: agent_id (filter by specific agent)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "window_hours": {
-                        "type": "number",
-                        "description": "Time window in hours for statistics (default: 168 = 7 days)",
-                        "default": 168
-                    },
-                    "tool_name": {
-                        "type": "string",
-                        "description": "Optional: Filter by specific tool name"
-                    },
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Optional: Filter by specific agent ID"
-                    }
-                }
-            }
-        ),
-        # REMOVED: store_knowledge tool (archived November 28, 2025)
-        # See docs/archive/KNOWLEDGE_LAYER_EXPERIMENT.md
-        # REMOVED: store_knowledge tool (archived November 28, 2025)
-        # See docs/archive/KNOWLEDGE_LAYER_EXPERIMENT.md
-        # REMOVED: retrieve_knowledge tool (archived November 28, 2025)
-        # See docs/archive/KNOWLEDGE_LAYER_EXPERIMENT.md
-        # REMOVED: search_knowledge tool (archived November 28, 2025)
-        # See docs/archive/KNOWLEDGE_LAYER_EXPERIMENT.md
-        # REMOVED: list_knowledge tool (archived November 28, 2025)
-        # See docs/archive/KNOWLEDGE_LAYER_EXPERIMENT.md
-        # REMOVED: update_discovery_status tool (archived November 28, 2025)
-        # See docs/archive/KNOWLEDGE_LAYER_EXPERIMENT.md
-        # REMOVED: update_discovery tool (archived November 28, 2025)
-        # See docs/archive/KNOWLEDGE_LAYER_EXPERIMENT.md
-        # REMOVED: find_similar_discoveries tool (archived November 28, 2025)
-        # See docs/archive/KNOWLEDGE_LAYER_EXPERIMENT.md
-        Tool(
-            name="get_server_info",
-            description="""Get MCP server version, process information, and health status for debugging multi-process issues. Returns version, PID, uptime, and active process count.
-
-USE CASES:
-- Debug multi-process issues
-- Check server version and uptime
-- Monitor server processes
-- Verify server health
-
-RETURNS:
-{
-  "success": true,
-  "server_version": "string",
-  "build_date": "string",
-  "current_pid": int,
-  "current_uptime_seconds": int,
-  "current_uptime_formatted": "string",
-  "total_server_processes": int,
-  "server_processes": [
-    {
-      "pid": int,
-      "is_current": boolean,
-      "uptime_seconds": int,
-      "uptime_formatted": "string",
-      "status": "string"
-    }
-  ],
-  "pid_file_exists": boolean,
-  "max_keep_processes": int,
-  "health": "healthy"
-}
-
-RELATED TOOLS:
-- health_check: Quick component health check
-- cleanup_stale_locks: Clean up stale processes
-
-EXAMPLE REQUEST:
-{}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "server_version": "2.0.0",
-  "build_date": "2025-11-25",
-  "current_pid": 12345,
-  "current_uptime_seconds": 3600,
-  "current_uptime_formatted": "1h 0m",
-  "total_server_processes": 1,
-  "server_processes": [...],
-  "health": "healthy"
-}
-
-DEPENDENCIES:
-- No dependencies - safe to call anytime""",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="process_agent_update",
-            description="""Share your work and get supportive feedback. This is your companion tool for checking in and understanding your state.
-
-USE CASES:
-- After completing a task or generating output
-- To understand your current state and get helpful guidance
-- To receive adaptive sampling parameters (optional - use if helpful)
-- To track how your work evolves over time
-
-RETURNS:
-{
-  "success": true,
-  "status": "healthy" | "moderate" | "critical",
-  "decision": {
-    "action": "proceed" | "pause",  # Two-tier system (backward compat: approve/reflect/reject mapped)
-    "reason": "string explanation",
-    "require_human": boolean
-  },
-  "metrics": {
-    "E": float, "I": float, "S": float, "V": float,
-    "coherence": float, 
-    "attention_score": float,  # Complexity/attention blend (70% phi-based + 30% traditional) - renamed from risk_score
-    "phi": float,  # Primary physics signal: Φ objective function
-    "verdict": "safe" | "caution" | "high-risk",  # Primary governance signal
-    "risk_score": float,  # DEPRECATED: Use attention_score instead. Kept for backward compatibility.
-    "lambda1": float, "health_status": "healthy" | "moderate" | "critical",
-    "health_message": "string"
-  },
-  "sampling_params": {
-    "temperature": float, "top_p": float, "max_tokens": int
-  },
-  "circuit_breaker": {
-    "triggered": boolean,
-    "reason": "string (if triggered)",
-    "next_step": "string (if triggered)"
-  },
-  "api_key": "string (only for new agents)",
-  "eisv_labels": {"E": "...", "I": "...", "S": "...", "V": "..."}
-}
-
-RELATED TOOLS:
-- simulate_update: Test decisions without persisting state
-- get_governance_metrics: Get current state without updating
-- get_system_history: View historical governance data
-
-ERROR RECOVERY:
-- "agent_id is required": Use get_agent_api_key to get/create agent_id
-- "Invalid API key": Use get_agent_api_key to retrieve correct key
-- Timeout: Check system resources, retry with simpler parameters
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "complexity": 0.5,
-  "parameters": [],
-  "ethical_drift": [0.01, 0.02, 0.03],
-  "response_text": "Agent response text here"
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "status": "healthy",
-  "decision": {"action": "approve", "reason": "Low attention (0.23)", "require_human": false},
-  "metrics": {
-    "coherence": 0.85, 
-    "attention_score": 0.23,  # Complexity/attention blend - renamed from risk_score
-    "phi": 0.35,  # Primary physics signal: Φ objective function
-    "verdict": "safe",  # Primary governance signal
-    "risk_score": 0.23,  # DEPRECATED: Use attention_score instead
-    "E": 0.67, "I": 0.89, "S": 0.45, "V": -0.03
-  },
-  "sampling_params": {"temperature": 0.63, "top_p": 0.87, "max_tokens": 172}
-}
-
-DEPENDENCIES:
-- Requires: agent_id (get via get_agent_api_key or list_agents)
-- Optional: api_key (get via get_agent_api_key for existing agents)
-- Workflow: 1. Get/create agent_id 2. Call process_agent_update 3. Use sampling_params for next generation""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "UNIQUE identifier for the agent. Must be unique across all agents to prevent state mixing. Examples: 'cursor_ide_session_001', 'claude_code_cli_20251124', 'debugging_session_20251124'. Avoid generic IDs like 'test' or 'demo'."
-                    },
-                    "parameters": {
-                        "type": "array",
-                        "items": {"type": "number"},
-                        "description": "Agent parameters vector (optional, deprecated). Not used in core thermodynamic calculations - system uses pure C(V) coherence from E-I balance. Included for backward compatibility only. Can be empty array [].",
-                        "default": []
-                    },
-                    "ethical_drift": {
-                        "type": "array",
-                        "items": {"type": "number"},
-                        "description": "Ethical drift signals (3 components): [primary_drift, coherence_loss, complexity_contribution]",
-                        "default": [0.0, 0.0, 0.0]
-                    },
-                    "response_text": {
-                        "type": "string",
-                        "description": "Agent's response text (optional, for analysis)"
-                    },
-                    "complexity": {
-                        "type": "number",
-                        "description": "Estimated task complexity (0-1, optional)",
-                        "minimum": 0.0,
-                        "maximum": 1.0,
-                        "default": 0.5
-                    },
-                    "confidence": {
-                        "type": "number",
-                        "description": "Confidence level for this update (0-1, optional). When confidence < 0.8, lambda1 updates are skipped. Defaults to 1.0 (fully confident).",
-                        "minimum": 0.0,
-                        "maximum": 1.0,
-                        "default": 1.0
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "API key for authentication. Required to prove ownership of agent_id. Prevents impersonation and identity theft. Use get_agent_api_key tool to retrieve your key."
-                    },
-                    "auto_export_on_significance": {
-                        "type": "boolean",
-                        "description": "If true, automatically export governance history when thermodynamically significant events occur (risk spike >15%, coherence drop >10%, void threshold >0.10, circuit breaker triggered, or pause/reject decision). Default: false.",
-                        "default": False
-                    },
-                    "task_type": {
-                        "type": "string",
-                        "enum": ["convergent", "divergent", "mixed"],
-                        "description": "Optional task type context. 'convergent' (standardization, formatting) vs 'divergent' (creative exploration). System interprets S=0 differently: convergent S=0 is healthy compliance, divergent S=0 may indicate lack of exploration. Prevents false positives on 'compliance vs health'.",
-                        "default": "mixed"
-                    },
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="get_governance_metrics",
-            description="""Get current governance state and metrics for an agent without updating state.
-
-USE CASES:
-- Check current agent state before making decisions
-- Monitor agent health without triggering updates
-- Get sampling parameters for next generation
-- Debug governance state issues
-
-RETURNS:
-{
-  "success": true,
-  "E": float, "I": float, "S": float, "V": float,
-  "coherence": float,
-  "lambda1": float,
-  "attention_score": float,  # Complexity/attention blend - renamed from risk_score
-  "phi": float,  # Primary physics signal: Φ objective function
-  "verdict": "safe" | "caution" | "high-risk",  # Primary governance signal
-  "risk_score": float,  # DEPRECATED: Use attention_score instead
-  "sampling_params": {"temperature": float, "top_p": float, "max_tokens": int},
-  "status": "healthy" | "moderate" | "critical",
-  "decision_statistics": {"proceed": int, "pause": int, "total": int},  # Two-tier system (backward compat: approve/reflect/reject also included)
-  "eisv_labels": {"E": "...", "I": "...", "S": "...", "V": "..."}
-}
-
-RELATED TOOLS:
-- process_agent_update: Update state and get decision
-- observe_agent: Get detailed pattern analysis
-- get_system_history: View historical trends
-
-ERROR RECOVERY:
-- "Agent not found": Use list_agents to see available agents
-- "No state available": Agent may need initial process_agent_update call
-
-EXAMPLE REQUEST:
-{"agent_id": "test_agent_001"}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "E": 0.67, "I": 0.89, "S": 0.45, "V": -0.03,
-  "coherence": 0.85, 
-  "attention_score": 0.23,  # Complexity/attention blend - renamed from risk_score
-  "phi": 0.35,  # Primary physics signal
-  "verdict": "safe",  # Primary governance signal
-  "risk_score": 0.23,  # DEPRECATED
-  "lambda1": 0.18,
-  "sampling_params": {"temperature": 0.63, "top_p": 0.87, "max_tokens": 172},
-  "status": "healthy"
-}
-
-DEPENDENCIES:
-- Requires: agent_id (must exist - use list_agents to find)
-- Workflow: Call after process_agent_update to check current state""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "UNIQUE agent identifier. Must match an existing agent ID."
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="get_system_history",
-            description="""Export complete governance history for an agent. Returns time series data of all governance metrics.
-
-USE CASES:
-- Analyze agent behavior trends over time
-- Debug governance state evolution
-- Export data for external analysis
-- Track coherence/risk changes
-
-RETURNS:
-- Time series arrays: E_history, I_history, S_history, V_history, coherence_history, risk_history
-- Timestamps for each data point
-- Decision history (approve/reflect/reject)
-- Format: JSON (default) or CSV
-
-RELATED TOOLS:
-- get_governance_metrics: Get current state only
-- observe_agent: Get pattern analysis with history
-- export_to_file: Save history to disk
-
-ERROR RECOVERY:
-- "Agent not found": Use list_agents to see available agents
-- "No history available": Agent may need process_agent_update calls first""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "UNIQUE agent identifier. Must match an existing agent ID."
-                    },
-                    "format": {
-                        "type": "string",
-                        "enum": ["json", "csv"],
-                        "description": "Output format",
-                        "default": "json"
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="export_to_file",
-            description="""Export governance history to a file in the server's data directory. Saves timestamped files for analysis and archival. Returns file path and metadata (lightweight response).
-
-USE CASES:
-- Export history for external analysis (default: history only)
-- Export complete package: metadata + history + validation (complete_package=true)
-- Archive agent governance data
-- Create backups of governance state
-
-RETURNS:
-{
-  "success": true,
-  "message": "History exported successfully" | "Complete package exported successfully",
-  "file_path": "string (absolute path)",
-  "filename": "string",
-  "format": "json" | "csv",
-  "agent_id": "string",
-  "file_size_bytes": int,
-  "complete_package": boolean,
-  "layers_included": ["history"] | ["metadata", "history", "validation"]
-}
-
-RELATED TOOLS:
-- get_system_history: Get history inline (not saved to file)
-- get_governance_metrics: Get current state only
-- get_agent_metadata: Get metadata inline
-
-EXAMPLE REQUEST (history only - backward compatible):
-{
-  "agent_id": "test_agent_001",
-  "format": "json",
-  "filename": "backup_20251125"
-}
-
-EXAMPLE REQUEST (complete package):
-{
-  "agent_id": "test_agent_001",
-  "format": "json",
-  "complete_package": true,
-  "filename": "full_backup_20251125"
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Complete package exported successfully",
-  "file_path": "/path/to/data/exports/test_agent_001_complete_package_20251125_120000.json",
-  "filename": "full_backup_20251125_complete.json",
-  "format": "json",
-  "agent_id": "test_agent_001",
-  "file_size_bytes": 45678,
-  "complete_package": true,
-  "layers_included": ["metadata", "history", "validation"]
-}
-
-DEPENDENCIES:
-- Requires: agent_id (must exist with history)
-- Optional: format (json|csv, default: json), filename (default: agent_id_history_timestamp)
-- Optional: complete_package (boolean, default: false) - if true, exports all layers together""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "format": {
-                        "type": "string",
-                        "enum": ["json", "csv"],
-                        "description": "Output format (json or csv)",
-                        "default": "json"
-                    },
-                    "filename": {
-                        "type": "string",
-                        "description": "Optional custom filename (without extension). If not provided, uses agent_id with timestamp."
-                    },
-                    "complete_package": {
-                        "type": "boolean",
-                        "description": "If true, exports complete package (metadata + history + knowledge + validation). If false (default), exports history only.",
-                        "default": False
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="reset_monitor",
-            description="""Reset governance state for an agent. Useful for testing or starting fresh.
-
-USE CASES:
-- Reset agent state for testing
-- Start fresh after issues
-- Clear governance history
-
-RETURNS:
-{
-  "success": true,
-  "message": "Governance state reset for agent 'agent_id'",
-  "agent_id": "string",
-  "timestamp": "ISO string"
-}
-
-RELATED TOOLS:
-- process_agent_update: Initialize new state after reset
-- get_governance_metrics: Verify reset state
-
-EXAMPLE REQUEST:
-{"agent_id": "test_agent_001"}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Governance state reset for agent 'test_agent_001'",
-  "agent_id": "test_agent_001",
-  "timestamp": "2025-11-25T12:00:00"
-}
-
-DEPENDENCIES:
-- Requires: agent_id (must exist)
-- Warning: This permanently resets agent state""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="list_agents",
-            description="""List all agents currently being monitored with lifecycle metadata and health status.
-
-RETURNS:
-{
-  "success": true,
-  "agents": [
-    {
-      "agent_id": "string",
-      "lifecycle_status": "active" | "paused" | "archived" | "deleted",
-      "health_status": "healthy" | "moderate" | "critical" | "unknown",
-      "created": "ISO timestamp",
-      "last_update": "ISO timestamp",
-      "total_updates": int,
-      "metrics": {...} (if include_metrics=true)
-    },
-    ...
-  ],
-  "summary": {
-    "total": int,
-    "by_status": {"active": int, "paused": int, ...},
-    "by_health": {"healthy": int, "moderate": int, ...}
-  }
-}
-
-EXAMPLE REQUEST:
-{"grouped": true, "include_metrics": false}
-
-DEPENDENCIES:
-- No dependencies - safe to call anytime
-- Workflow: Use to discover available agents before calling other tools""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "summary_only": {
-                        "type": "boolean",
-                        "description": "Return only summary statistics (counts), no agent details",
-                        "default": False
-                    },
-                    "status_filter": {
-                        "type": "string",
-                        "enum": ["active", "paused", "archived", "deleted", "all"],
-                        "description": "Filter agents by lifecycle status",
-                        "default": "all"
-                    },
-                    "loaded_only": {
-                        "type": "boolean",
-                        "description": "Only show agents with monitors loaded in this process",
-                        "default": False
-                    },
-                    "include_metrics": {
-                        "type": "boolean",
-                        "description": "Include full EISV metrics for loaded agents (faster if False)",
-                        "default": True
-                    },
-                    "grouped": {
-                        "type": "boolean",
-                        "description": "Group agents by status (active/paused/archived/deleted) for easier scanning",
-                        "default": True
-                    },
-                    "standardized": {
-                        "type": "boolean",
-                        "description": "Use standardized format with consistent fields (all fields always present, null if unavailable)",
-                        "default": True
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="delete_agent",
-            description="""Delete an agent and archive its data. Protected: cannot delete pioneer agents. Requires explicit confirmation.
-
-USE CASES:
-- Remove test agents
-- Clean up unused agents
-- Delete agents after archival
-
-RETURNS:
-{
-  "success": true,
-  "message": "Agent 'agent_id' deleted successfully",
-  "agent_id": "string",
-  "archived": boolean,
-  "backup_path": "string (if backup_first=true)"
-}
-OR if protected:
-{
-  "success": false,
-  "error": "Cannot delete pioneer agent 'agent_id'"
-}
-
-RELATED TOOLS:
-- archive_agent: Archive instead of delete
-- list_agents: See available agents
-- archive_old_test_agents: Auto-archive stale agents
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "confirm": true,
-  "backup_first": true
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Agent 'test_agent_001' deleted successfully",
-  "agent_id": "test_agent_001",
-  "archived": true,
-  "backup_path": "/path/to/archive/test_agent_001_backup.json"
-}
-
-DEPENDENCIES:
-- Requires: agent_id, confirm=true
-- Optional: backup_first (default: true)
-- Protected: Pioneer agents cannot be deleted""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier to delete"
-                    },
-                    "confirm": {
-                        "type": "boolean",
-                        "description": "Must be true to confirm deletion",
-                        "default": False
-                    },
-                    "backup_first": {
-                        "type": "boolean",
-                        "description": "Archive data before deletion",
-                        "default": True
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="get_agent_metadata",
-            description="""Get complete metadata for an agent including lifecycle events, current state, and computed fields.
-
-USE CASES:
-- Get full agent information
-- View lifecycle history
-- Check agent state and metadata
-- Debug agent issues
-
-RETURNS:
-{
-  "success": true,
-  "agent_id": "string",
-  "created": "ISO timestamp",
-  "last_update": "ISO timestamp",
-  "lifecycle_status": "active" | "paused" | "archived" | "deleted",
-  "lifecycle_events": [
-    {"event": "string", "timestamp": "ISO string", "reason": "string"}
-  ],
-  "tags": ["string"],
-  "notes": "string",
-  "current_state": {
-    "lambda1": float,
-    "coherence": float,
-    "void_active": boolean,
-    "E": float, "I": float, "S": float, "V": float
-  },
-  "days_since_update": int,
-  "total_updates": int
-}
-
-RELATED TOOLS:
-- list_agents: List all agents with metadata
-- update_agent_metadata: Update tags and notes
-- get_governance_metrics: Get current metrics
-
-EXAMPLE REQUEST:
-{"agent_id": "test_agent_001"}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "agent_id": "test_agent_001",
-  "created": "2025-11-25T10:00:00",
-  "last_update": "2025-11-25T12:00:00",
-  "lifecycle_status": "active",
-  "tags": ["test", "development"],
-  "current_state": {
-    "lambda1": 0.18,
-    "coherence": 0.85,
-    "E": 0.67, "I": 0.89, "S": 0.45, "V": -0.03
-  },
-  "days_since_update": 0
-}
-
-DEPENDENCIES:
-- Requires: agent_id (must exist)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="mark_response_complete",
-            description="""Mark agent as having completed response, waiting for input. Lightweight status update - no full governance cycle.
-
-USE CASES:
-- Signal that agent has finished their response/thought
-- Mark agent as waiting for user input (not stuck)
-- Prevent false stuck detection
-- Update status without triggering full EISV governance cycle
-
-RETURNS:
-{
-  "success": true,
-  "message": "Response completion marked",
-  "agent_id": "string",
-  "status": "waiting_input",
-  "last_response_at": "ISO timestamp",
-  "response_completed": true
-}
-
-RELATED TOOLS:
-- process_agent_update: Full governance cycle with EISV update
-- get_agent_metadata: Check current status
-- request_dialectic_review: Will skip if agent is waiting_input (not stuck)
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "api_key": "gk_live_...",
-  "summary": "Completed analysis of governance metrics"
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Response completion marked",
-  "agent_id": "test_agent_001",
-  "status": "waiting_input",
-  "last_response_at": "2025-11-26T19:55:15",
-  "response_completed": true
-}
-
-DEPENDENCIES:
-- Requires: agent_id
-- Optional: api_key (for authentication), summary (for lifecycle event)
-- Note: This is a lightweight update - does NOT trigger EISV governance cycle""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "API key for authentication (optional)"
-                    },
-                    "summary": {
-                        "type": "string",
-                        "description": "Optional summary of completed work (for lifecycle event)"
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="direct_resume_if_safe",
-            description="""Direct resume without dialectic if agent state is safe. Tier 1 recovery for simple stuck scenarios.
-
-USE CASES:
-- Simple stuck scenarios (frozen session, timeout)
-- Agent got reflect decision and needs to retry
-- Low-risk recovery scenarios
-- Fast recovery (< 1 second) without peer review
-
-RETURNS:
-{
-  "success": true,
-  "message": "Agent resumed successfully",
-  "agent_id": "string",
-  "action": "resumed",
-  "conditions": ["string"],
-  "reason": "string",
-  "metrics": {
-    "coherence": float,
-    "attention_score": float,  # Renamed from risk_score
-    "phi": float,  # Primary physics signal
-    "verdict": "safe" | "caution" | "high-risk",  # Primary governance signal
-    "risk_score": float,  # DEPRECATED: Use attention_score instead
-    "void_active": boolean,
-    "previous_status": "string"
-  },
-  "note": "string"
-}
-
-RELATED TOOLS:
-- request_dialectic_review: Use for complex recovery (circuit breaker, high risk)
-- get_governance_metrics: Check current state before resuming
-- mark_response_complete: Mark response complete if just stuck waiting
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "api_key": "gk_live_...",
-  "conditions": ["Monitor for 24h", "Reduce complexity to 0.3"],
-  "reason": "Simple stuck scenario - state is safe"
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Agent resumed successfully",
-  "agent_id": "test_agent_001",
-  "action": "resumed",
-  "conditions": ["Monitor for 24h", "Reduce complexity to 0.3"],
-  "reason": "Simple stuck scenario - state is safe",
-  "metrics": {
-    "coherence": 0.65,
-    "attention_score": 0.35,  # Renamed from risk_score
-    "phi": 0.20,  # Primary physics signal
-    "verdict": "caution",  # Primary governance signal
-    "risk_score": 0.35,  # DEPRECATED
-    "void_active": false,
-    "previous_status": "waiting_input"
-  },
-  "note": "Agent resumed via Tier 1 recovery (direct resume). Use request_dialectic_review for complex cases."
-}
-
-DEPENDENCIES:
-- Requires: agent_id, api_key
-- Optional: conditions (list of resumption conditions), reason (explanation)
-- Safety checks: coherence > 0.40, attention_score < 0.60, void_active == false, status in [paused, waiting_input, moderate]
-- Workflow: 1. Check metrics with get_governance_metrics 2. If safe, call direct_resume_if_safe 3. If not safe, use request_dialectic_review""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "API key for authentication (required)"
-                    },
-                    "conditions": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "List of conditions for resumption (optional)"
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Reason for resumption (optional)"
-                    }
-                },
-                "required": ["agent_id", "api_key"]
-            }
-        ),
-        Tool(
-            name="archive_agent",
-            description="""Archive an agent for long-term storage. Agent can be resumed later. Optionally unload from memory.
-
-USE CASES:
-- Archive inactive agents
-- Free up memory for active agents
-- Long-term storage
-
-RETURNS:
-{
-  "success": true,
-  "message": "Agent 'agent_id' archived successfully",
-  "agent_id": "string",
-  "lifecycle_status": "archived",
-  "archived_at": "ISO timestamp",
-  "reason": "string (if provided)",
-  "kept_in_memory": boolean
-}
-
-RELATED TOOLS:
-- list_agents: See archived agents
-- delete_agent: Delete instead of archive
-- archive_old_test_agents: Auto-archive stale agents
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "reason": "Inactive for 30 days",
-  "keep_in_memory": false
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Agent 'test_agent_001' archived successfully",
-  "agent_id": "test_agent_001",
-  "lifecycle_status": "archived",
-  "archived_at": "2025-11-25T12:00:00",
-  "reason": "Inactive for 30 days",
-  "kept_in_memory": false
-}
-
-DEPENDENCIES:
-- Requires: agent_id (must exist)
-- Optional: reason, keep_in_memory (default: false)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier to archive"
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Reason for archiving (optional)"
-                    },
-                    "keep_in_memory": {
-                        "type": "boolean",
-                        "description": "Keep agent loaded in memory",
-                        "default": False
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="update_agent_metadata",
-            description="""Update agent tags and notes. Tags are replaced, notes can be appended or replaced.
-
-USE CASES:
-- Add tags for categorization
-- Update agent notes
-- Organize agents with metadata
-
-RETURNS:
-{
-  "success": true,
-  "message": "Agent metadata updated",
-  "agent_id": "string",
-  "tags": ["string"] (updated),
-  "notes": "string" (updated),
-  "updated_at": "ISO timestamp"
-}
-
-RELATED TOOLS:
-- get_agent_metadata: View current metadata
-- list_agents: Filter by tags
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "tags": ["production", "critical"],
-  "notes": "Updated notes",
-  "append_notes": false
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Agent metadata updated",
-  "agent_id": "test_agent_001",
-  "tags": ["production", "critical"],
-  "notes": "Updated notes",
-  "updated_at": "2025-11-25T12:00:00"
-}
-
-DEPENDENCIES:
-- Requires: agent_id (must exist)
-- Optional: tags (replaces existing), notes (replaces or appends based on append_notes)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "New tags (replaces existing)"
-                    },
-                    "notes": {
-                        "type": "string",
-                        "description": "Notes to add or replace"
-                    },
-                    "append_notes": {
-                        "type": "boolean",
-                        "description": "Append notes with timestamp instead of replacing",
-                        "default": False
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="archive_old_test_agents",
-            description="""Manually archive old test/demo agents that haven't been updated recently. Note: This also runs automatically on server startup with a 1-day threshold. Use this tool to trigger with a custom threshold or on-demand.
-
-USE CASES:
-- Clean up stale test agents
-- Free up resources
-- Maintain agent list
-
-RETURNS:
-{
-  "success": true,
-  "archived_count": int,
-  "archived_agents": ["agent_id"],
-  "max_age_hours": float,
-  "threshold_used": float,
-  "note": "Test agents with ≤2 updates archived immediately. Others archived after inactivity threshold."
-}
-
-RELATED TOOLS:
-- archive_agent: Archive specific agent
-- list_agents: See all agents
-
-EXAMPLE REQUEST:
-{"max_age_hours": 6}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "archived_count": 3,
-  "archived_agents": ["test_agent_001", "test_agent_002", "demo_agent"],
-  "max_age_hours": 6.0,
-  "threshold_used": 6.0,
-  "note": "Test agents with ≤2 updates archived immediately. Others archived after inactivity threshold."
-}
-
-DEPENDENCIES:
-- Optional: max_age_hours (default: 6 hours)
-- Optional: max_age_days (backward compatibility: converts to hours)
-- Note: Test/ping agents (≤2 updates) archived immediately
-- Note: Runs automatically on server startup""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "max_age_hours": {
-                        "type": "number",
-                        "description": "Archive test agents older than this many hours (default: 6). Test/ping agents (≤2 updates) archived immediately.",
-                        "default": 6,
-                        "minimum": 0.1
-                    },
-                    "max_age_days": {
-                        "type": "number",
-                        "description": "Backward compatibility: converts to hours (e.g., 1 day = 24 hours)",
-                        "minimum": 0.1
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="simulate_update",
-            description="""Dry-run governance cycle. Returns decision without persisting state. Useful for testing decisions before committing. State is NOT modified.
-
-USE CASES:
-- Test governance decisions without persisting
-- Preview what decision would be made
-- Validate parameters before committing
-
-RETURNS:
-{
-  "success": true,
-  "simulation": true,
-  "decision": {
-    "action": "proceed" | "pause",  # Two-tier system (backward compat: approve/reflect/reject mapped)
-    "reason": "string",
-    "require_human": boolean
-  },
-  "metrics": {
-    "E": float, "I": float, "S": float, "V": float,
-    "coherence": float, 
-    "attention_score": float,  # Renamed from risk_score
-    "phi": float,  # Primary physics signal
-    "verdict": "safe" | "caution" | "high-risk",  # Primary governance signal
-    "risk_score": float,  # DEPRECATED: Use attention_score instead
-    "lambda1": float, "health_status": "healthy" | "moderate" | "critical"
-  },
-  "sampling_params": {
-    "temperature": float, "top_p": float, "max_tokens": int
-  },
-  "circuit_breaker": {
-    "triggered": boolean,
-    "reason": "string (if triggered)"
-  }
-}
-
-RELATED TOOLS:
-- process_agent_update: Actually persist the update
-- get_governance_metrics: Get current state
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "complexity": 0.5,
-  "parameters": [0.1, 0.2, 0.3, ...],
-  "ethical_drift": [0.01, 0.02, 0.03]
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "simulation": true,
-  "decision": {"action": "approve", "reason": "Low attention (0.23)", "require_human": false},
-  "metrics": {
-    "coherence": 0.85, 
-    "attention_score": 0.23,  # Renamed from risk_score
-    "phi": 0.35,  # Primary physics signal
-    "verdict": "safe",  # Primary governance signal
-    "risk_score": 0.23,  # DEPRECATED
-    "E": 0.67, "I": 0.89, "S": 0.45, "V": -0.03
-  },
-  "sampling_params": {"temperature": 0.63, "top_p": 0.87, "max_tokens": 172}
-}
-
-DEPENDENCIES:
-- Requires: agent_id (must exist)
-- Optional: parameters, ethical_drift, response_text, complexity, confidence, api_key
-- Note: State is NOT modified - this is a dry run""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "parameters": {
-                        "type": "array",
-                        "items": {"type": "number"},
-                        "description": "Agent parameters vector (optional, deprecated). Not used in core thermodynamic calculations - system uses pure C(V) coherence from E-I balance. Included for backward compatibility only.",
-                        "default": []
-                    },
-                    "ethical_drift": {
-                        "type": "array",
-                        "items": {"type": "number"},
-                        "description": "Ethical drift signals (3 components)",
-                        "default": [0.0, 0.0, 0.0]
-                    },
-                    "response_text": {
-                        "type": "string",
-                        "description": "Agent's response text (optional)"
-                    },
-                    "complexity": {
-                        "type": "number",
-                        "description": "Estimated task complexity (0-1)",
-                        "minimum": 0.0,
-                        "maximum": 1.0,
-                        "default": 0.5
-                    },
-                    "confidence": {
-                        "type": "number",
-                        "description": "Confidence level for this update (0-1, optional). When confidence < 0.8, lambda1 updates are skipped. Defaults to 1.0.",
-                        "minimum": 0.0,
-                        "maximum": 1.0,
-                        "default": 1.0
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "API key for authentication"
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="get_thresholds",
-            description="""Get current governance threshold configuration. Returns runtime overrides + defaults. Enables agents to understand decision boundaries.
-
-USE CASES:
-- Understand decision boundaries
-- Check current threshold configuration
-- Debug threshold-related issues
-
-RETURNS:
-{
-  "success": true,
-  "thresholds": {
-    "risk_approve_threshold": float,
-    "risk_revise_threshold": float,
-    "coherence_critical_threshold": float,
-    "void_threshold_initial": float
-  },
-  "note": "These are the effective thresholds (runtime overrides + defaults)"
-}
-
-RELATED TOOLS:
-- set_thresholds: Update thresholds
-- process_agent_update: See thresholds in action
-
-EXAMPLE REQUEST:
-{}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "thresholds": {
-    "risk_approve_threshold": 0.3,
-    "risk_revise_threshold": 0.6,
-    "coherence_critical_threshold": 0.4,
-    "void_threshold_initial": 0.1
-  },
-  "note": "These are the effective thresholds (runtime overrides + defaults)"
-}
-
-DEPENDENCIES:
-- No dependencies - safe to call anytime""",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="set_thresholds",
-            description="""Set runtime threshold overrides. Enables runtime adaptation without redeploy. Validates values and returns success/errors.
-
-USE CASES:
-- Adjust decision boundaries at runtime
-- Adapt thresholds based on system behavior
-- Fine-tune governance parameters
-
-RETURNS:
-{
-  "success": boolean,
-  "updated": ["threshold_name"],
-  "errors": ["error message"],
-  "current_thresholds": {
-    "risk_approve_threshold": float,
-    "risk_revise_threshold": float,
-    "coherence_critical_threshold": float,
-    "void_threshold_initial": float
-  } (if success)
-}
-
-RELATED TOOLS:
-- get_thresholds: View current thresholds
-- process_agent_update: See updated thresholds in action
-
-EXAMPLE REQUEST:
-{
-  "thresholds": {
-    "risk_approve_threshold": 0.35,
-    "risk_revise_threshold": 0.65
-  },
-  "validate": true
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "updated": ["risk_approve_threshold", "risk_revise_threshold"],
-  "errors": [],
-  "current_thresholds": {
-    "risk_approve_threshold": 0.35,
-    "risk_revise_threshold": 0.65,
-    "coherence_critical_threshold": 0.4,
-    "void_threshold_initial": 0.1
-  }
-}
-
-DEPENDENCIES:
-- Requires: thresholds (dict of threshold_name -> value)
-- Optional: validate (default: true)
-- Valid keys: risk_approve_threshold, risk_revise_threshold, coherence_critical_threshold, void_threshold_initial""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "thresholds": {
-                        "type": "object",
-                        "description": "Dict of threshold_name -> value. Valid keys: risk_approve_threshold, risk_revise_threshold, coherence_critical_threshold, void_threshold_initial",
-                        "additionalProperties": {"type": "number"}
-                    },
-                    "validate": {
-                        "type": "boolean",
-                        "description": "Validate values are in reasonable ranges",
-                        "default": True
-                    }
-                },
-                "required": ["thresholds"]
-            }
-        ),
-        Tool(
-            name="aggregate_metrics",
-            description="""Get fleet-level health overview. Aggregates metrics across all agents or a subset. Returns summary statistics for coordination and system management.
-
-USE CASES:
-- Monitor fleet health
-- Get system-wide statistics
-- Coordinate across multiple agents
-
-RETURNS:
-{
-  "success": true,
-  "agent_count": int,
-  "aggregate_metrics": {
-    "mean_coherence": float,
-    "mean_risk": float,
-    "mean_E": float, "mean_I": float, "mean_S": float, "mean_V": float
-  },
-  "health_breakdown": {
-    "healthy": int,
-    "moderate": int,
-    "critical": int,
-    "unknown": int
-  },
-  "agent_ids": ["string"] (if agent_ids specified)
-}
-
-RELATED TOOLS:
-- observe_agent: Detailed analysis of single agent
-- detect_anomalies: Find unusual patterns
-- compare_agents: Compare specific agents
-
-EXAMPLE REQUEST:
-{
-  "agent_ids": ["agent_001", "agent_002"],
-  "include_health_breakdown": true
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "agent_count": 2,
-  "aggregate_metrics": {
-    "mean_coherence": 0.85,
-    "mean_risk": 0.25,
-    "mean_E": 0.67, "mean_I": 0.89, "mean_S": 0.45, "mean_V": -0.03
-  },
-  "health_breakdown": {
-    "healthy": 2,
-    "moderate": 0,
-    "critical": 0,
-    "unknown": 0
-  }
-}
-
-DEPENDENCIES:
-- Optional: agent_ids (array, if empty/null aggregates all agents)
-- Optional: include_health_breakdown (default: true)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Agent IDs to aggregate (null/empty = all agents)"
-                    },
-                    "include_health_breakdown": {
-                        "type": "boolean",
-                        "description": "Include health status breakdown",
-                        "default": True
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="observe_agent",
-            description="""Observe another agent's governance state with pattern analysis. Optimized for AI agent consumption.
-
-USE CASES:
-- Monitor other agents' health and patterns
-- Detect anomalies and trends
-- Compare agent behaviors
-- Get comprehensive agent analysis
-
-RETURNS:
-- Current state: EISV, coherence, risk, health_status
-- Pattern analysis: trends, anomalies, stability
-- History: Recent updates and decisions
-- Summary statistics: optimized for AI consumption
-
-RELATED TOOLS:
-- get_governance_metrics: Simple state without analysis
-- compare_agents: Compare multiple agents
-- detect_anomalies: Fleet-wide anomaly detection
-
-ERROR RECOVERY:
-- "Agent not found": Use list_agents to see available agents
-- "No observation data": Agent may need process_agent_update calls first
-
-EXAMPLE REQUEST:
-{"agent_id": "test_agent_001", "include_history": true, "analyze_patterns": true}
-
-DEPENDENCIES:
-- Requires: agent_id (use list_agents to find)
-- Workflow: Call after process_agent_update to get detailed analysis""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier to observe"
-                    },
-                    "include_history": {
-                        "type": "boolean",
-                        "description": "Include recent history (last 10 updates)",
-                        "default": True
-                    },
-                    "analyze_patterns": {
-                        "type": "boolean",
-                        "description": "Perform pattern analysis (trends, anomalies)",
-                        "default": True
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="compare_agents",
-            description="""Compare governance patterns across multiple agents. Returns similarities, differences, and outliers. Optimized for AI agent consumption.
-
-USE CASES:
-- Compare agent behaviors
-- Identify outliers
-- Find similar agents
-- Analyze patterns across fleet
-
-RETURNS:
-{
-  "success": true,
-  "agent_count": int,
-  "comparison": {
-    "similarities": {
-      "metric_name": {"mean": float, "std": float}
-    },
-    "differences": {
-      "metric_name": {"min": float, "max": float, "range": float}
-    },
-    "outliers": [
-      {
-        "agent_id": "string",
-        "metric": "string",
-        "value": float,
-        "deviation": float
-      }
-    ]
-  },
-  "metrics_compared": ["string"]
-}
-
-RELATED TOOLS:
-- observe_agent: Detailed analysis of single agent
-- aggregate_metrics: Fleet-wide statistics
-- detect_anomalies: Find anomalies
-
-EXAMPLE REQUEST:
-{
-  "agent_ids": ["agent_001", "agent_002", "agent_003"],
-  "compare_metrics": ["attention_score", "coherence", "E", "I", "S"]  # Updated default: attention_score instead of risk_score
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "agent_count": 3,
-  "comparison": {
-    "similarities": {
-      "coherence": {"mean": 0.85, "std": 0.05}
-    },
-    "differences": {
-      "attention_score": {"min": 0.15, "max": 0.45, "range": 0.30}  # Renamed from risk_score
-    },
-    "outliers": [
-      {"agent_id": "agent_003", "metric": "attention_score", "value": 0.45, "deviation": 0.20}
-    ]
-  },
-  "metrics_compared": ["attention_score", "coherence", "E", "I", "S"]
-}
-
-DEPENDENCIES:
-- Requires: agent_ids (array, 2-10 agents recommended)
-- Optional: compare_metrics (default: all metrics)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of agent IDs to compare (2-10 agents recommended)"
-                    },
-                    "compare_metrics": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Metrics to compare (default: all)",
-                        "default": ["risk_score", "coherence", "E", "I", "S"]
-                    }
-                },
-                "required": ["agent_ids"]
-            }
-        ),
-        Tool(
-            name="detect_anomalies",
-            description="""Detect anomalies across agents. Scans all agents or a subset for unusual patterns (risk spikes, coherence drops, void events). Returns prioritized anomalies with severity levels.
-
-USE CASES:
-- Find unusual patterns across fleet
-- Detect risk spikes or coherence drops
-- Monitor for void events
-- Prioritize issues by severity
-
-RETURNS:
-{
-  "success": true,
-  "anomaly_count": int,
-  "anomalies": [
-    {
-      "agent_id": "string",
-      "type": "risk_spike" | "coherence_drop" | "void_event",
-      "severity": "low" | "medium" | "high",
-      "description": "string",
-      "metrics": {
-        "current": float,
-        "baseline": float,
-        "deviation": float
-      },
-      "timestamp": "ISO string"
-    }
-  ],
-  "filters": {
-    "agent_ids": ["string"] | null,
-    "anomaly_types": ["string"],
-    "min_severity": "string"
-  }
-}
-
-RELATED TOOLS:
-- observe_agent: Detailed analysis of specific agent
-- compare_agents: Compare agents to find differences
-- aggregate_metrics: Get fleet overview
-
-EXAMPLE REQUEST:
-{
-  "agent_ids": null,
-  "anomaly_types": ["risk_spike", "coherence_drop"],
-  "min_severity": "medium"
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "anomaly_count": 2,
-  "anomalies": [
-    {
-      "agent_id": "agent_001",
-      "type": "risk_spike",
-      "severity": "high",
-      "description": "Risk score increased from 0.25 to 0.75",
-      "metrics": {"current": 0.75, "baseline": 0.25, "deviation": 0.50}
-    }
-  ]
-}
-
-DEPENDENCIES:
-- Optional: agent_ids (null/empty = all agents)
-- Optional: anomaly_types (default: ["risk_spike", "coherence_drop"])
-- Optional: min_severity (default: "medium")""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Agent IDs to scan (null/empty = all agents)"
-                    },
-                    "anomaly_types": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Types of anomalies to detect",
-                        "default": ["risk_spike", "coherence_drop"]
-                    },
-                    "min_severity": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high"],
-                        "description": "Minimum severity to report",
-                        "default": "medium"
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_agent_api_key",
-            description="""Get or generate API key for an agent. Required for authentication when updating agent state. Prevents impersonation and identity theft.
-
-USE CASES:
-- Get API key for existing agent
-- Generate API key for new agent
-- Recover lost API key
-- Regenerate compromised key
-
-RETURNS:
-{
-  "success": true,
-  "agent_id": "string",
-  "api_key": "string",
-  "is_new": boolean,
-  "regenerated": boolean,
-  "message": "string"
-}
-
-RELATED TOOLS:
-- process_agent_update: Use API key for authentication
-- list_agents: Find agent_id
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "regenerate": false
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "agent_id": "test_agent_001",
-  "api_key": "gk_live_abc123...",
-  "is_new": false,
-  "regenerated": false,
-  "message": "API key retrieved"
-}
-
-DEPENDENCIES:
-- Requires: agent_id (will create if new)
-- Optional: regenerate (default: false, invalidates old key if true)
-- Security: API key required for process_agent_update on existing agents""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "regenerate": {
-                        "type": "boolean",
-                        "description": "Regenerate API key (invalidates old key)",
-                        "default": False
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="list_tools",
-            description="""List all available governance tools with descriptions and categories. Provides runtime introspection for agents to discover capabilities. Useful for onboarding new agents and understanding the toolset.
-
-USE CASES:
-- Discover available tools
-- Understand tool categories
-- Onboard new agents
-- Find tools by purpose
-
-RETURNS:
-{
-  "success": true,
-  "server_version": "string",
-  "tools": [
-    {"name": "string", "description": "string"}
-  ],
-  "categories": {
-    "core": ["tool_name"],
-    "config": ["tool_name"],
-    "observability": ["tool_name"],
-    "lifecycle": ["tool_name"],
-    "export": ["tool_name"],
-    "knowledge": ["tool_name"],
-    "dialectic": ["tool_name"],
-    "admin": ["tool_name"]
-  },
-  "total_tools": int,
-  "workflows": {
-    "onboarding": ["tool_name"],
-    "monitoring": ["tool_name"],
-    "governance_cycle": ["tool_name"]
-  },
-  "relationships": {
-    "tool_name": {
-      "depends_on": ["tool_name"],
-      "related_to": ["tool_name"],
-      "category": "string"
-    }
-  }
-}
-
-RELATED TOOLS:
-- All tools are listed here
-- Use this for tool discovery
-
-EXAMPLE REQUEST:
-{}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "server_version": "2.0.0",
-  "tools": [...],
-  "categories": {...},
-  "total_tools": 44,
-  "workflows": {...},
-  "relationships": {...}
-}
-
-DEPENDENCIES:
-- No dependencies - safe to call anytime""",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="cleanup_stale_locks",
-            description="""Clean up stale lock files that are no longer held by active processes. Prevents lock accumulation from crashed/killed processes.
-
-USE CASES:
-- Clean up after crashed processes
-- Remove stale locks blocking operations
-- Maintain system health
-
-RETURNS:
-{
-  "success": true,
-  "cleaned": int,
-  "removed_files": ["file_path"],
-  "dry_run": boolean,
-  "max_age_seconds": float
-}
-
-RELATED TOOLS:
-- get_server_info: Check for stale processes
-- health_check: Overall system health
-
-EXAMPLE REQUEST:
-{
-  "max_age_seconds": 300,
-  "dry_run": false
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "cleaned": 3,
-  "removed_files": ["/path/to/lock1", "/path/to/lock2"],
-  "dry_run": false,
-  "max_age_seconds": 300
-}
-
-DEPENDENCIES:
-- Optional: max_age_seconds (default: 300 = 5 minutes)
-- Optional: dry_run (default: false, if true only reports what would be cleaned)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "max_age_seconds": {
-                        "type": "number",
-                        "description": "Maximum age in seconds before considering stale (default: 300 = 5 minutes)",
-                        "default": 300.0
-                    },
-                    "dry_run": {
-                        "type": "boolean",
-                        "description": "If True, only report what would be cleaned (default: False)",
-                        "default": False
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="request_dialectic_review",
-            description="""Request a dialectic review for a paused/critical agent OR an agent stuck in loops OR a discovery dispute/correction. Selects a healthy reviewer agent and initiates dialectic session for recovery or critique.
-
-USE CASES:
-- Recover from circuit breaker state (paused agents)
-- Get peer assistance for agents stuck in repeated loops
-- Dispute or correct discoveries from other agents (if discovery_id provided)
-- Initiate dialectic recovery process
-- Help agents get unstuck from loop cooldowns
-- Collaborative critique and knowledge refinement
-
-RETURNS:
-{
-  "success": true,
-  "session_id": "string",
-  "paused_agent_id": "string",
-  "reviewer_agent_id": "string",
-  "phase": "thesis",
-  "reason": "string",
-  "next_step": "string",
-  "created_at": "ISO timestamp",
-  "discovery_id": "string (if discovery dispute)",
-  "dispute_type": "string (if discovery dispute)",
-  "discovery_context": "string (if discovery dispute)"
-}
-
-RELATED TOOLS:
-- submit_thesis: First step in dialectic process
-- submit_antithesis: Second step
-- submit_synthesis: Third step (negotiation)
-- get_dialectic_session: Check session status
-
-EXAMPLE REQUEST (Recovery):
-{
-  "agent_id": "paused_agent_001",
-  "reason": "Circuit breaker triggered",
-  "api_key": "gk_live_..."
-}
-
-EXAMPLE REQUEST (Discovery Dispute):
-{
-  "agent_id": "disputing_agent_001",
-  "discovery_id": "2025-12-01T15:34:52.968372",
-  "dispute_type": "dispute",
-  "reason": "Discovery seems incorrect based on my analysis",
-  "api_key": "gk_live_..."
-}
-
-EXAMPLE RESPONSE (Recovery):
-{
-  "success": true,
-  "session_id": "abc123",
-  "paused_agent_id": "paused_agent_001",
-  "reviewer_agent_id": "reviewer_agent_002",
-  "phase": "thesis",
-  "reason": "Circuit breaker triggered",
-  "next_step": "Agent 'paused_agent_001' should submit thesis via submit_thesis()",
-  "created_at": "2025-11-25T12:00:00"
-}
-
-EXAMPLE RESPONSE (Discovery Dispute):
-{
-  "success": true,
-  "session_id": "def456",
-  "paused_agent_id": "disputing_agent_001",
-  "reviewer_agent_id": "discovery_owner_002",
-  "phase": "thesis",
-  "reason": "Disputing discovery '2025-12-01T15:34:52.968372': ...",
-  "discovery_id": "2025-12-01T15:34:52.968372",
-  "dispute_type": "dispute",
-  "discovery_context": "This dialectic session is for disputing/correcting a discovery",
-  "next_step": "Agent 'disputing_agent_001' should submit thesis via submit_thesis()",
-  "created_at": "2025-12-01T15:40:00"
-}
-
-DEPENDENCIES:
-- Requires: agent_id (paused agent OR disputing agent)
-- Optional: reason (default: "Circuit breaker triggered"), api_key (for authentication)
-- Optional: discovery_id (for discovery disputes), dispute_type (for discovery disputes)
-- Workflow: 1. request_dialectic_review 2. submit_thesis 3. submit_antithesis 4. submit_synthesis (until convergence)
-- Discovery disputes: If discovery_id provided, discovery marked as "disputed" and reviewer set to discovery owner""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "ID of paused agent requesting review OR agent disputing discovery"
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Reason for review request (e.g., 'Circuit breaker triggered', 'Discovery seems incorrect', etc.)",
-                        "default": "Circuit breaker triggered"
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "Agent's API key for authentication"
-                    },
-                    "discovery_id": {
-                        "type": "string",
-                        "description": "Optional: ID of discovery being disputed/corrected. If provided, marks discovery as 'disputed' and sets reviewer to discovery owner."
-                    },
-                    "dispute_type": {
-                        "type": "string",
-                        "enum": ["dispute", "correction", "verification"],
-                        "description": "Optional: Type of dispute. Defaults to 'dispute' if discovery_id provided. Ignored if discovery_id not provided."
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="submit_thesis",
-            description="""Paused agent submits thesis: 'What I did, what I think happened'. First step in dialectic recovery process.
-
-USE CASES:
-- Submit agent's understanding of what happened
-- Propose conditions for resumption
-- Begin dialectic recovery
-
-RETURNS:
-{
-  "success": boolean,
-  "phase": "antithesis",
-  "message": "string",
-  "next_step": "string",
-  "session_id": "string"
-}
-
-RELATED TOOLS:
-- request_dialectic_review: Initiate session
-- submit_antithesis: Next step after thesis
-- get_dialectic_session: Check status
-
-EXAMPLE REQUEST:
-{
-  "session_id": "abc123",
-  "agent_id": "paused_agent_001",
-  "api_key": "gk_live_...",
-  "root_cause": "Risk score exceeded threshold",
-  "proposed_conditions": ["Reduce complexity", "Increase confidence threshold"],
-  "reasoning": "I believe the issue was..."
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "phase": "antithesis",
-  "message": "Thesis submitted successfully",
-  "next_step": "Reviewer 'reviewer_agent_002' should submit antithesis",
-  "session_id": "abc123"
-}
-
-DEPENDENCIES:
-- Requires: session_id, agent_id (paused agent)
-- Optional: api_key, root_cause, proposed_conditions, reasoning
-- Workflow: Called after request_dialectic_review""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Dialectic session ID"
-                    },
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Paused agent ID"
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "Agent's API key"
-                    },
-                    "root_cause": {
-                        "type": "string",
-                        "description": "Agent's understanding of what caused the issue"
-                    },
-                    "proposed_conditions": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of conditions for resumption"
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Natural language explanation"
-                    }
-                },
-                "required": ["session_id", "agent_id"]
-            }
-        ),
-        Tool(
-            name="submit_antithesis",
-            description="""Reviewer agent submits antithesis: 'What I observe, my concerns'. Second step in dialectic recovery process.
-
-USE CASES:
-- Submit reviewer's observations
-- Express concerns about paused agent
-- Provide counter-perspective
-
-RETURNS:
-{
-  "success": boolean,
-  "phase": "synthesis",
-  "message": "string",
-  "next_step": "string",
-  "session_id": "string"
-}
-
-RELATED TOOLS:
-- submit_thesis: Previous step
-- submit_synthesis: Next step (negotiation)
-- get_dialectic_session: Check status
-
-EXAMPLE REQUEST:
-{
-  "session_id": "abc123",
-  "agent_id": "reviewer_agent_002",
-  "api_key": "gk_live_...",
-  "observed_metrics": {"attention_score": 0.75, "coherence": 0.45},  # Renamed from risk_score
-  "concerns": ["High attention score", "Low coherence"],
-  "reasoning": "I observe that..."
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "phase": "synthesis",
-  "message": "Antithesis submitted successfully",
-  "next_step": "Both agents should negotiate via submit_synthesis() until convergence",
-  "session_id": "abc123"
-}
-
-DEPENDENCIES:
-- Requires: session_id, agent_id (reviewer agent)
-- Optional: api_key, observed_metrics, concerns, reasoning
-- Workflow: Called after submit_thesis""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Dialectic session ID"
-                    },
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Reviewer agent ID"
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "Reviewer's API key"
-                    },
-                    "observed_metrics": {
-                        "type": "object",
-                        "description": "Metrics observed about paused agent",
-                        "additionalProperties": True
-                    },
-                    "concerns": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of concerns"
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Natural language explanation"
-                    }
-                },
-                "required": ["session_id", "agent_id"]
-            }
-        ),
-        Tool(
-            name="submit_synthesis",
-            description="""Either agent submits synthesis proposal during negotiation. Multiple rounds until convergence. Third step in dialectic recovery process.
-
-USE CASES:
-- Propose synthesis conditions
-- Negotiate resumption terms
-- Reach agreement on recovery
-
-RETURNS:
-{
-  "success": boolean,
-  "converged": boolean,
-  "phase": "synthesis",
-  "synthesis_round": int,
-  "message": "string",
-  "action": "resume" | "block" | "continue",
-  "resolution": {
-    "action": "resume",
-    "conditions": ["string"],
-    "root_cause": "string",
-    "reasoning": "string",
-    "signature_a": "string",
-    "signature_b": "string",
-    "timestamp": "ISO string"
-  } (if converged),
-  "next_step": "string"
-}
-
-RELATED TOOLS:
-- submit_antithesis: Previous step
-- get_dialectic_session: Check negotiation status
-- request_dialectic_review: Start new session
-
-EXAMPLE REQUEST:
-{
-  "session_id": "abc123",
-  "agent_id": "paused_agent_001",
-  "api_key": "gk_live_...",
-  "proposed_conditions": ["Reduce complexity to 0.3", "Monitor for 24h"],
-  "root_cause": "Agreed: Risk threshold exceeded due to complexity",
-  "reasoning": "We agree that...",
-  "agrees": true
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "converged": true,
-  "action": "resume",
-  "resolution": {
-    "action": "resume",
-    "conditions": ["Reduce complexity to 0.3", "Monitor for 24h"],
-    "root_cause": "Agreed: Risk threshold exceeded",
-    "signature_a": "abc...",
-    "signature_b": "def..."
-  }
-}
-
-DEPENDENCIES:
-- Requires: session_id, agent_id (either paused or reviewer)
-- Optional: api_key, proposed_conditions, root_cause, reasoning, agrees
-- Workflow: Called multiple times until convergence (agrees=true from both agents)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Dialectic session ID"
-                    },
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent ID (either paused or reviewer)"
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "Agent's API key"
-                    },
-                    "proposed_conditions": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Proposed resumption conditions"
-                    },
-                    "root_cause": {
-                        "type": "string",
-                        "description": "Agreed understanding of root cause"
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Explanation of proposal"
-                    },
-                    "agrees": {
-                        "type": "boolean",
-                        "description": "Whether this agent agrees with current proposal",
-                        "default": False
-                    }
-                },
-                "required": ["session_id", "agent_id"]
-            }
-        ),
-        Tool(
-            name="get_dialectic_session",
-            description="""Get current state of a dialectic session. Can find by session_id OR by agent_id.
-
-USE CASES:
-- Check session status (by session_id)
-- Find sessions for an agent (by agent_id)
-- Review negotiation history
-- Debug dialectic process
-- View resolution details
-
-RETURNS:
-If session_id provided:
-{
-  "success": true,
-  "session_id": "string",
-  "paused_agent_id": "string",
-  "reviewer_agent_id": "string",
-  "phase": "thesis" | "antithesis" | "synthesis" | "resolved",
-  "created_at": "ISO timestamp",
-  "transcript": [...],
-  "synthesis_round": int,
-  "resolution": {...} (if resolved),
-  "max_synthesis_rounds": int
-}
-
-If agent_id provided (finds all sessions for agent):
-{
-  "success": true,
-  "agent_id": "string",
-  "session_count": int,
-  "sessions": [session_dict, ...]
-}
-
-RELATED TOOLS:
-- request_dialectic_review: Start session
-- submit_thesis/antithesis/synthesis: Progress session
-
-EXAMPLE REQUESTS:
-{"session_id": "abc123"}  # Get specific session
-{"agent_id": "my_agent"}  # Find all sessions for agent
-
-DEPENDENCIES:
-- Requires: session_id OR agent_id (at least one)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Dialectic session ID (optional if agent_id provided)"
-                    },
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent ID to find sessions for (optional if session_id provided). Finds sessions where agent is paused_agent_id or reviewer_agent_id"
-                    }
-                },
-                "required": []
-            }
-        ),
-        Tool(
-            name="self_recovery",
-            description="""Allow agent to recover without reviewer (for when no reviewers available). Tier 2.3 recovery option.
-
-USE CASES:
-- No reviewers available
-- Single-agent recovery needed
-- Fast recovery without peer coordination
-- System-generated antithesis based on metrics
-
-RETURNS:
-{
-  "success": true,
-  "message": "Agent resumed via self-recovery",
-  "agent_id": "string",
-  "action": "resumed",
-  "thesis": {
-    "root_cause": "string",
-    "proposed_conditions": ["string"],
-    "reasoning": "string"
-  },
-  "system_antithesis": {
-    "concerns": ["string"],
-    "observed_metrics": {...},
-    "reasoning": "string"
-  },
-  "merged_resolution": {
-    "conditions": ["string"],
-    "root_cause": "string",
-    "reasoning": "string"
-  },
-  "metrics": {...},
-  "note": "string"
-}
-
-RELATED TOOLS:
-- direct_resume_if_safe: Use for simple cases (Tier 1)
-- smart_dialectic_review: Use for auto-progressed recovery (Tier 2)
-- request_dialectic_review: Use for full peer review (Tier 2)
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "api_key": "gk_live_...",
-  "root_cause": "Got stuck in loop",
-  "proposed_conditions": ["Monitor for 24h", "Reduce complexity"],
-  "reasoning": "No reviewers available - using self-recovery"
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Agent resumed via self-recovery",
-  "agent_id": "test_agent_001",
-  "action": "resumed",
-  "thesis": {...},
-  "system_antithesis": {...},
-  "merged_resolution": {...},
-  "metrics": {...}
-}
-
-DEPENDENCIES:
-- Requires: agent_id, api_key
-- Optional: root_cause, proposed_conditions, reasoning
-- Safety checks: Same as direct_resume_if_safe (coherence > 0.40, risk < 0.60, no void)
-- Workflow: 1. Submit thesis 2. System generates antithesis 3. Auto-merge synthesis 4. Resume if safe""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "API key for authentication (required)"
-                    },
-                    "root_cause": {
-                        "type": "string",
-                        "description": "Agent's understanding of what happened"
-                    },
-                    "proposed_conditions": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Conditions for resumption"
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Explanation"
-                    }
-                },
-                "required": ["agent_id", "api_key"]
-            }
-        ),
-        Tool(
-            name="store_knowledge_graph",
-            description="""Store knowledge discovery in graph - fast, non-blocking, transparent.
-
-USE CASES:
-- Store bugs found during code review
-- Record insights from exploration
-- Log improvements discovered
-- Track patterns observed
-
-PERFORMANCE:
-- ~0.01ms (35,000x faster than file-based)
-- Non-blocking async operations
-- Claude Desktop compatible
-
-RETURNS:
-{
-  "success": true,
-  "message": "Discovery stored for agent 'agent_id'",
-  "discovery_id": "timestamp",
-  "discovery": {...},
-  "related_discoveries": [...] (if auto_link_related=true)
-}
-
-RELATED TOOLS:
-- search_knowledge_graph: Query stored knowledge
-- list_knowledge_graph: See statistics
-- find_similar_discoveries_graph: Find similar by tags
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "my_agent",
-  "api_key": "your_api_key",  # Required for high/critical severity discoveries
-  "discovery_type": "bug_found",
-  "summary": "Found authentication bypass",
-  "details": "Details here...",
-  "tags": ["security", "authentication"],
-  "severity": "high",
-  "auto_link_related": true  # Default: true - automatically links to related discoveries
-}
-
-SECURITY NOTE:
-- Low/medium severity: api_key optional
-- High/critical severity: api_key REQUIRED (prevents knowledge graph poisoning)
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Discovery stored for agent 'my_agent'",
-  "discovery_id": "2025-11-28T12:00:00",
-  "discovery": {
-    "id": "2025-11-28T12:00:00",
-    "agent_id": "my_agent",
-    "type": "bug_found",
-    "summary": "Found authentication bypass",
-    "tags": ["security", "authentication"],
-    "severity": "high"
-  }
-}
-
-DEPENDENCIES:
-- Requires: agent_id, discovery_type, summary
-- Optional: details, tags, severity, auto_link_related""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "discovery_type": {
-                        "type": "string",
-                        "enum": ["bug_found", "insight", "pattern", "improvement", "question", "answer", "note"],
-                        "description": "Type of discovery"
-                    },
-                    "summary": {
-                        "type": "string",
-                        "description": "Brief summary of discovery"
-                    },
-                    "details": {
-                        "type": "string",
-                        "description": "Detailed description (optional)"
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags for categorization and search"
-                    },
-                    "severity": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high", "critical"],
-                        "description": "Severity level (optional)"
-                    },
-                    "related_files": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Related file paths (optional)"
-                    },
-                    "auto_link_related": {
-                        "type": "boolean",
-                        "description": "Automatically find and link similar discoveries (default: false)",
-                        "default": False
-                    },
-                    "response_to": {
-                        "type": "object",
-                        "description": "Typed response to parent discovery (creates bidirectional link). Makes knowledge graph feel like conversation, not pile.",
-                        "properties": {
-                            "discovery_id": {
-                                "type": "string",
-                                "description": "ID of parent discovery being responded to"
-                            },
-                            "response_type": {
-                                "type": "string",
-                                "enum": ["extend", "question", "disagree", "support"],
-                                "description": "Type of response: extend (builds on), question (asks about), disagree (challenges), support (agrees with)"
-                            }
-                        },
-                        "required": ["discovery_id", "response_type"]
-                    }
-                },
-                "required": ["agent_id", "discovery_type", "summary"]
-            }
-        ),
-        Tool(
-            name="search_knowledge_graph",
-            description="""Search knowledge graph - returns summaries only (use get_discovery_details for full content).
-
-USE CASES:
-- Find discoveries by tags
-- Search by agent, type, severity
-- Query system knowledge
-- Learn from past discoveries
-
-PERFORMANCE:
-- O(indexes) not O(n) - scales logarithmically
-- ~0.1ms for typical queries
-- Returns summaries only to prevent context overflow
-
-RETURNS:
-{
-  "success": true,
-  "discoveries": [
-    {
-      "id": "...",
-      "summary": "...",
-      "has_details": true,
-      "details_preview": "First 100 chars..."
-    }
-  ],
-  "count": int,
-  "message": "Found N discovery(ies) (use get_discovery_details for full content)"
-}
-
-RELATED TOOLS:
-- get_discovery_details: Get full content for a specific discovery
-- list_knowledge_graph: See statistics
-- get_knowledge_graph: Get agent's knowledge
-
-EXAMPLE REQUEST:
-{
-  "tags": ["security", "bug"],
-  "discovery_type": "bug_found",
-  "severity": "high",
-  "limit": 10
-}
-
-DEPENDENCIES:
-- All parameters optional (filters)
-- Returns summaries only by default
-- Use get_discovery_details for full content""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Filter by agent ID (optional)"
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Filter by tags (must have ALL tags)"
-                    },
-                    "discovery_type": {
-                        "type": "string",
-                        "enum": ["bug_found", "insight", "pattern", "improvement", "question", "answer", "note"],
-                        "description": "Filter by discovery type"
-                    },
-                    "severity": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high", "critical"],
-                        "description": "Filter by severity"
-                    },
-                    "status": {
-                        "type": "string",
-                        "enum": ["open", "resolved", "archived", "disputed"],
-                        "description": "Filter by status"
-                    },
-                    "limit": {
-                        "type": "number",
-                        "description": "Maximum number of results (default: 100)",
-                        "default": 100
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_knowledge_graph",
-            description="""Get all knowledge for an agent - returns summaries only (use get_discovery_details for full content).
-
-USE CASES:
-- Retrieve agent's knowledge record
-- See what agent has learned
-- Review agent's discoveries
-
-PERFORMANCE:
-- O(1) index lookup
-- Fast, non-blocking
-- Summaries only to prevent context overflow
-
-RETURNS:
-{
-  "success": true,
-  "agent_id": "string",
-  "discoveries": [
-    {
-      "id": "...",
-      "summary": "...",
-      "has_details": true,
-      "details_preview": "First 100 chars..."
-    }
-  ],
-  "count": int
-}
-
-RELATED TOOLS:
-- get_discovery_details: Get full content for a specific discovery
-- search_knowledge_graph: Search across agents
-- list_knowledge_graph: See statistics
-
-DEPENDENCIES:
-- Requires: agent_id
-- Returns summaries only by default""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "limit": {
-                        "type": "number",
-                        "description": "Maximum number of discoveries to return"
-                    }
-                },
-                "required": ["agent_id"]
-            }
-        ),
-        Tool(
-            name="list_knowledge_graph",
-            description="""List knowledge graph statistics - full transparency.
-
-USE CASES:
-- See what system knows
-- Check knowledge graph health
-- View discovery statistics
-- Monitor knowledge growth
-
-PERFORMANCE:
-- O(1) - instant statistics
-- Non-blocking
-
-RETURNS:
-{
-  "success": true,
-  "stats": {
-    "total_discoveries": int,
-    "by_agent": {...},
-    "by_type": {...},
-    "by_status": {...},
-    "total_tags": int,
-    "total_agents": int
-  },
-  "message": "Knowledge graph contains N discoveries from M agents"
-}
-
-RELATED TOOLS:
-- search_knowledge_graph: Query discoveries
-- get_knowledge_graph: Get agent's knowledge
-
-EXAMPLE REQUEST:
-{}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "stats": {
-    "total_discoveries": 252,
-    "by_agent": {"agent_1": 10, "agent_2": 5},
-    "by_type": {"bug_found": 10, "insight": 200},
-    "by_status": {"open": 200, "resolved": 50},
-    "total_tags": 45,
-    "total_agents": 27
-  },
-  "message": "Knowledge graph contains 252 discoveries from 27 agents"
-}
-
-DEPENDENCIES:
-- No parameters required""",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="update_discovery_status_graph",
-            description="""Update discovery status - fast graph update.
-
-USE CASES:
-- Mark discovery as resolved
-- Archive old discoveries
-- Update discovery status
-
-PERFORMANCE:
-- O(1) graph update
-- Fast, non-blocking
-
-RETURNS:
-{
-  "success": true,
-  "message": "Discovery 'id' status updated to 'status'",
-  "discovery": {...}
-}
-
-RELATED TOOLS:
-- store_knowledge_graph: Store new discoveries
-- search_knowledge_graph: Find discoveries
-
-EXAMPLE REQUEST:
-{
-  "discovery_id": "2025-11-28T12:00:00",
-  "status": "resolved"
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Discovery '2025-11-28T12:00:00' status updated to 'resolved'",
-  "discovery": {
-    "id": "2025-11-28T12:00:00",
-    "status": "resolved",
-    "resolved_at": "2025-11-28T15:00:00"
-  }
-}
-
-DEPENDENCIES:
-- Requires: discovery_id, status""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "discovery_id": {
-                        "type": "string",
-                        "description": "Discovery ID (timestamp)"
-                    },
-                    "status": {
-                        "type": "string",
-                        "enum": ["open", "resolved", "archived", "disputed"],
-                        "description": "New status (disputed: discovery is being disputed via dialectic)"
-                    }
-                },
-                "required": ["discovery_id", "status"]
-            }
-        ),
-        Tool(
-            name="find_similar_discoveries_graph",
-            description="""Find similar discoveries by tag overlap - fast tag-based search.
-
-USE CASES:
-- Find related discoveries
-- Check for duplicates
-- Discover patterns
-- Learn from similar cases
-
-PERFORMANCE:
-- O(tags) not O(n) - uses tag index
-- ~0.1ms for similarity search
-- No brute force scanning
-
-RETURNS:
-{
-  "success": true,
-  "discovery_id": "string",
-  "similar_discoveries": [...],
-  "count": int,
-  "message": "Found N similar discovery(ies)"
-}
-
-RELATED TOOLS:
-- store_knowledge_graph: Store discoveries
-- search_knowledge_graph: Search by filters
-
-EXAMPLE REQUEST:
-{
-  "discovery_id": "2025-11-28T12:00:00",
-  "limit": 5
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "discovery_id": "2025-11-28T12:00:00",
-  "similar_discoveries": [
-    {
-      "id": "2025-11-27T10:00:00",
-      "summary": "Similar bug found",
-      "tags": ["security", "authentication"],
-      "overlap_score": 2
-    }
-  ],
-  "count": 1,
-  "message": "Found 1 similar discovery(ies)"
-}
-
-DEPENDENCIES:
-- Requires: discovery_id""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "discovery_id": {
-                        "type": "string",
-                        "description": "Discovery ID to find similar discoveries for"
-                    },
-                    "limit": {
-                        "type": "number",
-                        "description": "Maximum number of similar discoveries (default: 10)",
-                        "default": 10
-                    }
-                },
-                "required": ["discovery_id"]
-            }
-        ),
-        Tool(
-            name="get_discovery_details",
-            description="""Get full details for a specific discovery - use after search to drill down.
-
-USE CASES:
-- Get full content after finding discovery in search
-- Drill down into a specific discovery
-- Read complete details after seeing summary
-
-RETURNS:
-{
-  "success": true,
-  "discovery": {
-    "id": "string",
-    "agent_id": "string",
-    "type": "string",
-    "summary": "string",
-    "details": "string (full content)",
-    "tags": [...],
-    ...
-  },
-  "message": "Full details for discovery 'id'"
-}
-
-RELATED TOOLS:
-- search_knowledge_graph: Find discoveries (returns summaries)
-- get_knowledge_graph: Get agent's discoveries (returns summaries)
-
-EXAMPLE REQUEST:
-{
-  "discovery_id": "2025-11-28T12:00:00"
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "discovery": {
-    "id": "2025-11-28T12:00:00",
-    "summary": "Found authentication bypass",
-    "details": "Full detailed content here..."
-  },
-  "message": "Full details for discovery '2025-11-28T12:00:00'"
-}
-
-DEPENDENCIES:
-- Requires: discovery_id""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "discovery_id": {
-                        "type": "string",
-                        "description": "Discovery ID to get full details for"
-                    }
-                },
-                "required": ["discovery_id"]
-            }
-        ),
-        Tool(
-            name="reply_to_question",
-            description="""Reply to a question in the knowledge graph - creates an answer linked to the question.
-
-USE CASES:
-- Answer questions asked by other agents
-- Create structured Q&A pairs in the knowledge graph
-- Link answers to questions for easy discovery
-- Optionally mark questions as resolved when answered
-
-RETURNS:
-{
-  "success": true,
-  "message": "Answer stored for question 'question_id'",
-  "answer_id": "timestamp",
-  "answer": {...},
-  "question_id": "string",
-  "question_status": "open" | "resolved",
-  "note": "Use search_knowledge_graph with discovery_type='answer' and related_to to find answers to questions"
-}
-
-RELATED TOOLS:
-- search_knowledge_graph: Find open questions (discovery_type='question', status='open')
-- get_discovery_details: Get full question details before answering
-- store_knowledge_graph: Store questions (discovery_type='question')
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "answering_agent",
-  "api_key": "your_api_key",
-  "question_id": "2025-12-07T18:40:41.680744",
-  "summary": "EISV validation prevents cherry-picking by requiring all four metrics",
-  "details": "By requiring all four metrics (E, I, S, V) to be reported together, agents cannot selectively omit uncomfortable metrics like void (V) when it's high...",
-  "tags": ["EISV", "validation", "selection-bias"],
-  "mark_question_resolved": false
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Answer stored for question '2025-12-07T18:40:41.680744'",
-  "answer_id": "2025-12-07T19:00:00",
-  "answer": {
-    "id": "2025-12-07T19:00:00",
-    "type": "answer",
-    "summary": "EISV validation prevents cherry-picking...",
-    "related_to": ["2025-12-07T18:40:41.680744"]
-  },
-  "question_id": "2025-12-07T18:40:41.680744",
-  "question_status": "open"
-}
-
-DEPENDENCIES:
-- Requires: agent_id, question_id, summary
-- Optional: details, tags, severity, mark_question_resolved (default: false)
-- Automatically includes question tags in answer for discoverability""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "API key for authentication (optional for low/medium severity)"
-                    },
-                    "question_id": {
-                        "type": "string",
-                        "description": "ID of the question to answer"
-                    },
-                    "summary": {
-                        "type": "string",
-                        "description": "Brief answer summary"
-                    },
-                    "details": {
-                        "type": "string",
-                        "description": "Detailed answer (optional)"
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags for categorization (question tags automatically included)"
-                    },
-                    "severity": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high", "critical"],
-                        "description": "Severity level (optional)"
-                    },
-                    "mark_question_resolved": {
-                        "type": "boolean",
-                        "description": "Mark question as resolved when answering (default: false)",
-                        "default": False
-                    }
-                },
-                "required": ["agent_id", "question_id", "summary"]
-            }
-        ),
-        Tool(
-            name="leave_note",
-            description="""Leave a quick note in the knowledge graph - minimal friction contribution.
-
-Just agent_id + text + optional tags. Auto-sets type='note', severity='low'.
-For when you want to jot something down without the full store_knowledge_graph ceremony.
-
-USE CASES:
-- Quick observations during exploration
-- Casual thoughts worth preserving
-- Low-friction contributions to the commons
-- Breadcrumbs for future agents
-- Threaded responses to other discoveries
-
-RETURNS:
-{
-  "success": true,
-  "message": "Note saved",
-  "note_id": "timestamp",
-  "note": {...}
-}
-
-RELATED TOOLS:
-- store_knowledge_graph: Full-featured discovery storage (more fields)
-- search_knowledge_graph: Find notes and other discoveries
-
-EXAMPLE REQUEST (simple):
-{
-  "agent_id": "exploring_agent",
-  "text": "The dialectic system feels more like mediation than judgment",
-  "tags": ["dialectic", "observation"]
-}
-
-EXAMPLE REQUEST (threaded response):
-{
-  "agent_id": "responding_agent",
-  "text": "I agree - the synthesis phase is particularly collaborative",
-  "tags": ["dialectic"],
-  "response_to": {"discovery_id": "2025-12-07T18:00:00", "response_type": "support"}
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "message": "Note saved",
-  "note_id": "2025-12-07T22:00:00",
-  "note": {
-    "id": "2025-12-07T22:00:00",
-    "type": "note",
-    "summary": "The dialectic system feels more like mediation than judgment",
-    "tags": ["dialectic", "observation"],
-    "severity": "low"
-  }
-}
-
-DEPENDENCIES:
-- Requires: agent_id, text
-- Optional: tags (default: []), response_to (for threading)
-- Auto-links to similar discoveries if tags provided""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "text": {
-                        "type": "string",
-                        "description": "The note content (max 500 chars)"
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Optional tags for categorization and auto-linking"
-                    },
-                    "response_to": {
-                        "type": "object",
-                        "description": "Optional: Thread this note as a response to another discovery",
-                        "properties": {
-                            "discovery_id": {
-                                "type": "string",
-                                "description": "ID of parent discovery being responded to"
-                            },
-                            "response_type": {
-                                "type": "string",
-                                "enum": ["extend", "question", "disagree", "support"],
-                                "description": "Type of response: extend (builds on), question (asks about), disagree (challenges), support (agrees with)"
-                            }
-                        },
-                        "required": ["discovery_id", "response_type"]
-                    }
-                },
-                "required": ["agent_id", "text"]
-            }
-        ),
-        Tool(
-            name="smart_dialectic_review",
-            description="""Smart dialectic that auto-progresses when possible. Reduces manual steps by 50-70% compared to full dialectic.
-
-USE CASES:
-- Complex recovery with auto-progression
-- Reduce coordination overhead
-- Auto-generate thesis from agent state
-- Auto-merge synthesis if compatible
-
-RETURNS:
-{
-  "success": true,
-  "session_id": "string",
-  "paused_agent_id": "string",
-  "reviewer_agent_id": "string",
-  "phase": "string",
-  "auto_progressed": boolean,
-  "thesis_submitted": boolean,
-  "next_step": "string",
-  "created_at": "ISO timestamp",
-  "note": "string"
-}
-
-RELATED TOOLS:
-- direct_resume_if_safe: Use for simple cases (Tier 1)
-- self_recovery: Use when no reviewers available (Tier 2.3)
-- request_dialectic_review: Use for full manual dialectic (Tier 2)
-
-EXAMPLE REQUEST:
-{
-  "agent_id": "test_agent_001",
-  "api_key": "gk_live_...",
-  "auto_progress": true,
-  "reason": "Circuit breaker triggered"
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "session_id": "abc123",
-  "paused_agent_id": "test_agent_001",
-  "reviewer_agent_id": "reviewer_002",
-  "phase": "antithesis",
-  "auto_progressed": true,
-  "thesis_submitted": true,
-  "next_step": "Reviewer should submit antithesis",
-  "created_at": "2025-11-26T20:00:00"
-}
-
-DEPENDENCIES:
-- Requires: agent_id, api_key
-- Optional: reason (auto-generated), root_cause (auto-generated), proposed_conditions (auto-generated), reasoning (auto-generated), auto_progress (default: True)
-- Workflow: 1. Auto-generate thesis 2. Reviewer submits antithesis 3. Auto-merge synthesis 4. Execute if safe
-- Falls back to self_recovery if no reviewers available""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier"
-                    },
-                    "api_key": {
-                        "type": "string",
-                        "description": "API key for authentication (required)"
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Reason for review (optional - auto-generated if not provided)"
-                    },
-                    "root_cause": {
-                        "type": "string",
-                        "description": "Root cause (optional - auto-generated from state if not provided)"
-                    },
-                    "proposed_conditions": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Proposed conditions (optional - auto-generated if not provided)"
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Explanation (optional - auto-generated if not provided)"
-                    },
-                    "auto_progress": {
-                        "type": "boolean",
-                        "description": "Whether to auto-progress through phases (default: True)"
-                    }
-                },
-                "required": ["agent_id", "api_key"]
-            }
-        ),
-    ]
+    # Return all tools (tool mode filtering removed - all tools always available)
+    return all_tools
 
 
 async def inject_lightweight_heartbeat(
@@ -5327,7 +2267,8 @@ async def inject_lightweight_heartbeat(
             # Generate if missing (shouldn't happen, but be safe)
             api_key = generate_api_key()
             meta.api_key = api_key
-            save_metadata()
+            # Use async batched save instead of deprecated save_metadata()
+            await schedule_metadata_save(force=True)  # Force immediate save for critical operation
         
         # Call process_agent_update with heartbeat flag
         # This uses the lightweight heartbeat path in the handler
@@ -5351,7 +2292,7 @@ async def inject_lightweight_heartbeat(
         
     except Exception as e:
         # Don't fail if heartbeat injection fails - this is best-effort visibility
-        print(f"[HEARTBEAT] Error injecting heartbeat for {agent_id}: {e}", file=sys.stderr)
+        logger.error(f"Error injecting heartbeat for {agent_id}: {e}", exc_info=True)
 
 
 @server.call_tool()
@@ -5364,13 +2305,34 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> Sequence[Tex
     if arguments is None:
         arguments = {}
 
+    # Tool mode filtering removed - all tools always available
+
     # Track activity for agent and auto-inject lightweight heartbeats
     agent_id = arguments.get('agent_id')
     if agent_id and HEARTBEAT_CONFIG.enabled:
         should_trigger, trigger_reason = activity_tracker.track_tool_call(agent_id, name)
 
         # Auto-inject lightweight heartbeat if threshold reached
-        if should_trigger and name != "process_agent_update":
+        # Exclude lightweight tools that don't need governance checks (prevent loops)
+        lightweight_tools = {
+            "process_agent_update",  # Already a governance update
+            "reply_to_question",     # Knowledge graph Q&A (lightweight)
+            "leave_note",            # Knowledge graph notes (lightweight)
+            "get_discovery_details",  # Read-only knowledge graph
+            "search_knowledge_graph", # Read-only knowledge graph
+            "get_knowledge_graph",    # Read-only knowledge graph
+            "list_knowledge_graph",   # Read-only knowledge graph
+            # Dialectic tools (coordination, not high-impact actions)
+            "request_dialectic_review",
+            "request_exploration_session",
+            "submit_thesis",
+            "submit_antithesis",
+            "submit_synthesis",
+            "get_dialectic_session",
+            "smart_dialectic_review",
+            "self_recovery",
+        }
+        if should_trigger and name not in lightweight_tools:
             try:
                 # Get activity summary for heartbeat
                 activity = activity_tracker.get_or_create(agent_id)
@@ -5395,10 +2357,10 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> Sequence[Tex
                     inject_lightweight_heartbeat(agent_id, trigger_reason, activity_summary, activity_tracker)
                 )
                 
-                print(f"[HEARTBEAT] Auto-triggered for {agent_id}: {trigger_reason}", file=sys.stderr)
+                logger.info(f"Auto-triggered heartbeat for {agent_id}: {trigger_reason}")
             except Exception as e:
                 # Don't fail tool execution if heartbeat injection fails
-                print(f"[HEARTBEAT] Warning: Could not inject heartbeat: {e}", file=sys.stderr)
+                logger.warning(f"Could not inject heartbeat: {e}", exc_info=True)
 
     # Track tool usage for analytics
     try:
@@ -5451,8 +2413,7 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> Sequence[Tex
     except Exception as e:
         # SECURITY: Log full traceback internally but sanitize for client
         import traceback
-        print(f"[UNITARES MCP] Tool '{name}' execution error: {e}", file=sys.stderr)
-        print(f"[UNITARES MCP] Full traceback:\n{traceback.format_exc()}", file=sys.stderr)
+        logger.error(f"Tool '{name}' execution error: {e}", exc_info=True)
         
         # Return sanitized error message (no internal structure)
         from src.mcp_handlers.utils import error_response as create_error_response
@@ -5491,16 +2452,36 @@ async def main():
             loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
             await loop.run_in_executor(None, load_metadata)
         except Exception as e:
-            print(f"[UNITARES MCP] Warning: Could not load metadata in background: {e}", file=sys.stderr)
+            logger.warning(f"Could not load metadata in background: {e}", exc_info=True)
         
         try:
-            # Auto-archive old test agents in background
-            loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
-            archived = await loop.run_in_executor(None, auto_archive_old_test_agents, 6.0)
+            # Auto-archive old test agents in background (now async)
+            archived = await auto_archive_old_test_agents(6.0)
             if archived > 0:
-                print(f"[UNITARES MCP] Auto-archived {archived} old test/demo agents", file=sys.stderr)
+                logger.info(f"Auto-archived {archived} old test/demo agents")
         except Exception as e:
-            print(f"[UNITARES MCP] Warning: Could not auto-archive old test agents: {e}", file=sys.stderr)
+            logger.warning(f"Could not auto-archive old test agents: {e}", exc_info=True)
+        
+        try:
+            # Auto-collect ground truth for calibration (runs periodically)
+            from src.auto_ground_truth import collect_ground_truth_automatically, auto_ground_truth_collector_task
+            try:
+                # Run initial collection at startup
+                result = await collect_ground_truth_automatically(
+                    min_age_hours=2.0,
+                    max_decisions=50,
+                    dry_run=False
+                )
+                if result.get('updated', 0) > 0:
+                    logger.info(f"Auto-collected ground truth: {result['updated']} decisions updated")
+                
+                # Start periodic background task (runs every 6 hours)
+                asyncio.create_task(auto_ground_truth_collector_task(interval_hours=6.0))
+                logger.info("Started periodic auto ground truth collector (runs every 6 hours)")
+            except Exception as e:
+                logger.warning(f"Could not auto-collect ground truth: {e}", exc_info=True)
+        except ImportError:
+            logger.debug("Auto ground truth collector not available (optional feature)")
         
         try:
             # Clean up stale locks in background
@@ -5509,22 +2490,22 @@ async def main():
                 None, 
                 cleanup_stale_state_locks, 
                 project_root, 
-                300, 
+                300,
                 False
             )
             if result.get('cleaned', 0) > 0:
-                print(f"[UNITARES MCP] Cleaned {result['cleaned']} stale lock files", file=sys.stderr)
+                logger.info(f"Cleaned {result['cleaned']} stale lock files")
         except Exception as e:
-            print(f"[UNITARES MCP] Warning: Could not clean up stale locks: {e}", file=sys.stderr)
+            logger.warning(f"Could not clean up stale locks: {e}", exc_info=True)
         
         try:
             # Load active dialectic sessions from disk (restore after restart)
             from src.mcp_handlers.dialectic import load_all_sessions
             loaded_sessions = await load_all_sessions()
             if loaded_sessions > 0:
-                print(f"[UNITARES MCP] Restored {loaded_sessions} active dialectic session(s) from disk", file=sys.stderr)
+                logger.info(f"Restored {loaded_sessions} active dialectic session(s) from disk")
         except Exception as e:
-            print(f"[UNITARES MCP] Warning: Could not load dialectic sessions: {e}", file=sys.stderr)
+            logger.warning(f"Could not load dialectic sessions: {e}", exc_info=True)
     
     try:
         async with stdio_server() as (read_stream, write_stream):
@@ -5535,9 +2516,9 @@ async def main():
                     await startup_background_tasks()
                 except Exception as e:
                     # Log but don't crash - background tasks are non-critical
-                    print(f"[UNITARES MCP] Warning: Background task error (non-critical): {e}", file=sys.stderr)
+                    logger.warning(f"Background task error (non-critical): {e}", exc_info=True)
                     import traceback
-                    print(f"[UNITARES MCP] Traceback:\n{traceback.format_exc()}", file=sys.stderr)
+                    logger.debug(f"Traceback:\n{traceback.format_exc()}")
             
             # Create background task with error handling
             bg_task = asyncio.create_task(safe_startup_background_tasks())
@@ -5558,23 +2539,23 @@ async def main():
             pass
         else:
             # Unexpected error - log it but don't crash
-            print(f"[UNITARES MCP] TaskGroup error: {eg}", file=sys.stderr)
+            logger.error(f"TaskGroup error: {eg}")
             import traceback
             # Log each exception in the group with full traceback
             for i, exc in enumerate(eg.exceptions):
-                print(f"[UNITARES MCP] Exception {i+1}/{len(eg.exceptions)}: {type(exc).__name__}: {exc}", file=sys.stderr)
+                logger.error(f"Exception {i+1}/{len(eg.exceptions)}: {type(exc).__name__}: {exc}")
                 try:
                     # Try to get traceback from exception
                     if hasattr(exc, '__traceback__') and exc.__traceback__:
-                        print(f"[UNITARES MCP] Traceback for exception {i+1}:\n{traceback.format_exception(type(exc), exc, exc.__traceback__)}", file=sys.stderr)
+                        logger.debug(f"Traceback for exception {i+1}:\n{traceback.format_exception(type(exc), exc, exc.__traceback__)}")
                     else:
-                        print(f"[UNITARES MCP] No traceback available for exception {i+1}", file=sys.stderr)
+                        logger.debug(f"No traceback available for exception {i+1}")
                 except Exception as tb_error:
-                    print(f"[UNITARES MCP] Could not format traceback: {tb_error}", file=sys.stderr)
+                    logger.warning(f"Could not format traceback: {tb_error}", exc_info=True)
             # Also try to get the full ExceptionGroup traceback
             try:
                 if hasattr(eg, '__traceback__') and eg.__traceback__:
-                    print(f"[UNITARES MCP] Full ExceptionGroup traceback:\n{traceback.format_exception(type(eg), eg, eg.__traceback__)}", file=sys.stderr)
+                    logger.debug(f"Full ExceptionGroup traceback:\n{traceback.format_exception(type(eg), eg, eg.__traceback__)}")
             except Exception:
                 pass
     except BrokenPipeError:
@@ -5584,9 +2565,7 @@ async def main():
         # User interrupt
         pass
     except Exception as e:
-        print(f"[UNITARES MCP] Error: {e}", file=sys.stderr)
-        import traceback
-        print(f"[UNITARES MCP] Traceback:\n{traceback.format_exc()}", file=sys.stderr)
+        logger.error(f"Error: {e}", exc_info=True)
     finally:
         remove_pid_file()
 

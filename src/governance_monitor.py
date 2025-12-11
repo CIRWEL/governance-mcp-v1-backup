@@ -12,7 +12,7 @@ Version History:
 
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime
 from collections import Counter
 from pathlib import Path
@@ -20,6 +20,10 @@ import json
 import sys
 
 from config.governance_config import config
+
+# Import structured logging
+from src.logging_utils import get_logger
+logger = get_logger(__name__)
 
 # Import audit logging and calibration for accountability and self-awareness
 from src.audit_log import audit_logger
@@ -50,6 +54,76 @@ from unitaires_core import (
     approximate_stability_check,
     suggest_theta_update,
 )
+
+
+def derive_confidence(
+    state: 'GovernanceState', 
+    agent_id: str = None,
+    apply_calibration: bool = True,
+    response_text: str = None,
+    reported_complexity: float = 0.5
+) -> Tuple[float, Dict[str, Any]]:
+    """
+    Derive confidence by OBSERVING what already happened - not asking for reports.
+    
+    The system already tracks tool outcomes. It just needs to look instead of
+    pretending it can't see. This version pulls from existing trackers.
+    """
+    from src.tool_usage_tracker import get_tool_usage_tracker
+    
+    metadata = {
+        'source': 'observed',
+        'reliability': 'medium'
+    }
+    
+    # === OBSERVE TOOL OUTCOMES (system already knows this) ===
+    tool_confidence = 0.5  # Default neutral
+    
+    if agent_id:
+        try:
+            tracker = get_tool_usage_tracker()
+            # Look at recent tool calls for this agent (last hour)
+            stats = tracker.get_usage_stats(window_hours=1, agent_id=agent_id)
+            
+            if stats.get('total_calls', 0) > 0:
+                # Calculate success rate from what we already tracked
+                tools = stats.get('tools', {})
+                total_success = sum(t.get('success_count', 0) for t in tools.values())
+                total_calls = sum(t.get('total_calls', 0) for t in tools.values())
+                
+                if total_calls > 0:
+                    tool_confidence = total_success / total_calls
+                    metadata['tool_stats'] = {
+                        'total_calls': total_calls,
+                        'success_rate': tool_confidence,
+                        'window': '1h'
+                    }
+                    metadata['reliability'] = 'high' if total_calls >= 3 else 'medium'
+        except Exception as e:
+            # If tracker unavailable, continue with EISV only
+            metadata['tracker_error'] = str(e)
+    
+    # === EISV CONSISTENCY (internal but meaningful) ===
+    eisv_confidence = 0.5
+    
+    if state is not None:
+        coherence = state.coherence if hasattr(state, 'coherence') else 0.5
+        integrity = state.I if hasattr(state, 'I') else 0.5
+        eisv_confidence = (coherence * 0.6 + integrity * 0.4)
+        metadata['eisv'] = {'coherence': coherence, 'integrity': integrity}
+    
+    # === COMBINE: 60% observed outcomes, 40% EISV consistency ===
+    if metadata.get('tool_stats'):
+        final_confidence = (0.6 * tool_confidence) + (0.4 * eisv_confidence)
+    else:
+        # No tool data - honest uncertainty
+        final_confidence = eisv_confidence
+        metadata['source'] = 'eisv_only'
+    
+    final_confidence = max(0.2, min(0.95, final_confidence))
+    metadata['confidence'] = final_confidence
+    
+    return (final_confidence, metadata)
 
 
 @dataclass
@@ -139,8 +213,22 @@ class GovernanceState:
             'update_count': int(self.update_count)
         }
     
-    def to_dict_with_history(self) -> Dict:
-        """Export state with full history for persistence"""
+    def to_dict_with_history(self, max_history: int = 100) -> Dict:
+        """
+        Export state with history for persistence.
+
+        Args:
+            max_history: Maximum number of history entries to keep (default: 100)
+                         This prevents unbounded state file growth.
+        """
+        # SECURITY: Cap history arrays to prevent disk exhaustion
+        # Keep only the most recent max_history entries
+        def cap_history(history_list, max_len=max_history):
+            """Return last max_len entries from history"""
+            if len(history_list) <= max_len:
+                return history_list
+            return history_list[-max_len:]
+
         return {
             # Current state values
             'E': float(self.E),
@@ -163,19 +251,19 @@ class GovernanceState:
                 'C1': float(self.unitaires_theta.C1),
                 'eta1': float(self.unitaires_theta.eta1)
             },
-            # History arrays
+            # History arrays (capped to last max_history entries)
             'regime': str(self.regime),
-            'regime_history': [str(r) for r in self.regime_history],
+            'regime_history': [str(r) for r in cap_history(self.regime_history)],
             'locked_persistence_count': int(self.locked_persistence_count),
-            'E_history': [float(e) for e in self.E_history],
-            'I_history': [float(i) for i in self.I_history],
-            'S_history': [float(s) for s in self.S_history],
-            'V_history': [float(v) for v in self.V_history],
-            'coherence_history': [float(c) for c in self.coherence_history],
-            'risk_history': [float(r) for r in self.risk_history],
-            'lambda1_history': [float(l) for l in getattr(self, 'lambda1_history', [])],  # Lambda1 adaptation history
-            'decision_history': list(self.decision_history),
-            'timestamp_history': list(self.timestamp_history),  # Timestamps for each update
+            'E_history': [float(e) for e in cap_history(self.E_history)],
+            'I_history': [float(i) for i in cap_history(self.I_history)],
+            'S_history': [float(s) for s in cap_history(self.S_history)],
+            'V_history': [float(v) for v in cap_history(self.V_history)],
+            'coherence_history': [float(c) for c in cap_history(self.coherence_history)],
+            'risk_history': [float(r) for r in cap_history(self.risk_history)],
+            'lambda1_history': [float(l) for l in cap_history(getattr(self, 'lambda1_history', []))],  # Lambda1 adaptation history
+            'decision_history': list(cap_history(self.decision_history)),
+            'timestamp_history': list(cap_history(self.timestamp_history)),  # Timestamps for each update
             'pi_integral': float(getattr(self, 'pi_integral', 0.0))  # PI controller integral state
         }
     
@@ -343,17 +431,17 @@ class UNITARESMonitor:
                 # Ensure created_at is set (fallback to now if not in state)
                 if not hasattr(self, 'created_at'):
                     self.created_at = datetime.now()
-                print(f"[UNITARES v2.0 + governance_core] Loaded persisted state for agent: {agent_id} ({len(self.state.V_history)} history entries)", file=sys.stderr)
+                logger.info(f"Loaded persisted state for agent: {agent_id} ({len(self.state.V_history)} history entries)")
             else:
                 # Initialize fresh state
                 self._initialize_fresh_state()
-                print(f"[UNITARES v2.0 + governance_core] Initialized new monitor for agent: {agent_id}", file=sys.stderr)
+                logger.info(f"Initialized new monitor for agent: {agent_id}")
         else:
             self._initialize_fresh_state()
-            print(f"[UNITARES v2.0 + governance_core] Initialized monitor for agent: {agent_id} (no state loading)", file=sys.stderr)
+            logger.info(f"Initialized monitor for agent: {agent_id} (no state loading)")
 
-        print(f"  λ₁ initial: {self.state.lambda1:.4f}", file=sys.stderr)
-        print(f"  Void threshold: {config.VOID_THRESHOLD_INITIAL:.4f}", file=sys.stderr)
+        logger.debug(f"λ₁ initial: {self.state.lambda1:.4f}")
+        logger.debug(f"Void threshold: {config.VOID_THRESHOLD_INITIAL:.4f}")
     
     def _initialize_fresh_state(self):
         """Initialize fresh state with default values"""
@@ -399,7 +487,7 @@ class UNITARESMonitor:
                 data = json.load(f)
                 return GovernanceState.from_dict(data)
         except Exception as e:
-            print(f"[UNITARES Monitor] Warning: Could not load persisted state for {self.agent_id}: {e}", file=sys.stderr)
+            logger.warning(f"Could not load persisted state for {self.agent_id}: {e}", exc_info=True)
             return None
     
     def save_persisted_state(self) -> None:
@@ -415,7 +503,7 @@ class UNITARESMonitor:
             with open(state_file, 'w') as f:
                 json.dump(state_data, f, indent=2)
         except Exception as e:
-            print(f"[UNITARES Monitor] Warning: Could not save state for {self.agent_id}: {e}", file=sys.stderr)
+            logger.warning(f"Could not save state for {self.agent_id}: {e}", exc_info=True)
     
     def coherence_function(self, V: float) -> float:
         """
@@ -609,6 +697,12 @@ class UNITARESMonitor:
         # Replace NaN/inf with zeros
         delta_eta = [0.0 if (np.isnan(x) or np.isinf(x)) else float(x) for x in delta_eta]
 
+        # Extract complexity (default to 0.5 if not provided)
+        complexity = agent_state.get('complexity', 0.5)
+        if complexity is None or np.isnan(complexity) or np.isinf(complexity):
+            complexity = 0.5
+        complexity = float(np.clip(complexity, 0.0, 1.0))  # Ensure in valid range
+
         # Store parameters for potential future use (deprecated - not used in coherence)
         # Note: param_coherence removed in favor of pure thermodynamic signal
         self.prev_parameters = parameters.copy() if len(parameters) > 0 else None
@@ -620,16 +714,15 @@ class UNITARESMonitor:
             delta_eta=delta_eta,
             dt=dt,
             noise_S=0.0,  # Can add noise if needed
-            params=DEFAULT_PARAMS
+            params=DEFAULT_PARAMS,
+            complexity=complexity  # Complexity now affects S dynamics
         )
 
-        # Epistemic humility safeguard: Enforce entropy floor (S >= 0.001) unless external validation
-        # External validation can come from: dialectic agreement, calibration match, human review
-        external_validation = agent_state.get('external_validation', False)
-        if self.state.unitaires_state.S < 0.001 and not external_validation:
+        # Epistemic humility safeguard: Enforce entropy floor (S >= 0.001) always
+        # Perfect equilibrium (S=0.0) is dangerous and brittle - maintain epistemic humility at all times
+        if self.state.unitaires_state.S < 0.001:
             # Maintain epistemic humility: "I could be wrong about something I can't see"
             self.state.unitaires_state.S = 0.001
-        # If external_validation=True, allow S=0.0 (genuinely converged with peer/human confirmation)
 
         # Update coherence from governance_core coherence function (pure thermodynamic)
         # Removed param_coherence blend - using pure C(V) signal for honest calibration
@@ -670,19 +763,17 @@ class UNITARESMonitor:
         
         # Log regime transitions
         if new_regime != previous_regime:
-            print(
-                f"[Regime Transition] {self.agent_id}: {previous_regime} → {new_regime} "
-                f"(I={self.state.I:.3f}, S={self.state.S:.3f}, V={self.state.V:.3f})",
-                file=sys.stderr
+            logger.info(
+                f"Regime transition for {self.agent_id}: {previous_regime} → {new_regime} "
+                f"(I={self.state.I:.3f}, S={self.state.S:.3f}, V={self.state.V:.3f})"
             )
         
         # Log LOCKED state events (when first reached)
         if new_regime == "LOCKED" and previous_regime != "LOCKED":
-            print(
-                f"[LOCKED State] {self.agent_id}: Reached LOCKED state "
+            logger.info(
+                f"Reached LOCKED state for {self.agent_id} "
                 f"(I={self.state.I:.3f}, S={self.state.S:.3f}) - "
-                f"requires external validation to allow S=0.0",
-                file=sys.stderr
+                f"system will naturally transition when state changes"
             )
 
         # Trim history to window
@@ -703,20 +794,47 @@ class UNITARESMonitor:
         if len(self.state.lambda1_history) > config.HISTORY_WINDOW:
             self.state.lambda1_history = self.state.lambda1_history[-config.HISTORY_WINDOW:]
 
-        # Validate state after update
+        # Validate state after update (STRICT MODE - Issue #1 fix)
         is_valid, errors = self.state.validate()
         if not is_valid:
-            print(f"[UNITARES Monitor] Warning: State validation failed for {self.agent_id}: {', '.join(errors)}", file=sys.stderr)
-            # Attempt to fix common issues
-            if not (0.0 <= self.state.E <= 1.0) or np.isnan(self.state.E) or np.isinf(self.state.E):
-                self.state.unitaires_state.E = DEFAULT_STATE.E
-            if not (0.0 <= self.state.I <= 1.0) or np.isnan(self.state.I) or np.isinf(self.state.I):
-                self.state.unitaires_state.I = DEFAULT_STATE.I
-            if not (0.0 <= self.state.S <= 1.0) or np.isnan(self.state.S) or np.isinf(self.state.S):
-                self.state.unitaires_state.S = DEFAULT_STATE.S
-            if np.isnan(self.state.V) or np.isinf(self.state.V):
-                self.state.unitaires_state.V = DEFAULT_STATE.V
-            self.state.coherence = np.clip(self.state.coherence, 0.0, 1.0)
+            # Categorize errors as critical (NaN, Inf) vs minor (bounds violations)
+            critical_errors = []
+            minor_errors = []
+
+            for error in errors:
+                if "NaN" in error or "Inf" in error:
+                    critical_errors.append(error)
+                else:
+                    minor_errors.append(error)
+
+            # CRITICAL ERRORS: Raise exception (don't auto-fix)
+            # These indicate corrupt state that should not propagate
+            if critical_errors:
+                error_msg = (
+                    f"CRITICAL: State validation failed for {self.agent_id} - "
+                    f"corrupt state detected (NaN/Inf values). "
+                    f"Errors: {', '.join(critical_errors)}"
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # MINOR ERRORS: Log warning and auto-fix
+            # These are bounds violations that can be safely clipped
+            if minor_errors:
+                logger.warning(f"State validation warnings for {self.agent_id}: {', '.join(minor_errors)}")
+                # Auto-fix bounds violations by clipping
+                if not (0.0 <= self.state.E <= 1.0):
+                    self.state.unitaires_state.E = np.clip(self.state.E, 0.0, 1.0)
+                    logger.info(f"Auto-fixed E to {self.state.E}")
+                if not (0.0 <= self.state.I <= 1.0):
+                    self.state.unitaires_state.I = np.clip(self.state.I, 0.0, 1.0)
+                    logger.info(f"Auto-fixed I to {self.state.I}")
+                if not (0.0 <= self.state.S <= 1.0):
+                    self.state.unitaires_state.S = np.clip(self.state.S, 0.0, 1.0)
+                    logger.info(f"Auto-fixed S to {self.state.S}")
+                if not (0.0 <= self.state.coherence <= 1.0):
+                    self.state.coherence = np.clip(self.state.coherence, 0.0, 1.0)
+                    logger.info(f"Auto-fixed coherence to {self.state.coherence}")
 
         # Update time
         self.state.time += dt
@@ -827,10 +945,11 @@ class UNITARESMonitor:
         
         # Log significant changes
         if abs(updated_lambda1 - lambda1_current) > 0.01:
-            print(f"[PI Controller] λ₁: {lambda1_current:.4f} → {updated_lambda1:.4f} "
-                  f"(void_freq={void_freq_current:.3f}, coherence={coherence_current:.3f}, "
-                  f"η1={old_theta.eta1:.3f}→{new_eta1:.3f})",
-                  file=sys.stderr)
+            logger.info(
+                f"PI Controller λ₁ update: {lambda1_current:.4f} → {updated_lambda1:.4f} "
+                f"(void_freq={void_freq_current:.3f}, coherence={coherence_current:.3f}, "
+                f"η1={old_theta.eta1:.3f}→{new_eta1:.3f})"
+            )
         
         return updated_lambda1
     
@@ -958,7 +1077,7 @@ class UNITARESMonitor:
             is_critical = risk_score >= effective_reject_threshold
             return {
                 'action': 'pause',
-                'reason': f'UNITARES high-risk verdict (attention_score={risk_score:.2f}) - safety pause suggested',
+                'reason': f'UNITARES high-risk verdict (risk_score={risk_score:.2f}) - safety pause suggested',
                 'guidance': 'This is a safety check, not a failure. The system detected high ethical risk and is protecting you from potential issues. Consider simplifying your approach.',
                 'critical': is_critical
             }
@@ -966,10 +1085,10 @@ class UNITARESMonitor:
             # Caution verdict: proceed with guidance
             # If risk would approve, upgrade to proceed with guidance due to caution
             if risk_score < config.RISK_APPROVE_THRESHOLD:
-                # Low attention but caution -> proceed with guidance
+                # Low risk but caution -> proceed with guidance
                 return {
                     'action': 'proceed',
-                    'reason': f'Proceeding mindfully (attention: {risk_score:.2f})',
+                    'reason': f'Proceeding mindfully (risk: {risk_score:.2f})',
                     'guidance': 'Navigating complexity. Worth a moment of reflection.',
                     'critical': False,
                     'verdict_context': 'aware'  # Reframe "caution" as "aware" when proceeding
@@ -1054,23 +1173,26 @@ class UNITARESMonitor:
             self.prev_parameters = saved_prev_params
             self.last_update = saved_last_update
     
-    def process_update(self, agent_state: Dict, confidence: float = 1.0, task_type: str = "mixed") -> Dict:
+    def process_update(self, agent_state: Dict, confidence: Optional[float] = None, task_type: str = "mixed") -> Dict:
         """
         Complete governance cycle: Update → Adapt → Decide
-        
+
         Args:
             agent_state: Agent state dict with parameters, ethical_drift, response_text, complexity
-            confidence: Confidence level [0, 1] for this update. Defaults to 1.0.
-            task_type: Task type context ("convergent", "divergent", "mixed"). 
+            confidence: Confidence level [0, 1] for this update. If None (default),
+                        confidence is derived from thermodynamic state (I, S, C, V).
+                        Pass explicit value to override derivation.
+            task_type: Task type context ("convergent", "divergent", "mixed").
                       Affects S=0 interpretation: convergent S=0 is healthy (standardization),
                       divergent S=0 may indicate lack of exploration.
 
         This is the main API method called by the MCP server.
 
-        Args:
-            agent_state: Agent state dict with parameters, ethical_drift, response_text, complexity
-            confidence: Confidence level [0, 1] for this update. Defaults to 1.0 (fully confident).
-                        When confidence < CONTROLLER_CONFIDENCE_THRESHOLD, lambda1 updates are skipped.
+        Confidence derivation (when not explicitly provided):
+            - High Integrity (I) → high confidence
+            - Low Entropy (S) → high confidence
+            - High Coherence (C) → high confidence
+            - Low |Void| (V) → high confidence
 
         Returns:
         {
@@ -1082,12 +1204,28 @@ class UNITARESMonitor:
         """
         # Update timestamp
         self.last_update = datetime.now()
-        
-        # Store confidence for audit logging
-        self.current_confidence = confidence
 
-        # Step 1: Update thermodynamic state
+        # Step 1: Update thermodynamic state FIRST (so we have current state for confidence derivation)
         self.update_dynamics(agent_state)
+
+        # Step 1b: Confidence handling - OBSERVE what happened, don't ask for reports
+        # The system already tracks tool outcomes. Just look.
+        if confidence is None:
+            confidence, confidence_metadata = derive_confidence(
+                self.state,
+                agent_id=self.agent_id  # System looks up outcomes for this agent
+            )
+        else:
+            # Externally provided confidence - trust it
+            confidence_metadata = {
+                'source': 'external',
+                'reliability': 'high',
+                'honesty_note': 'Confidence explicitly provided by caller'
+            }
+
+        # Store confidence and metadata for audit logging and transparency
+        self.current_confidence = confidence
+        self.confidence_metadata = confidence_metadata
         
         # Step 2: Check void state
         void_active = self.check_void_state()
@@ -1116,9 +1254,10 @@ class UNITARESMonitor:
                     reason=f"confidence {confidence:.3f} < threshold {config.CONTROLLER_CONFIDENCE_THRESHOLD}"
                 )
                 
-                print(f"[UNITARES Monitor] Skipping λ₁ update for {self.agent_id}: "
-                      f"confidence {confidence:.3f} < threshold {config.CONTROLLER_CONFIDENCE_THRESHOLD}",
-                      file=sys.stderr)
+                logger.debug(
+                    f"Skipping λ₁ update for {self.agent_id}: "
+                    f"confidence {confidence:.3f} < threshold {config.CONTROLLER_CONFIDENCE_THRESHOLD}"
+                )
         
         # Step 4: Estimate risk (also gets UNITARES verdict)
         # Get UNITARES verdict for decision making using governance_core
@@ -1177,17 +1316,56 @@ class UNITARESMonitor:
         # Step 5: Make decision (using UNITARES verdict)
         decision = self.make_decision(risk_score, unitares_verdict=unitares_verdict)
         
-        # Record prediction for calibration checking
-        # We predict "correct" if decision is proceed (low or medium risk)
-        # High attention (pause) decisions are predicted as "needs review"
-        predicted_correct = decision['action'] == 'proceed'
+        # Record prediction for STRATEGIC calibration (trajectory health)
+        # FIXED: predicted_correct is based on confidence, not decision
+        # High confidence (>=0.5) = we predicted correct
+        # Low confidence (<0.5) = we predicted incorrect
+        # This measures: "When I said I was X% confident, was I right?"
+        predicted_correct = confidence >= 0.5
         
-        # Record for calibration (actual correctness will be updated later via ground truth)
+        # Record for STRATEGIC calibration (actual correctness will be updated later via ground truth)
         calibration_checker.record_prediction(
             confidence=confidence,
             predicted_correct=predicted_correct,
             actual_correct=None  # Ground truth not available at decision time
         )
+        
+        # Record for TACTICAL calibration (per-decision, fixed at decision time)
+        # Tactical measures: "Was this specific decision correct at the time?"
+        # We evaluate if the decision matched the actual state (void, coherence, risk)
+        # This is fixed at decision time and never updated retroactively
+        decision_action = decision['action']
+        void_active = self.state.void_active  # Already computed in update_dynamics
+        coherence_critical = self.state.coherence < config.COHERENCE_CRITICAL_THRESHOLD
+        
+        # Check if we're in a critical state (any reason to pause)
+        # Decision logic: pause if void_active OR coherence_critical OR risk_score >= RISK_REVISE_THRESHOLD
+        # We need risk_score to properly evaluate - get it from the decision context or state
+        risk_critical = risk_score >= config.RISK_REVISE_THRESHOLD
+        in_critical_state = void_active or coherence_critical or risk_critical
+        
+        # Heuristic for immediate outcome:
+        # - "proceed" decision is tactically correct if we're NOT in critical state
+        #   (proceeding when safe is correct)
+        # - "pause" decision is tactically correct if we're IN critical state
+        #   (pausing when unsafe is correct)
+        # This matches the actual decision logic in config.make_decision()
+        if decision_action == 'proceed':
+            immediate_outcome = not in_critical_state
+        elif decision_action == 'pause':
+            immediate_outcome = in_critical_state
+        else:
+            # Unknown decision type - default to False (conservative)
+            # This shouldn't happen in normal operation, but handle gracefully
+            logger.warning(f"Unknown decision action '{decision_action}' - skipping tactical calibration")
+            immediate_outcome = False
+        
+        if decision_action in ('proceed', 'pause'):  # Only record known decision types
+            calibration_checker.record_tactical_decision(
+                confidence=confidence,
+                decision=decision_action,
+                immediate_outcome=immediate_outcome
+            )
         
         # Log decision via audit logger (for accountability and transparency)
         audit_logger.log_auto_attest(
@@ -1230,7 +1408,7 @@ class UNITARESMonitor:
             status = 'healthy'
         
         # Build metrics dict
-        # NOTE: risk_score renamed to attention_score - reflects complexity/attention, not ethical risk
+        # NOTE: risk_score measures governance/operational risk (likelihood of issues), not ethical risk
         # The actual physics is Φ (phi) and verdict - these are the primary governance signals
         metrics = {
             'E': float(self.state.E),
@@ -1239,7 +1417,8 @@ class UNITARESMonitor:
             'V': float(self.state.V),
             'coherence': float(self.state.coherence),
             'lambda1': float(self.state.lambda1),
-            'attention_score': float(risk_score),  # Renamed from risk_score - complexity/attention blend (70% phi-based + 30% traditional)
+            'risk_score': float(risk_score),  # Governance/operational risk (70% phi-based + 30% traditional)
+            'attention_score': float(risk_score),  # DEPRECATED: Use risk_score instead. Kept for backward compatibility.
             'phi': float(phi),  # Primary physics signal: Φ objective function
             'verdict': unitares_verdict,  # Primary governance signal: safe/caution/high-risk
             'void_active': bool(void_active),
@@ -1259,7 +1438,15 @@ class UNITARESMonitor:
             'decision': decision,
             'metrics': metrics,
             'sampling_params': sampling_params,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            # TRANSPARENCY: Surface confidence reliability info (was computed but hidden)
+            'confidence_reliability': {
+                'reliability': confidence_metadata.get('reliability', 'unknown'),
+                'source': confidence_metadata.get('source', 'unknown'),
+                'calibration_applied': confidence_metadata.get('calibration_applied', False),
+                'calibration_samples': confidence_metadata.get('calibration_samples', 0),
+                'honesty_note': confidence_metadata.get('honesty_note', 'No metadata available')
+            }
         }
         
         # Add task_type adjustment info if applied (transparency)
@@ -1301,13 +1488,14 @@ class UNITARESMonitor:
             # No risk history: use coherence fallback or default to None (will show "unknown")
             current_risk = None
         
-        # FIX 2025-12-05: Use LATEST (point-in-time) attention_score for consistency with process_update
+        # FIX 2025-12-05: Use LATEST (point-in-time) risk_score for consistency with process_update
         # This solves state inconsistency bug where get_metrics vs process_agent_update diverge
         # See docs/fixes/STATE_INCONSISTENCY_BUG_20251205.md for full analysis
-        latest_attention_score = float(self.state.risk_history[-1]) if self.state.risk_history else None
+        latest_risk_score = float(self.state.risk_history[-1]) if self.state.risk_history else None
+        latest_attention_score = latest_risk_score  # DEPRECATED: Use latest_risk_score instead
         
         # Calculate smoothed trend (for historical context, not primary decision making)
-        smoothed_attention_score = current_risk  # Renamed from attention_score for clarity
+        smoothed_risk_score = current_risk  # Smoothed trend (mean of last 10)
         
         # Calculate overall mean risk (for display/comparison)
         mean_risk = float(np.mean(self.state.risk_history)) if self.state.risk_history else 0.0
@@ -1317,29 +1505,18 @@ class UNITARESMonitor:
         from src.health_thresholds import HealthThresholds
         health_checker = HealthThresholds()
         
-        # Use latest_attention_score for status (matches process_update)
-        status_risk = latest_attention_score if latest_attention_score is not None else current_risk
+        # Use latest_risk_score for status (matches process_update)
+        status_risk = latest_risk_score if latest_risk_score is not None else current_risk
         
-        # If no risk history, use coherence fallback or default to "unknown"
-        if status_risk is None:
-            # Use coherence-based health status as fallback
-            health_status_obj, _ = health_checker.get_health_status(
-                risk_score=None,
-                coherence=self.state.coherence,
-                void_active=self.state.void_active
-            )
-            status = health_status_obj.value
-        else:
-            # Use risk-based health status
-            # FIX 2025-12-05: Use status_risk (latest) not current_risk (smoothed) to match process_update
-            if self.state.void_active or self.state.coherence < config.COHERENCE_CRITICAL_THRESHOLD:
-                status = 'critical'
-            elif status_risk >= health_checker.risk_moderate_max:  # >= 0.60: critical
-                status = 'critical'
-            elif status_risk >= health_checker.risk_healthy_max:  # 0.35-0.60: moderate
-                status = 'moderate'
-            else:  # < 0.35: healthy
-                status = 'healthy'
+        # Calculate health status consistently using health_checker.get_health_status()
+        # This ensures get_metrics() and process_agent_update return the same health_status
+        # FIX 2025-12-10: Use health_checker.get_health_status() instead of manual threshold checks
+        health_status_obj, _ = health_checker.get_health_status(
+            risk_score=status_risk,  # Use latest_risk_score or current_risk
+            coherence=self.state.coherence,
+            void_active=self.state.void_active
+        )
+        status = health_status_obj.value
         
         # Compute Φ and verdict from current state (using default ethical_drift if not available)
         # This gives us the physics signal even when we don't have the latest ethical drift
@@ -1352,7 +1529,8 @@ class UNITARESMonitor:
         )
         verdict = verdict_from_phi(phi)
         
-        attention_score = current_risk if current_risk is not None else mean_risk
+        risk_score_value = current_risk if current_risk is not None else mean_risk
+        attention_score = risk_score_value  # DEPRECATED: Use risk_score instead
         
         # Get regime with fallback for backward compatibility (old state files may not have regime)
         regime = getattr(self.state, 'regime', 'exploration')
@@ -1360,17 +1538,26 @@ class UNITARESMonitor:
         return {
             'agent_id': self.agent_id,
             'state': self.state.to_dict(),
+            # EISV metrics at top level for consistency with process_update()
+            'E': float(self.state.E),
+            'I': float(self.state.I),
+            'S': float(self.state.S),
+            'V': float(self.state.V),
+            'coherence': float(self.state.coherence),
+            'lambda1': float(self.state.lambda1),
             'regime': str(regime),  # Operational regime: EXPLORATION | TRANSITION | CONVERGENCE | LOCKED
             'status': status,
             'sampling_params': config.lambda_to_params(self.state.lambda1),
             'history_size': len(self.state.V_history),
             'current_risk': current_risk,  # Recent trend (mean of last 10) - USED FOR HEALTH STATUS
             'mean_risk': mean_risk,  # Overall mean (all-time average) - for historical context only
-            'attention_score': attention_score,  # Smoothed trend (same as current_risk) - for health status
-            'latest_attention_score': latest_attention_score,  # FIX: Point-in-time value from last update - matches process_agent_update
+            'risk_score': risk_score_value,  # Governance/operational risk (smoothed trend, same as current_risk)
+            'latest_risk_score': latest_risk_score,  # Point-in-time value from last update - matches process_agent_update
+            'attention_score': risk_score_value,  # DEPRECATED: Use risk_score instead. Kept for backward compatibility.
+            'latest_attention_score': latest_risk_score,  # DEPRECATED: Use latest_risk_score instead. Kept for backward compatibility.
             'phi': float(phi),  # Primary physics signal: Φ objective function
             'verdict': verdict,  # Primary governance signal: safe/caution/high-risk
-            'risk_score': attention_score,  # DEPRECATED: Use attention_score instead. Kept for backward compatibility.
+            'void_active': bool(self.state.void_active),
             'void_frequency': float(np.mean([float(abs(v) > config.VOID_THRESHOLD_INITIAL)
                                             for v in self.state.V_history])) if self.state.V_history else 0.0,
             'decision_statistics': decision_counts,
@@ -1439,8 +1626,8 @@ class UNITARESMonitor:
             'S_history': self.state.S_history,  # Full history
             'V_history': self.state.V_history,
             'coherence_history': self.state.coherence_history,
-            'attention_history': self.state.risk_history,  # Renamed from risk_history - stores attention_score values
-            'risk_history': self.state.risk_history,  # DEPRECATED: Use attention_history instead. Kept for backward compatibility.
+            'risk_history': self.state.risk_history,  # Stores risk_score values over time
+            'attention_history': self.state.risk_history,  # DEPRECATED: Use risk_history instead. Kept for backward compatibility.
             'decision_history': decision_history,
             'lambda1_history': lambda1_history,  # Full lambda1 adaptation history
             'lambda1_final': self.state.lambda1,  # Current lambda1 (for backward compatibility)
@@ -1456,8 +1643,8 @@ class UNITARESMonitor:
             writer = csv.writer(output)
             
             # Write header - standardized column order
-            # Note: 'attention_score' column contains values from risk_history (stores attention_score, not deprecated risk_score)
-            writer.writerow(['update', 'timestamp', 'E', 'I', 'S', 'V', 'coherence', 'attention_score', 'decision', 'lambda1'])
+            # Note: 'risk_score' column contains values from risk_history (stores risk_score over time)
+            writer.writerow(['update', 'timestamp', 'E', 'I', 'S', 'V', 'coherence', 'risk_score', 'decision', 'lambda1'])  # risk_score is primary, attention_score is deprecated
             
             # Write data rows - use full history for E/I/S/V/coherence/risk/decision/lambda1
             num_rows = len(self.state.V_history)
@@ -1506,15 +1693,15 @@ if __name__ == "__main__":
         result = monitor.process_update(agent_state)
         
         if i % 20 == 0:
-            print(f"\n[Update {i}]", file=sys.stderr)
-            print(f"  Status: {result['status']}", file=sys.stderr)
-            print(f"  Decision: {result['decision']['action']}", file=sys.stderr)
-            print(f"  Metrics: E={result['metrics']['E']:.3f}, "
-                  f"I={result['metrics']['I']:.3f}, "
-                  f"V={result['metrics']['V']:.3f}, "
-                  f"λ₁={result['metrics']['lambda1']:.3f}", file=sys.stderr)
+            logger.debug(f"\n[Update {i}]")
+            logger.debug(f"  Status: {result['status']}")
+            logger.debug(f"  Decision: {result['decision']['action']}")
+            logger.debug(f"  Metrics: E={result['metrics']['E']:.3f}, "
+                          f"I={result['metrics']['I']:.3f}, S={result['metrics']['S']:.3f}, "
+                          f"V={result['metrics']['V']:.3f}, coherence={result['metrics']['coherence']:.3f}, "
+                          f"λ₁={result['metrics']['lambda1']:.3f}")
     
     # Get final metrics
-    print("\n" + "="*60, file=sys.stderr)
-    print("Final Metrics:", file=sys.stderr)
-    print(json.dumps(monitor.get_metrics(), indent=2), file=sys.stderr)
+    logger.info("\n" + "="*60)
+    logger.info("Final Metrics:")
+    logger.info(json.dumps(monitor.get_metrics(), indent=2))

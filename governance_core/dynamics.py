@@ -10,7 +10,7 @@ for all dynamics computations.
 Mathematical Framework:
     dE/dt = α(I - E) - βE·S + γE·‖Δη‖²
     dI/dt = -k·S + βI·C(V,Θ) - γI·I·(1-I)
-    dS/dt = -μ·S + λ₁(Θ)·‖Δη‖² - λ₂(Θ)·C(V,Θ) + noise
+    dS/dt = -μ·S + λ₁(Θ)·‖Δη‖² - λ₂(Θ)·C(V,Θ) + β_complexity·C + noise
     dV/dt = κ(E - I) - δ·V
 
 where:
@@ -20,6 +20,7 @@ where:
     V: Void integral (E-I imbalance, like free energy) [-2,2]
     C(V,Θ): Coherence function
     ‖Δη‖: Ethical drift norm
+    C: Task complexity [0,1] - increases entropy S
 """
 
 from __future__ import annotations
@@ -70,6 +71,7 @@ def compute_dynamics(
     params: DynamicsParams,
     dt: float = 0.1,
     noise_S: float = 0.0,
+    complexity: float = 0.5,
 ) -> State:
     """
     Compute one time step of UNITARES Phase-3 dynamics.
@@ -85,6 +87,7 @@ def compute_dynamics(
         params: Dynamics parameters (alpha, beta, etc.)
         dt: Time step for integration
         noise_S: Optional noise term for S dynamics
+        complexity: Task complexity [0, 1] - increases entropy S (default: 0.5)
 
     Returns:
         New state after dt time evolution
@@ -102,6 +105,10 @@ def compute_dynamics(
         - Coherence is computed via the coherence module
         - Lambda functions λ₁, λ₂ are Theta-dependent
     """
+    # SECURITY: Clip complexity to valid range [0,1] as defense-in-depth
+    # Even if validation fails upstream, dynamics equations remain stable
+    complexity = max(0.0, min(1.0, complexity))
+
     # Compute derived quantities
     d_eta = drift_norm(delta_eta)
     d_eta_sq = d_eta * d_eta
@@ -131,11 +138,12 @@ def compute_dynamics(
         - params.gamma_I * I * (1 - I)   # Logistic self-regulation
     )
 
-    # S dynamics: decay, drift drive, coherence reduction, noise
+    # S dynamics: decay, drift drive, coherence reduction, complexity drive, noise
     dS_dt = (
         -params.mu * S                   # Natural decay
         + lam1 * d_eta_sq                # Drift increases uncertainty
         - lam2 * C                       # Coherence reduces uncertainty
+        + params.beta_complexity * complexity  # Complexity increases uncertainty
         + noise_S                        # Optional noise term
     )
 
@@ -161,6 +169,7 @@ def step_state(
     dt: float,
     noise_S: float = 0.0,
     params: Optional[DynamicsParams] = None,
+    complexity: float = 0.5,
 ) -> State:
     """
     Convenience wrapper for compute_dynamics with default params.
@@ -175,6 +184,7 @@ def step_state(
         dt: Time step
         noise_S: Optional noise for S
         params: Optional parameters (uses DEFAULT_PARAMS if None)
+        complexity: Task complexity [0, 1] (default: 0.5)
 
     Returns:
         New state after dt
@@ -191,4 +201,5 @@ def step_state(
         params=params,
         dt=dt,
         noise_S=noise_S,
+        complexity=complexity,
     )

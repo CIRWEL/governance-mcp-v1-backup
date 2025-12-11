@@ -13,7 +13,7 @@ import sys
 import asyncio
 from .utils import success_response, error_response, require_agent_id, _make_json_serializable
 from .decorators import mcp_tool
-from .validators import validate_complexity, validate_confidence, validate_ethical_drift
+from .validators import validate_complexity, validate_confidence, validate_ethical_drift, validate_response_text
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -28,12 +28,9 @@ except ImportError:
 
 from pathlib import Path
 
-# Get mcp_server_std module
-if 'src.mcp_server_std' in sys.modules:
-    mcp_server = sys.modules['src.mcp_server_std']
-else:
-    # Import if not already loaded
-    import src.mcp_server_std as mcp_server
+# Get mcp_server_std module (using shared utility)
+from .shared import get_mcp_server
+mcp_server = get_mcp_server()
 
 from src.governance_monitor import UNITARESMonitor
 from datetime import datetime
@@ -122,11 +119,32 @@ def _assess_thermodynamic_significance(
 
 
 @mcp_tool("get_governance_metrics", timeout=10.0)
-async def handle_get_governance_metrics(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequence[TextContent]:
     """Get current governance state and metrics for an agent without updating state"""
     agent_id, error = require_agent_id(arguments)
     if error:
         return [error]  # Wrap in list for Sequence[TextContent]
+
+    # STRICT MODE: Require agent to exist (no auto-creation)
+    # Check if agent exists in metadata before creating monitor
+    from src.mcp_server_std import agent_metadata
+    if agent_id not in agent_metadata:
+        return [error_response(
+            f"Agent '{agent_id}' not found",
+            details={
+                "error_type": "agent_not_found",
+                "agent_id": agent_id,
+                "note": "Agent must be registered before querying metrics"
+            },
+            recovery={
+                "action": "Register agent first using process_agent_update",
+                "workflow": [
+                    "1. Create agent with process_agent_update (logs first activity)",
+                    "2. Then query metrics with get_governance_metrics",
+                    "3. Or use get_agent_api_key to explicitly register"
+                ]
+            }
+        )]
 
     # Load monitor state from disk if not in memory (allows querying agents without recent updates)
     monitor = mcp_server.get_or_create_monitor(agent_id)
@@ -135,12 +153,51 @@ async def handle_get_governance_metrics(arguments: Dict[str, Any]) -> Sequence[T
 
     # Add EISV labels for API documentation
     metrics['eisv_labels'] = UNITARESMonitor.get_eisv_labels()
+    
+    # Standardize metrics reporting with agent_id and context
+    from src.mcp_handlers.utils import format_metrics_report
+    standardized_metrics = format_metrics_report(
+        metrics=metrics,
+        agent_id=agent_id,
+        include_timestamp=True,
+        include_context=True
+    )
+    
+    # Add calibration feedback (similar to process_agent_update)
+    calibration_feedback = {}
+    
+    # Complexity calibration: Show derived complexity (if available from recent updates)
+    try:
+        meta = mcp_server.agent_metadata.get(agent_id)
+        if meta:
+            # Get last reported complexity from metadata (if stored)
+            # Note: This is approximate - actual reported complexity is in process_agent_update
+            # But we can show derived complexity vs system expectations
+            derived_complexity = metrics.get('complexity', None)
+            if derived_complexity is not None:
+                # System-derived complexity from state
+                calibration_feedback['complexity'] = {
+                    'derived': derived_complexity,
+                    'message': f"System-derived complexity: {derived_complexity:.2f} (based on current state)"
+                }
+    except Exception as e:
+        logger.debug(f"Could not add complexity calibration feedback: {e}")
+    
+    # Confidence calibration: Show system-wide calibration status
+    # Use centralized helper to avoid duplication
+    from src.mcp_handlers.utils import get_calibration_feedback
+    confidence_feedback = get_calibration_feedback(include_complexity=False)
+    if confidence_feedback:
+        calibration_feedback.update(confidence_feedback)
+    
+    if calibration_feedback:
+        standardized_metrics['calibration_feedback'] = calibration_feedback
 
-    return success_response(metrics)
+    return success_response(standardized_metrics)
 
 
 @mcp_tool("simulate_update", timeout=30.0)
-async def handle_simulate_update(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextContent]:
     """Handle simulate_update tool - dry-run governance cycle without persisting state"""
     agent_id, error = require_agent_id(arguments)
     if error:
@@ -156,11 +213,14 @@ async def handle_simulate_update(arguments: Dict[str, Any]) -> Sequence[TextCont
         return [error]
     complexity = complexity or 0.5  # Default if None
     
-    reported_confidence = arguments.get("confidence", 1.0)
-    confidence, error = validate_confidence(reported_confidence)
-    if error:
-        return [error]
-    confidence = confidence or 1.0  # Default if None
+    # Confidence: If not provided (None), let governance_monitor derive from state
+    reported_confidence = arguments.get("confidence")
+    confidence = None  # Default: derive from thermodynamic state
+    if reported_confidence is not None:
+        confidence, error = validate_confidence(reported_confidence)
+        if error:
+            return [error]
+        # confidence stays as validated value
     
     ethical_drift_raw = arguments.get("ethical_drift", [0.0, 0.0, 0.0])
     ethical_drift, error = validate_ethical_drift(ethical_drift_raw)
@@ -187,7 +247,7 @@ async def handle_simulate_update(arguments: Dict[str, Any]) -> Sequence[TextCont
 
 
 @mcp_tool("process_agent_update", timeout=60.0)
-async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[TextContent]:
     """Handle process_agent_update tool - complex handler with authentication and state management
     
     Share your work and get supportive feedback. This is your companion tool for checking in 
@@ -258,7 +318,17 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
     
     # Get or ensure API key exists
     api_key = arguments.get("api_key")
+    api_key_auto_retrieved = False
     if not is_new_agent:
+        # AUTO API KEY RETRIEVAL: If agent has stored key and none provided, use it
+        # This must happen BEFORE require_agent_auth to avoid false rejections
+        meta = mcp_server.agent_metadata[agent_id]
+        if not api_key and meta.api_key:
+            api_key = meta.api_key
+            arguments["api_key"] = api_key  # Inject for auth check
+            api_key_auto_retrieved = True
+            logger.debug(f"Auto-retrieved API key for agent '{agent_id}'")
+        
         # Existing agent - require authentication (run in executor to avoid blocking)
         # Reuse loop from line 187 (avoid redundant get_running_loop() call)
         auth_valid, auth_error = await loop.run_in_executor(
@@ -272,13 +342,10 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
             return [auth_error] if auth_error else [error_response("Authentication failed")]
         # Lazy migration: if agent has no key, generate one on first update
         # Note: agent_metadata dict access is fast (no I/O), but generate_api_key might block
-        meta = mcp_server.agent_metadata[agent_id]
         if meta.api_key is None:
             meta.api_key = await loop.run_in_executor(None, mcp_server.generate_api_key)
             key_was_generated = True
             logger.info(f"Generated API key for existing agent '{agent_id}' (migration)")
-        # Use metadata key if not provided in arguments
-        if not api_key:
             api_key = meta.api_key
     else:
         # New agent - will generate key in get_or_create_metadata
@@ -289,65 +356,192 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
     # Get metadata once for reuse throughout function
     meta = mcp_server.agent_metadata.get(agent_id) if agent_id in mcp_server.agent_metadata else None
     
+    # Track auto-resume for inclusion in response
+    auto_resume_info = None
+    
     if meta:
         if meta.status == "archived":
             # Auto-resume: Any engagement resumes archived agents
+            previous_archived_at = meta.archived_at
+            
+            # Calculate days since archive for context
+            days_since_archive = None
+            if previous_archived_at:
+                try:
+                    archived_dt = datetime.fromisoformat(previous_archived_at.replace('Z', '+00:00') if 'Z' in previous_archived_at else previous_archived_at)
+                    days_since_archive = (datetime.now(archived_dt.tzinfo) - archived_dt).total_seconds() / 86400 if archived_dt.tzinfo else (datetime.now() - archived_dt.replace(tzinfo=None)).total_seconds() / 86400
+                except (ValueError, TypeError, AttributeError):
+                    pass
+            
             meta.status = "active"
             meta.archived_at = None
             meta.add_lifecycle_event("resumed", "Auto-resumed on engagement")
-            # Save metadata in executor to avoid blocking
-            await loop.run_in_executor(None, mcp_server.save_metadata)
+            
+            # Audit log the auto-resume event (Priority 1)
+            try:
+                from src.audit_log import audit_logger
+                audit_logger.log_auto_resume(
+                    agent_id=agent_id,
+                    previous_status="archived",
+                    trigger="process_agent_update",
+                    archived_at=previous_archived_at,
+                    details={
+                        "days_since_archive": round(days_since_archive, 2) if days_since_archive is not None else None,
+                        "total_updates": meta.total_updates
+                    }
+                )
+            except Exception as e:
+                # Don't fail auto-resume if audit logging fails
+                logger.warning(f"Could not log auto-resume audit event: {e}", exc_info=True)
+            
+            # Save metadata using async batched save instead of deprecated save_metadata()
+            await mcp_server.schedule_metadata_save(force=False)
+            
+            # Store auto-resume info for inclusion in response (Priority 2)
+            auto_resume_info = {
+                "auto_resumed": True,
+                "message": f"Agent '{agent_id}' was automatically resumed from archived status.",
+                "previous_status": "archived",
+                "days_since_archive": round(days_since_archive, 2) if days_since_archive is not None else None,
+                "note": "Archived agents automatically resume when they engage with the system."
+            }
+            # Continue with normal processing - we'll include this in the response
         elif meta.status == "paused":
-            # Paused agents still need explicit resume
+            # Paused agents still need explicit resume (Priority 2: Improved error message)
             return [error_response(
-                f"Agent '{agent_id}' is paused. Resume it first before processing updates."
+                f"Agent '{agent_id}' is paused. Resume it first before processing updates.",
+                recovery={
+                    "action": "Use recovery tools to resume the agent",
+                    "related_tools": ["direct_resume_if_safe", "smart_dialectic_review", "request_dialectic_review", "get_governance_metrics"],
+                    "workflow": "1. Check agent metrics with get_governance_metrics 2. Use direct_resume_if_safe if state is safe (coherence > 0.40, risk_score < 0.60) 3. Use smart_dialectic_review or request_dialectic_review for complex recovery"
+                },
+                context={
+                    "agent_id": agent_id,
+                    "status": "paused",
+                    "reason": "Circuit breaker triggered - governance threshold exceeded",
+                    "note": "Paused agents require explicit recovery. Archived agents auto-resume on engagement."
+                }
             )]
         elif meta.status == "deleted":
-            return [error_response(f"Agent '{agent_id}' is deleted and cannot be used.")]
+            return [error_response(
+                f"Agent '{agent_id}' is deleted and cannot be used.",
+                recovery={
+                    "action": "Cannot recover deleted agents",
+                    "related_tools": ["list_agents"],
+                    "workflow": "Deleted agents are permanently removed. Use list_agents to see available agents."
+                },
+                context={
+                    "agent_id": agent_id,
+                    "status": "deleted",
+                    "note": "Deleted agents cannot be recovered. Use archive_agent instead of delete_agent to preserve agent state."
+                }
+            )]
 
-    # VALIDATION: Derive/validate self-reported complexity and confidence
-    # Agents can report these, but we validate against behavior where possible
+    # VALIDATION: Validate ALL parameters BEFORE acquiring lock (fail fast)
+    # This prevents holding the lock while validation fails
+
+    # Validate response_text (SECURITY: prevent ReDoS, memory exhaustion)
+    response_text_raw = arguments.get("response_text", "")
+    response_text, error = validate_response_text(response_text_raw, max_length=50000)
+    if error:
+        return [error]
+
     # Validate complexity and confidence parameters
     reported_complexity = arguments.get("complexity", 0.5)
-    reported_confidence = arguments.get("confidence", 1.0)
-    
+    reported_confidence = arguments.get("confidence")  # None if not provided (triggers thermodynamic derivation)
+
     complexity, error = validate_complexity(reported_complexity)
     if error:
         return [error]
     complexity = complexity or 0.5  # Default if None
-    
-    confidence, error = validate_confidence(reported_confidence)
+
+    # Confidence: If not provided (None), let governance_monitor derive from state
+    # This addresses calibration overconfidence issue (was hardcoded 1.0)
+    confidence = None  # Default: derive from thermodynamic state
+    if reported_confidence is not None:
+        confidence, error = validate_confidence(reported_confidence)
+        if error:
+            return [error]
+        # confidence stays as validated value (agent explicitly provided it)
+
+    # Validate ethical_drift parameter (MOVED BEFORE LOCK)
+    ethical_drift_raw = arguments.get("ethical_drift", [0.0, 0.0, 0.0])
+    ethical_drift, error = validate_ethical_drift(ethical_drift_raw)
     if error:
         return [error]
-    confidence = confidence or 1.0  # Default if None
-    
+    ethical_drift = ethical_drift or [0.0, 0.0, 0.0]  # Default if None
+
+    # Validate task_type parameter (MOVED BEFORE LOCK)
+    from .validators import validate_task_type
+    task_type = arguments.get("task_type", "mixed")
+    validated_task_type, error = validate_task_type(task_type)
+    if error:
+        # Invalid task_type - default to mixed and log warning (don't fail, just warn)
+        logger.warning(f"Invalid task_type '{task_type}' for agent '{agent_id}', defaulting to 'mixed'")
+        task_type = "mixed"
+    else:
+        task_type = validated_task_type
+
     # Note: Complexity derivation happens in estimate_risk() via GovernanceConfig.derive_complexity()
     # which analyzes response_text content, coherence trends, and validates against self-reported values.
     # The reported complexity here is validated/clamped, but final complexity is derived from behavior.
-    
+
     # Note: Zombie cleanup disabled - adds latency, not critical per-request
     # Cleanup happens in background tasks instead
 
     # Acquire lock for agent state update (prevents race conditions)
     # Use async lock to avoid blocking event loop (fixes Claude Desktop hangs)
+    # IMPORTANT: All validation now happens BEFORE lock acquisition (fail fast optimization)
     try:
         async with mcp_server.lock_manager.acquire_agent_lock_async(agent_id, timeout=2.0, max_retries=1):
-            # Prepare agent state (use validated complexity and confidence from above)
+            # Prepare agent state (use validated parameters from above)
             import numpy as np
-            
-            # Validate ethical_drift parameter
-            ethical_drift_raw = arguments.get("ethical_drift", [0.0, 0.0, 0.0])
-            ethical_drift, error = validate_ethical_drift(ethical_drift_raw)
-            if error:
-                return [error]
-            ethical_drift = ethical_drift or [0.0, 0.0, 0.0]  # Default if None
             
             agent_state = {
                 "parameters": np.array(arguments.get("parameters", [])),
                 "ethical_drift": np.array(ethical_drift),
-                "response_text": arguments.get("response_text", ""),
+                "response_text": response_text,  # Use validated text
                 "complexity": complexity  # Use validated value
+                # Note: No outcome parameters here. The system observes outcomes
+                # directly from tool_usage_tracker - no self-reports needed.
             }
+
+            # Check for anti-proliferation and anti-avoidance policies (warn, don't block)
+            from .validators import (
+                validate_file_path_policy,
+                validate_agent_id_policy,
+                detect_script_creation_avoidance
+            )
+            import re
+            policy_warnings = []
+            response_text = agent_state["response_text"]
+
+            # 1. Validate agent_id (discourage test/demo agents)
+            agent_id_warning, _ = validate_agent_id_policy(agent_id)
+            if agent_id_warning:
+                policy_warnings.append(agent_id_warning)
+
+            # 2. Detect script creation avoidance (agents creating scripts instead of using tools)
+            avoidance_warnings = detect_script_creation_avoidance(response_text)
+            if avoidance_warnings:
+                policy_warnings.extend(avoidance_warnings)
+
+            # 3. Scan response_text for file paths that might violate policy
+            # Look for patterns like: test_*.py, demo_*.py, creating test files, etc.
+            file_patterns = re.findall(r'(?:test_|demo_)\w+\.py', response_text)
+            for file_pattern in file_patterns:
+                warning, _ = validate_file_path_policy(file_pattern)
+                if warning:
+                    policy_warnings.append(warning)
+
+            # 4. Check for explicit mentions of creating test files in root
+            if re.search(r'(?:creat|writ|generat)(?:e|ing|ed).*(?:test_|demo_)\w+\.py', response_text, re.IGNORECASE):
+                # Check if it mentions putting it in tests/ directory
+                if not re.search(r'tests?/', response_text, re.IGNORECASE):
+                    policy_warnings.append(
+                        "⚠️ POLICY REMINDER: Creating test scripts? They belong in tests/ directory.\n"
+                        "See AI_ASSISTANT_GUIDE.md § Best Practices #6 for details."
+                    )
 
             # Ensure metadata exists (for new agents, this creates it with API key)
             if is_new_agent:
@@ -363,17 +557,7 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
                     meta = mcp_server.agent_metadata.get(agent_id)
             
             # Use validated confidence (already clamped to [0, 1] above)
-            
-            # Extract and validate task_type for context-aware EISV interpretation
-            from .validators import validate_task_type
-            task_type = arguments.get("task_type", "mixed")
-            validated_task_type, error = validate_task_type(task_type)
-            if error:
-                # Invalid task_type - default to mixed and log warning (don't fail, just warn)
-                logger.warning(f"Invalid task_type '{task_type}' for agent '{agent_id}', defaulting to 'mixed'")
-                task_type = "mixed"
-            else:
-                task_type = validated_task_type
+            # Note: task_type already validated before lock acquisition (lines 468-477)
             
             # Use authenticated update function (async version)
             # Wrap in try/except to catch any exceptions from process_update_authenticated_async
@@ -404,14 +588,15 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
             await loop.run_in_executor(None, mcp_server.process_mgr.write_heartbeat)
 
             # Calculate health status using risk-based thresholds
-            # Support both attention_score (new) and risk_score (deprecated) for backward compatibility
+            # Support both risk_score (primary) and attention_score (deprecated) for backward compatibility
             metrics_dict = result.get('metrics', {})
-            attention_score = metrics_dict.get('attention_score') or metrics_dict.get('risk_score', None)
+            risk_score = metrics_dict.get('risk_score') or metrics_dict.get('attention_score', None)
+            attention_score = risk_score  # DEPRECATED alias
             coherence = metrics_dict.get('coherence', None)
             void_active = metrics_dict.get('void_active', False)
             
             health_status, health_message = mcp_server.health_checker.get_health_status(
-                risk_score=attention_score,  # health_checker still uses risk_score internally
+                risk_score=risk_score,  # health_checker uses risk_score internally
                 coherence=coherence,
                 void_active=void_active
             )
@@ -421,10 +606,67 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
                 result['metrics'] = {}
             result['metrics']['health_status'] = health_status.value
             result['metrics']['health_message'] = health_message
+            
+            # Cache health status in metadata for list_agents to read without loading monitor
+            if meta:
+                meta.health_status = health_status.value
+                # Schedule save so health_status persists to disk (force=True for immediate save)
+                await mcp_server.schedule_metadata_save(force=True)
 
             # Add EISV labels for reflexivity - essential for agents to understand their state
             # Bridges physics (Energy, Entropy, Void Integral) with practical understanding
             result['eisv_labels'] = UNITARESMonitor.get_eisv_labels()
+            
+            # Generate actionable feedback based on metrics (enhancement)
+            actionable_feedback = []
+            if coherence is not None:
+                if coherence < 0.5:
+                    actionable_feedback.append("Your coherence is below 0.5 - consider simplifying your approach or breaking tasks into smaller pieces")
+                elif coherence < 0.6:
+                    actionable_feedback.append("Your coherence is moderate - focus on consistency and clear structure")
+            
+            if risk_score is not None:
+                if risk_score > 0.6:
+                    actionable_feedback.append("Your risk score is high (>0.6) - you're handling complex work. Take breaks as needed and consider reducing complexity")
+                elif risk_score > 0.4:
+                    actionable_feedback.append("Your risk score is moderate - you're managing complexity well")
+            
+            if void_active:
+                actionable_feedback.append("Void detected - there's a mismatch between your energy and integrity. Consider slowing down or focusing on consistency")
+            
+            if actionable_feedback:
+                result['actionable_feedback'] = actionable_feedback
+
+            # Add calibration feedback (helps agents understand their confidence/complexity reporting)
+            calibration_feedback = {}
+            
+            # Complexity calibration: Show reported vs derived complexity
+            if 'metrics' in result:
+                metrics = result['metrics']
+                reported_complexity = complexity  # From validated input
+                derived_complexity = metrics.get('complexity', None)  # Derived from state
+                if derived_complexity is not None and reported_complexity is not None:
+                    discrepancy = abs(reported_complexity - derived_complexity)
+                    calibration_feedback['complexity'] = {
+                        'reported': reported_complexity,
+                        'derived': derived_complexity,
+                        'discrepancy': discrepancy,
+                        'message': (
+                            f"Your reported complexity ({reported_complexity:.2f}) vs system-derived ({derived_complexity:.2f}) "
+                            f"differs by {discrepancy:.2f}. "
+                            f"{'High discrepancy - consider calibrating your complexity estimates' if discrepancy > 0.3 else 'Good alignment'}"
+                        )
+                    }
+            
+            # Confidence calibration: Show system-wide calibration status
+            # Use centralized helper to avoid duplication
+            from src.mcp_handlers.utils import get_calibration_feedback
+            confidence_feedback = get_calibration_feedback(include_complexity=False)
+            if confidence_feedback:
+                calibration_feedback.update(confidence_feedback)
+            
+            if calibration_feedback:
+                result['calibration_feedback'] = calibration_feedback
 
             # Collect any warnings
             warnings = []
@@ -443,8 +685,114 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
 
             # Build response
             response_data = result.copy()
+            
+            # STANDARDIZED METRIC REPORTING - Always include agent_id and context
+            # Standardize metrics reporting with agent_id and timestamp
+            from src.mcp_handlers.utils import format_metrics_report
+            
+            # Ensure metrics dict exists
+            if 'metrics' not in response_data:
+                response_data['metrics'] = {}
+            
+            # Standardize metrics with agent_id and context
+            standardized_metrics = format_metrics_report(
+                metrics=response_data['metrics'],
+                agent_id=agent_id,
+                include_timestamp=True,
+                include_context=True
+            )
+            
+            # Update response_data with standardized metrics
+            response_data['metrics'] = standardized_metrics
+            
+            # Also include agent_id at top level for easy access (backward compatibility)
+            response_data["agent_id"] = agent_id
+            
+            # Include health_status at top level for easy access (standardized initiation)
+            # Health status is already in metrics, but top-level makes it easier to check
+            # Always ensure health_status is at top level (standardized initiation)
+            if 'metrics' in response_data:
+                metrics = response_data['metrics']
+                if 'health_status' in metrics:
+                    response_data["health_status"] = metrics['health_status']
+                    response_data["health_message"] = metrics.get('health_message', '')
+                else:
+                    # Fallback: use status if health_status not in metrics
+                    response_data["health_status"] = response_data.get('status', 'unknown')
+                    response_data["health_message"] = ''
+            else:
+                # Fallback: use status if no metrics
+                response_data["health_status"] = response_data.get('status', 'unknown')
+                response_data["health_message"] = ''
+            
+            # Ensure EISV metrics are easily accessible (standardized initiation)
+            # EISV metrics are in metrics dict, but ensure they're always present
+            if 'metrics' in response_data:
+                metrics = response_data['metrics']
+                # Ensure E, I, S, V are always present (standardized)
+                # If missing, use values from eisv dict, or default to 0.0
+                if 'E' not in metrics:
+                    metrics['E'] = metrics.get('eisv', {}).get('E', 0.0)
+                if 'I' not in metrics:
+                    metrics['I'] = metrics.get('eisv', {}).get('I', 0.0)
+                if 'S' not in metrics:
+                    metrics['S'] = metrics.get('eisv', {}).get('S', 0.0)
+                if 'V' not in metrics:
+                    metrics['V'] = metrics.get('eisv', {}).get('V', 0.0)
+                
+                # Ensure eisv dict exists and is consistent with flat values
+                if 'eisv' not in metrics:
+                    metrics['eisv'] = {
+                        'E': metrics.get('E', 0.0),
+                        'I': metrics.get('I', 0.0),
+                        'S': metrics.get('S', 0.0),
+                        'V': metrics.get('V', 0.0)
+                    }
+                else:
+                    # Sync eisv dict with flat values (flat values take precedence)
+                    metrics['eisv']['E'] = metrics.get('E', metrics['eisv'].get('E', 0.0))
+                    metrics['eisv']['I'] = metrics.get('I', metrics['eisv'].get('I', 0.0))
+                    metrics['eisv']['S'] = metrics.get('S', metrics['eisv'].get('S', 0.0))
+                    metrics['eisv']['V'] = metrics.get('V', metrics['eisv'].get('V', 0.0))
+                
+                # Ensure risk metrics are consistent with get_governance_metrics
+                # Add missing risk metrics if not present (for consistency)
+                if 'risk_score' in metrics:
+                    # Ensure attention_score (deprecated) is present for backward compatibility
+                    if 'attention_score' not in metrics:
+                        metrics['attention_score'] = metrics['risk_score']
+                elif 'attention_score' in metrics:
+                    # Legacy: if only attention_score present, add risk_score
+                    metrics['risk_score'] = metrics['attention_score']
+                    
+                    # Add current_risk and mean_risk if available from monitor
+                    # These come from get_metrics() but may not be in process_update result
+                    if 'current_risk' not in metrics or 'mean_risk' not in metrics:
+                        try:
+                            monitor = mcp_server.get_or_create_monitor(agent_id)
+                            monitor_metrics = monitor.get_metrics()
+                            if 'current_risk' not in metrics:
+                                metrics['current_risk'] = monitor_metrics.get('current_risk')
+                            if 'mean_risk' not in metrics:
+                                metrics['mean_risk'] = monitor_metrics.get('mean_risk')
+                            if 'latest_risk_score' not in metrics:
+                                metrics['latest_risk_score'] = monitor_metrics.get('latest_risk_score')
+                            if 'latest_attention_score' not in metrics:
+                                metrics['latest_attention_score'] = monitor_metrics.get('latest_attention_score')  # DEPRECATED
+                        except Exception:
+                            # If monitor not available, skip (metrics already have attention_score)
+                            pass
+
+            # Add policy warnings to general warnings
+            if policy_warnings:
+                warnings.extend(policy_warnings)
+
             if warnings:
-                response_data["warning"] = "; ".join(warnings)
+                response_data["warning"] = "\n\n".join(warnings)  # Use newlines for readability
+            
+            # Include auto-resume info if agent was auto-resumed (Priority 2)
+            if auto_resume_info:
+                response_data["auto_resume"] = auto_resume_info
             
             # Add helpful explanation for sampling_params (helps agents understand what they mean)
             if "sampling_params" in response_data:
@@ -511,17 +859,29 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
             if onboarding_guidance:
                 response_data["onboarding"] = onboarding_guidance
             
-            # Include API key for new agents or if key was just generated (one-time display)
+            # Include API key for new agents, if key was just generated, or if auto-retrieved
             # Note: meta already available from earlier (avoid duplicate lookup)
-            if is_new_agent or key_was_generated:
+            if is_new_agent or key_was_generated or api_key_auto_retrieved:
                 if not meta:
                     meta = mcp_server.agent_metadata.get(agent_id)
                 if meta:
+                    # Make API key prominent - include at top level for easy access
                     response_data["api_key"] = meta.api_key
+                    response_data["_onboarding"] = {
+                        "api_key": meta.api_key,
+                        "message": "🔑 Your API key (save this for future updates)",
+                        "next_steps": [
+                            "Include this api_key in future process_agent_update calls",
+                            "Use get_agent_api_key tool if you lose it",
+                            "This key authenticates you as this agent"
+                        ]
+                    }
                 if is_new_agent:
                     response_data["api_key_warning"] = "⚠️  Save this API key - you'll need it for future updates to authenticate as this agent."
-                else:
+                elif key_was_generated:
                     response_data["api_key_warning"] = "⚠️  API key generated (migration). Save this key - you'll need it for future updates to authenticate as this agent. Your old key (if any) is now invalid."
+                elif api_key_auto_retrieved:
+                    response_data["api_key_info"] = "ℹ️  API key auto-retrieved from stored credentials. You can omit api_key parameter in future calls - it will be retrieved automatically."
 
             # Welcome message for first update (helps new agents understand the system)
             # Note: meta already available from earlier in function (line 292 or 365)
@@ -613,6 +973,46 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
             
             # Note: Maintenance prompt already in mark_response_complete (no need to duplicate)
             
+            # PENDING DIALECTIC NOTIFICATION
+            # Check if this agent has pending dialectic sessions where they owe a response
+            # This fixes the UX gap where reviewers didn't know they had pending work
+            try:
+                from .dialectic import ACTIVE_SESSIONS
+                pending_dialectic = []
+                for session_id, session in ACTIVE_SESSIONS.items():
+                    # Check if this agent is the reviewer and session needs antithesis
+                    if session.reviewer_agent_id == agent_id and session.phase.value == "antithesis":
+                        pending_dialectic.append({
+                            "session_id": session_id,
+                            "role": "reviewer",
+                            "phase": "antithesis",
+                            "partner": session.paused_agent_id,
+                            "topic": getattr(session, 'topic', None),
+                            "action_needed": "Submit antithesis via submit_antithesis()",
+                            "created_at": session.created_at.isoformat() if session.created_at else None
+                        })
+                    # Check if this agent is the paused agent and session needs synthesis
+                    elif session.paused_agent_id == agent_id and session.phase.value == "synthesis":
+                        pending_dialectic.append({
+                            "session_id": session_id,
+                            "role": "initiator", 
+                            "phase": "synthesis",
+                            "partner": session.reviewer_agent_id,
+                            "topic": getattr(session, 'topic', None),
+                            "action_needed": "Submit synthesis via submit_synthesis()",
+                            "created_at": session.created_at.isoformat() if session.created_at else None
+                        })
+                
+                if pending_dialectic:
+                    response_data["pending_dialectic"] = {
+                        "message": f"⚠️ You have {len(pending_dialectic)} pending dialectic session(s) awaiting your response!",
+                        "sessions": pending_dialectic,
+                        "note": "Dialectic sessions enable collaborative exploration and recovery. Respond to keep the conversation going."
+                    }
+            except Exception as e:
+                # Don't fail if dialectic check fails - this is optional notification
+                logger.debug(f"Could not check pending dialectic sessions: {e}")
+            
             # EISV Completeness Validation - ensures all four metrics are present (prevents selection bias)
             if EISV_VALIDATION_AVAILABLE:
                 try:
@@ -646,7 +1046,8 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
                             "S": float(metrics.get("S", 0)),
                             "V": float(metrics.get("V", 0)),
                             "coherence": float(metrics.get("coherence", 0)),
-                            "attention_score": float(metrics.get("attention_score", 0))
+                            "risk_score": float(metrics.get("risk_score") or metrics.get("attention_score", 0)),
+                            "attention_score": float(metrics.get("risk_score") or metrics.get("attention_score", 0))  # DEPRECATED
                         },
                         "sampling_params": result.get("sampling_params", {}),
                         "_warning": "Response serialization had issues - some fields may be missing"
@@ -654,11 +1055,18 @@ async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[Tex
                 )]
     except TimeoutError as e:
         # Lock acquisition failed even after automatic retries and cleanup
-        # Try one more aggressive cleanup attempt
+        # Try one more aggressive cleanup attempt (async to avoid blocking error response)
         try:
             from src.lock_cleanup import cleanup_stale_state_locks
             project_root = Path(__file__).parent.parent.parent
-            cleanup_result = cleanup_stale_state_locks(project_root=project_root, max_age_seconds=60.0, dry_run=False)
+            # Run cleanup in executor to avoid blocking error response
+            cleanup_result = await loop.run_in_executor(
+                None,
+                cleanup_stale_state_locks,
+                project_root,
+                60.0,  # max_age_seconds
+                False  # dry_run
+            )
             if cleanup_result['cleaned'] > 0:
                 logger.info(f"Auto-recovery: Cleaned {cleanup_result['cleaned']} stale lock(s) after timeout")
         except Exception as cleanup_error:
