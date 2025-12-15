@@ -19,7 +19,7 @@ class GovernanceMCPServer:
     Compatibility wrapper for CLI bridge.
     
     Provides JSON-RPC style interface that calls the full v2.0 MCP handlers.
-    This gives CLI users access to all 44+ tools, not just the 4 basic ones.
+    This gives CLI users access to all 47+ tools, not just the 4 basic ones.
     """
     
     def __init__(self):

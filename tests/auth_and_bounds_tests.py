@@ -1,3 +1,4 @@
+import pytest
 #!/usr/bin/env python3
 """
 Authentication & Bounds Testing - Additional Security Tests
@@ -14,6 +15,7 @@ sys.path.insert(0, str(project_root))
 from scripts.mcp_sse_client import GovernanceMCPClient
 
 
+@pytest.mark.asyncio
 async def test_api_key_bypass():
     """
     TEST: Can we update another agent's state without their API key?
@@ -51,6 +53,7 @@ async def test_api_key_bypass():
         return "ERROR"
 
 
+@pytest.mark.asyncio
 async def test_history_inflation():
     """
     TEST: Can we inflate state file size via many updates?
@@ -103,6 +106,7 @@ async def test_history_inflation():
         return "ERROR"
 
 
+@pytest.mark.asyncio
 async def test_negative_complexity():
     """
     TEST: What happens with negative complexity?
@@ -132,6 +136,7 @@ async def test_negative_complexity():
         return "ERROR"
 
 
+@pytest.mark.asyncio
 async def test_confidence_override():
     """
     TEST: Can we force high confidence on bad responses?
@@ -168,6 +173,7 @@ async def test_confidence_override():
         return "ERROR"
 
 
+@pytest.mark.asyncio
 async def test_extreme_eisv_states():
     """
     TEST: Can we force EISV into extreme states via state file injection?
@@ -244,6 +250,7 @@ async def test_extreme_eisv_states():
         return "ERROR"
 
 
+@pytest.mark.asyncio
 async def test_metadata_file_race():
     """
     TEST: Can we corrupt metadata via rapid agent creation?

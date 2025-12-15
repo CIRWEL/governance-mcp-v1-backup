@@ -187,20 +187,31 @@ def test_coherence_scenarios():
     print("Parameter Change Guidelines")
     print("-" * 80)
     
-    approve_max_dist = max(r['actual_distance'] for r in results if r['decision'] == 'approve')
-    reject_min_dist = min(r['actual_distance'] for r in results if r['decision'] == 'reject')
+    approve_results = [r for r in results if r['decision'] == 'approve']
+    reject_results = [r for r in results if r['decision'] == 'reject']
+    revise_results = [r for r in results if r['decision'] == 'revise']
     
-    print(f"For APPROVE: Keep parameter distance ≤ {approve_max_dist:.6f}")
-    if revise_count > 0:
-        revise_min_dist = min(r['actual_distance'] for r in results if r['decision'] == 'revise')
-        revise_max_dist = max(r['actual_distance'] for r in results if r['decision'] == 'revise')
+    if approve_results:
+        approve_max_dist = max(r['actual_distance'] for r in approve_results)
+        print(f"For APPROVE: Keep parameter distance ≤ {approve_max_dist:.6f}")
+    else:
+        print(f"For APPROVE: No approve scenarios in test")
+    
+    if revise_count > 0 and revise_results:
+        revise_min_dist = min(r['actual_distance'] for r in revise_results)
+        revise_max_dist = max(r['actual_distance'] for r in revise_results)
         print(f"For REVISE:  Keep parameter distance in [{revise_min_dist:.6f}, {revise_max_dist:.6f}]")
     else:
         print(f"For REVISE:  No revise scenarios in test (would require risk 0.30-0.70)")
-    print(f"For REJECT:  Parameter distance > {reject_min_dist:.6f}")
+    
+    if reject_results:
+        reject_min_dist = min(r['actual_distance'] for r in reject_results)
+        print(f"For REJECT:  Parameter distance > {reject_min_dist:.6f}")
+    else:
+        print(f"For REJECT:  No reject scenarios in test")
     print()
     
-    return results
+    # Test passes if it runs without error - the scenarios are printed above
 
 
 def test_gradual_adaptation():

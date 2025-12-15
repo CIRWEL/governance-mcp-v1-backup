@@ -142,7 +142,7 @@ def test_coherence_drop_hypothesis():
         print("   - Consider alternative: coherence variance (instability signal)")
         print("   - Or: Remove coherence signal, redistribute weight")
     
-    return supports_hypothesis, total_tests
+    # Test is observational - passes if it runs without error
 
 
 def test_coherence_variance_alternative():
@@ -171,7 +171,7 @@ def test_coherence_variance_alternative():
     print("\n   ✅ Variance captures instability better than single drop")
     print("   → Could be better signal for complexity")
     
-    return variance_high > variance_low
+    assert variance_high > variance_low, "High variance should be greater than low variance"
 
 
 def test_remove_coherence_signal():
@@ -214,7 +214,7 @@ def test_remove_coherence_signal():
     print("\n   ⚠️  Removing coherence signal reduces complexity")
     print("   → But may be more accurate if drop doesn't measure complexity")
     
-    return complexity_current, complexity_no_coherence
+    # Test is observational - passes if it runs without error
 
 
 if __name__ == "__main__":

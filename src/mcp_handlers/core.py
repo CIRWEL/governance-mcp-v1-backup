@@ -11,7 +11,7 @@ from mcp.types import TextContent
 import json
 import sys
 import asyncio
-from .utils import success_response, error_response, require_agent_id, _make_json_serializable
+from .utils import success_response, error_response, require_agent_id, require_registered_agent, _make_json_serializable
 from .decorators import mcp_tool
 from .validators import validate_complexity, validate_confidence, validate_ethical_drift, validate_response_text
 from src.logging_utils import get_logger
@@ -149,7 +149,9 @@ async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequenc
     # Load monitor state from disk if not in memory (allows querying agents without recent updates)
     monitor = mcp_server.get_or_create_monitor(agent_id)
 
-    metrics = monitor.get_metrics()
+    # Reduce context bloat by excluding nested state dict (all values still at top level)
+    include_state = arguments.get("include_state", False)
+    metrics = monitor.get_metrics(include_state=include_state)
 
     # Add EISV labels for API documentation
     metrics['eisv_labels'] = UNITARESMonitor.get_eisv_labels()
@@ -199,11 +201,14 @@ async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequenc
 @mcp_tool("simulate_update", timeout=30.0)
 async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextContent]:
     """Handle simulate_update tool - dry-run governance cycle without persisting state"""
-    agent_id, error = require_agent_id(arguments)
+    # SECURITY FIX: Require registered agent (prevents phantom agent_ids)
+    # simulate_update claims not to persist state, but get_or_create_monitor() calls
+    # get_or_create_metadata() which does create persistent metadata entries.
+    agent_id, error = require_registered_agent(arguments)
     if error:
         return [error]  # Wrap in list for Sequence[TextContent]
     
-    # Get or create monitor
+    # Get monitor for existing agent
     monitor = mcp_server.get_or_create_monitor(agent_id)
     
     # Validate parameters for simulation
@@ -212,6 +217,40 @@ async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextC
     if error:
         return [error]
     complexity = complexity or 0.5  # Default if None
+    
+    # Dialectic condition enforcement (MVP):
+    # If the agent has an active dialectic-imposed complexity cap, enforce it here.
+    dialectic_enforcement_warning = None
+    try:
+        if meta and getattr(meta, "dialectic_conditions", None):
+            caps = []
+            for c in meta.dialectic_conditions:
+                if not isinstance(c, dict):
+                    continue
+                ctype = c.get("type")
+                if ctype == "complexity_limit":
+                    v = c.get("value")
+                    if isinstance(v, (int, float)):
+                        caps.append(float(v))
+                # Accept reduce/set adjustments as an implicit cap target_value
+                if ctype == "complexity_adjustment" and c.get("action") == "reduce":
+                    v = c.get("target_value")
+                    if isinstance(v, (int, float)):
+                        caps.append(float(v))
+            # Only enforce sane caps in [0,1]
+            caps = [v for v in caps if 0.0 <= v <= 1.0]
+            if caps:
+                cap = min(caps)
+                if complexity > cap:
+                    dialectic_enforcement_warning = (
+                        f"Dialectic condition enforced: complexity {complexity:.2f} capped to {cap:.2f}. "
+                        f"(Agent has active dialectic_conditions complexity cap.)"
+                    )
+                    complexity = cap
+                    arguments["complexity"] = cap
+    except Exception as e:
+        # Don't fail updates if condition parsing fails; treat as non-blocking.
+        logger.warning(f"Could not enforce dialectic conditions for '{agent_id}': {e}", exc_info=True)
     
     # Confidence: If not provided (None), let governance_monitor derive from state
     reported_confidence = arguments.get("confidence")
@@ -270,6 +309,9 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
     # ONBOARDING GUIDANCE - Re-enabled (knowledge graph now non-blocking)
     onboarding_guidance = None
     open_questions = []
+    # Dialectic enforcement warning (populated if we cap complexity based on dialectic conditions)
+    # Must be defined for all code paths (avoid NameError in policy warnings section).
+    dialectic_enforcement_warning = None
     if is_new_agent:
         try:
             from src.knowledge_graph import get_knowledge_graph
@@ -277,15 +319,27 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             stats = await graph.get_stats()
             
             # Surface open questions for new agents - invite them to participate
+            # Reduced to 1-2 questions to minimize context bloat
             try:
                 questions = await graph.query(
                     type="question",
                     status="open",
-                    limit=5  # Show top 5 open questions
+                    limit=3  # Reduced from 5 to minimize context
                 )
-                # Sort by recency (newest first) and take top 3
+                # Sort by recency (newest first) and take top 1-2 (reduced from 3)
                 questions.sort(key=lambda q: q.timestamp, reverse=True)
-                open_questions = [q.to_dict(include_details=False) for q in questions[:3]]
+                # Limit to 2 questions max, and simplify structure to reduce size
+                open_questions = []
+                for q in questions[:2]:  # Reduced from 3 to 2
+                    q_dict = q.to_dict(include_details=False)
+                    # Further reduce size: only include essential fields for onboarding
+                    simplified = {
+                        "id": q_dict["id"],
+                        "summary": q_dict["summary"][:200] if len(q_dict.get("summary", "")) > 200 else q_dict.get("summary", ""),  # Truncate long summaries
+                        "tags": q_dict.get("tags", [])[:3] if q_dict.get("tags") else [],  # Limit to 3 tags
+                        "severity": q_dict.get("severity")
+                    }
+                    open_questions.append(simplified)
                 logger.debug(f"Found {len(open_questions)} open questions for onboarding")
             except Exception as e:
                 logger.warning(f"Could not fetch open questions for onboarding: {e}", exc_info=True)
@@ -319,6 +373,23 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
     # Get or ensure API key exists
     api_key = arguments.get("api_key")
     api_key_auto_retrieved = False
+    # SESSION-BOUND API KEY RETRIEVAL:
+    # If the caller previously did bind_identity(agent_id, api_key), allow omitting api_key here.
+    # This is especially important for MCP clients where passing api_key repeatedly is friction.
+    if not api_key:
+        try:
+            from .identity import get_bound_agent_id, get_bound_api_key
+            bound_id = get_bound_agent_id(arguments=arguments)
+            if bound_id == agent_id:
+                bound_key = get_bound_api_key(arguments=arguments)
+                if bound_key:
+                    api_key = bound_key
+                    arguments["api_key"] = api_key  # Inject for auth check
+                    api_key_auto_retrieved = True
+                    logger.debug(f"Auto-retrieved API key from session-bound identity for agent '{agent_id}'")
+        except Exception:
+            # Identity binding is optional; never fail updates due to identity lookup issues.
+            pass
     if not is_new_agent:
         # AUTO API KEY RETRIEVAL: If agent has stored key and none provided, use it
         # This must happen BEFORE require_agent_auth to avoid false rejections
@@ -412,8 +483,13 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                 f"Agent '{agent_id}' is paused. Resume it first before processing updates.",
                 recovery={
                     "action": "Use recovery tools to resume the agent",
-                    "related_tools": ["direct_resume_if_safe", "smart_dialectic_review", "request_dialectic_review", "get_governance_metrics"],
-                    "workflow": "1. Check agent metrics with get_governance_metrics 2. Use direct_resume_if_safe if state is safe (coherence > 0.40, risk_score < 0.60) 3. Use smart_dialectic_review or request_dialectic_review for complex recovery"
+                    "related_tools": ["direct_resume_if_safe", "request_dialectic_review", "get_governance_metrics"],
+                    "workflow": (
+                        "1. Check agent metrics with get_governance_metrics "
+                        "2. Use direct_resume_if_safe if state is safe (coherence > 0.40, risk_score < 0.60) "
+                        "3. Use request_dialectic_review for complex recovery "
+                        "(set auto_progress=true to streamline; set reviewer_mode='self' if no peers available)"
+                    )
                 },
                 context={
                     "agent_id": agent_id,
@@ -516,6 +592,10 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             policy_warnings = []
             response_text = agent_state["response_text"]
 
+            # 0. Add dialectic enforcement warning (if any)
+            if dialectic_enforcement_warning:
+                policy_warnings.append(dialectic_enforcement_warning)
+
             # 1. Validate agent_id (discourage test/demo agents)
             agent_id_warning, _ = validate_agent_id_policy(agent_id)
             if agent_id_warning:
@@ -588,10 +668,8 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             await loop.run_in_executor(None, mcp_server.process_mgr.write_heartbeat)
 
             # Calculate health status using risk-based thresholds
-            # Support both risk_score (primary) and attention_score (deprecated) for backward compatibility
             metrics_dict = result.get('metrics', {})
-            risk_score = metrics_dict.get('risk_score') or metrics_dict.get('attention_score', None)
-            attention_score = risk_score  # DEPRECATED alias
+            risk_score = metrics_dict.get('risk_score', None)
             coherence = metrics_dict.get('coherence', None)
             void_active = metrics_dict.get('void_active', False)
             
@@ -619,11 +697,28 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             
             # Generate actionable feedback based on metrics (enhancement)
             actionable_feedback = []
+            
+            # Get current regime for context-aware feedback (from result metrics)
+            current_regime = metrics_dict.get('regime', 'exploration')
+            
             if coherence is not None:
-                if coherence < 0.5:
-                    actionable_feedback.append("Your coherence is below 0.5 - consider simplifying your approach or breaking tasks into smaller pieces")
-                elif coherence < 0.6:
-                    actionable_feedback.append("Your coherence is moderate - focus on consistency and clear structure")
+                # Regime-aware coherence thresholds:
+                # - DIVERGENCE: Low coherence is expected (divergent thinking), only warn if very low
+                # - TRANSITION/CONVERGENCE: Standard thresholds apply
+                # - STABLE: Coherence should be high, warn on any drop
+                if current_regime.lower() == "exploration":
+                    if coherence < 0.3:
+                        actionable_feedback.append("Your coherence is very low (<0.3) even for exploration - consider establishing some structure")
+                    # Skip moderate coherence warnings during exploration - it's expected
+                elif current_regime.lower() == "locked":
+                    if coherence < 0.7:
+                        actionable_feedback.append("Your coherence dropped below 0.7 in STABLE regime - unexpected divergence detected")
+                else:
+                    # TRANSITION or CONVERGENCE - use standard thresholds
+                    if coherence < 0.5:
+                        actionable_feedback.append("Your coherence is below 0.5 - consider simplifying your approach or breaking tasks into smaller pieces")
+                    elif coherence < 0.6:
+                        actionable_feedback.append("Your coherence is moderate - focus on consistency and clear structure")
             
             if risk_score is not None:
                 if risk_score > 0.6:
@@ -757,31 +852,20 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                 
                 # Ensure risk metrics are consistent with get_governance_metrics
                 # Add missing risk metrics if not present (for consistency)
-                if 'risk_score' in metrics:
-                    # Ensure attention_score (deprecated) is present for backward compatibility
-                    if 'attention_score' not in metrics:
-                        metrics['attention_score'] = metrics['risk_score']
-                elif 'attention_score' in metrics:
-                    # Legacy: if only attention_score present, add risk_score
-                    metrics['risk_score'] = metrics['attention_score']
-                    
-                    # Add current_risk and mean_risk if available from monitor
-                    # These come from get_metrics() but may not be in process_update result
-                    if 'current_risk' not in metrics or 'mean_risk' not in metrics:
-                        try:
-                            monitor = mcp_server.get_or_create_monitor(agent_id)
-                            monitor_metrics = monitor.get_metrics()
-                            if 'current_risk' not in metrics:
-                                metrics['current_risk'] = monitor_metrics.get('current_risk')
-                            if 'mean_risk' not in metrics:
-                                metrics['mean_risk'] = monitor_metrics.get('mean_risk')
-                            if 'latest_risk_score' not in metrics:
-                                metrics['latest_risk_score'] = monitor_metrics.get('latest_risk_score')
-                            if 'latest_attention_score' not in metrics:
-                                metrics['latest_attention_score'] = monitor_metrics.get('latest_attention_score')  # DEPRECATED
-                        except Exception:
-                            # If monitor not available, skip (metrics already have attention_score)
-                            pass
+                # Add current_risk and mean_risk if available from monitor
+                # These come from get_metrics() but may not be in process_update result
+                if 'current_risk' not in metrics or 'mean_risk' not in metrics:
+                    try:
+                        monitor = mcp_server.get_or_create_monitor(agent_id)
+                        monitor_metrics = monitor.get_metrics()
+                        if 'current_risk' not in metrics:
+                            metrics['current_risk'] = monitor_metrics.get('current_risk')
+                        if 'mean_risk' not in metrics:
+                            metrics['mean_risk'] = monitor_metrics.get('mean_risk')
+                        if 'latest_risk_score' not in metrics:
+                            metrics['latest_risk_score'] = monitor_metrics.get('latest_risk_score')
+                    except Exception:
+                        pass
 
             # Add policy warnings to general warnings
             if policy_warnings:
@@ -861,27 +945,37 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             
             # Include API key for new agents, if key was just generated, or if auto-retrieved
             # Note: meta already available from earlier (avoid duplicate lookup)
+            # SECURITY FIX (2025-12-14): Never expose full API key in responses
+            # This prevents context leakage in multi-agent shared environments
+            # See: patches/FIX_API_KEY_CONTEXT_LEAKAGE.md
             if is_new_agent or key_was_generated or api_key_auto_retrieved:
                 if not meta:
                     meta = mcp_server.agent_metadata.get(agent_id)
                 if meta:
-                    # Make API key prominent - include at top level for easy access
-                    response_data["api_key"] = meta.api_key
+                    # Only show hint (first 8 chars) - agents must use get_agent_api_key to retrieve full key
+                    api_key_hint = meta.api_key[:8] + "..." if meta.api_key and len(meta.api_key) > 8 else meta.api_key
+                    response_data["api_key_hint"] = api_key_hint
                     response_data["_onboarding"] = {
-                        "api_key": meta.api_key,
-                        "message": "🔑 Your API key (save this for future updates)",
+                        "api_key_hint": api_key_hint,
+                        "message": "🔑 API key created (use get_agent_api_key to retrieve full key)",
                         "next_steps": [
-                            "Include this api_key in future process_agent_update calls",
-                            "Use get_agent_api_key tool if you lose it",
-                            "This key authenticates you as this agent"
-                        ]
+                            "Call get_agent_api_key(agent_id) to retrieve your full API key",
+                            "Or call bind_identity(agent_id) to bind session without needing key in every call",
+                            "After bind_identity, API key auto-retrieved for all tool calls",
+                        ],
+                        "identity_binding": {
+                            "tool": "bind_identity",
+                            "benefit": "After binding, you won't need to pass api_key explicitly",
+                            "example": f"bind_identity(agent_id='{agent_id}')"
+                        },
+                        "security_note": "Full API keys are not included in responses to prevent context leakage in multi-agent environments."
                     }
                 if is_new_agent:
-                    response_data["api_key_warning"] = "⚠️  Save this API key - you'll need it for future updates to authenticate as this agent."
+                    response_data["api_key_warning"] = "⚠️  Use get_agent_api_key(agent_id) to retrieve your API key. Save it securely."
                 elif key_was_generated:
-                    response_data["api_key_warning"] = "⚠️  API key generated (migration). Save this key - you'll need it for future updates to authenticate as this agent. Your old key (if any) is now invalid."
+                    response_data["api_key_warning"] = "⚠️  API key regenerated (migration). Use get_agent_api_key(agent_id) to retrieve it."
                 elif api_key_auto_retrieved:
-                    response_data["api_key_info"] = "ℹ️  API key auto-retrieved from stored credentials. You can omit api_key parameter in future calls - it will be retrieved automatically."
+                    response_data["api_key_info"] = "ℹ️  Session authenticated via stored credentials. No need to pass api_key."
 
             # Welcome message for first update (helps new agents understand the system)
             # Note: meta already available from earlier in function (line 292 or 365)
@@ -891,7 +985,8 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                     "The system tracks your work's thermodynamic state (E, I, S, V) and provides "
                     "supportive feedback. Use the metrics and sampling parameters as helpful guidance, "
                     "not requirements. The knowledge graph contains discoveries from other agents - "
-                    "feel free to explore it when relevant."
+                    "feel free to explore it when relevant. "
+                    "\n\n💡 Quick tip: Call bind_identity(agent_id) to avoid passing api_key in every call."
                 )
             
             # EQUILIBRIUM-BASED CONVERGENCE ACCELERATION
@@ -1022,6 +1117,214 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                     logger.warning(f"EISV validation warning: {validation_error}")
                     response_data["_eisv_validation_warning"] = str(validation_error)
 
+            # =================================================================
+            # LEARNING CONTEXT - Surface agent's own history for in-context learning
+            # This closes the feedback loop: agents see their own patterns
+            # =================================================================
+            try:
+                learning_context = {}
+                
+                # 1. Recent decisions from this agent's history
+                # Get from audit log if available
+                try:
+                    from src.audit_log import AuditLogger
+                    audit_logger = AuditLogger()  # Uses default path
+                    recent_events = audit_logger.query_audit_log(
+                        agent_id=agent_id,
+                        limit=10
+                    )
+                    if recent_events:
+                        recent_decisions = []
+                        for event in recent_events[:5]:
+                            details = event.get("details", {})
+                            decision_summary = {
+                                "timestamp": event.get("timestamp", "")[:19],  # Trim to readable
+                                "action": details.get("action") or details.get("decision") or event.get("event_type"),
+                                "risk": round(details.get("risk_score", 0), 2) if details.get("risk_score") else None,
+                                "confidence": round(details.get("confidence", 0), 2) if details.get("confidence") else None,
+                            }
+                            # Only include if we have meaningful data
+                            if decision_summary.get("action"):
+                                recent_decisions.append(decision_summary)
+                        
+                        if recent_decisions:
+                            learning_context["recent_decisions"] = {
+                                "count": len(recent_decisions),
+                                "decisions": recent_decisions,
+                                "insight": "Your recent actions - notice patterns in what worked"
+                            }
+                except Exception as e:
+                    logger.debug(f"Could not fetch recent decisions: {e}")
+                
+                # 2. Agent's own recent knowledge graph contributions
+                try:
+                    from src.knowledge_graph import get_knowledge_graph
+                    graph = await get_knowledge_graph()
+                    my_discoveries = await graph.query(
+                        agent_id=agent_id,
+                        limit=5
+                    )
+                    if my_discoveries:
+                        learning_context["my_contributions"] = {
+                            "count": len(my_discoveries),
+                            "recent": [
+                                {
+                                    "summary": d.summary[:100] + "..." if len(d.summary) > 100 else d.summary,
+                                    "type": d.discovery_type,
+                                    "status": d.status
+                                }
+                                for d in my_discoveries[:3]
+                            ],
+                            "insight": "Your recent discoveries - build on these"
+                        }
+                except Exception as e:
+                    logger.debug(f"Could not fetch agent's discoveries: {e}")
+                
+                # 3. Calibration insight - system-wide calibration (auto-collected!)
+                try:
+                    from src.calibration import calibration_checker
+                    
+                    # Get calibration stats
+                    bin_stats = calibration_checker.bin_stats
+                    total = sum(s['count'] for s in bin_stats.values())
+                    
+                    if total >= 10:  # Need enough data
+                        # Calculate overall accuracy
+                        total_correct = sum(s.get('actual_correct', 0) for s in bin_stats.values())
+                        overall_accuracy = total_correct / total if total > 0 else 0
+                        
+                        # Find the inverted curve pattern (high confidence = low accuracy)
+                        high_conf_bins = ['0.7-0.8', '0.8-0.9', '0.9-1.0']
+                        low_conf_bins = ['0.0-0.5', '0.5-0.7']
+                        
+                        high_conf_total = sum(bin_stats.get(b, {}).get('count', 0) for b in high_conf_bins)
+                        high_conf_correct = sum(bin_stats.get(b, {}).get('actual_correct', 0) for b in high_conf_bins)
+                        high_conf_accuracy = high_conf_correct / high_conf_total if high_conf_total > 0 else 0
+                        
+                        low_conf_total = sum(bin_stats.get(b, {}).get('count', 0) for b in low_conf_bins)
+                        low_conf_correct = sum(bin_stats.get(b, {}).get('actual_correct', 0) for b in low_conf_bins)
+                        low_conf_accuracy = low_conf_correct / low_conf_total if low_conf_total > 0 else 0
+                        
+                        # Generate insight based on calibration patterns
+                        if high_conf_accuracy < low_conf_accuracy - 0.2:
+                            cal_insight = "⚠️ INVERTED CALIBRATION: High confidence correlates with LOWER accuracy. Consider being more humble."
+                        elif abs(high_conf_accuracy - low_conf_accuracy) < 0.1:
+                            cal_insight = "✅ Well calibrated - confidence matches outcomes"
+                        else:
+                            cal_insight = f"Calibration data available ({total} decisions auto-evaluated)"
+                        
+                        learning_context["calibration"] = {
+                            "total_decisions": total,
+                            "overall_accuracy": round(overall_accuracy, 2),
+                            "high_confidence_accuracy": round(high_conf_accuracy, 2),
+                            "low_confidence_accuracy": round(low_conf_accuracy, 2),
+                            "insight": cal_insight,
+                            "source": "auto-collected from trajectory outcomes (no human input required)"
+                        }
+                except Exception as e:
+                    logger.debug(f"Could not fetch calibration data: {e}")
+                
+                # 4. Pattern detection - what's this agent's tendency?
+                try:
+                    monitor = mcp_server.get_or_create_monitor(agent_id)
+                    state = monitor.state
+                    
+                    patterns = []
+                    
+                    # Regime pattern
+                    if hasattr(state, 'regime'):
+                        regime_duration = getattr(state, 'regime_duration', 0)
+                        if regime_duration > 5:
+                            patterns.append(f"In {state.regime} regime for {regime_duration} updates")
+                    
+                    # Energy pattern
+                    E = response_data.get('metrics', {}).get('E', 0.7)
+                    if E > 0.85:
+                        patterns.append("High energy - consider channeling into focused work")
+                    elif E < 0.5:
+                        patterns.append("Low energy - consider taking a step back")
+                    
+                    # Coherence trend
+                    coherence = response_data.get('metrics', {}).get('coherence', 0.5)
+                    if coherence < 0.4:
+                        patterns.append("Low coherence - your approach may be scattered")
+                    elif coherence > 0.8:
+                        patterns.append("High coherence - maintaining consistent approach")
+                    
+                    if patterns:
+                        learning_context["patterns"] = {
+                            "observations": patterns,
+                            "insight": "Patterns from your work - use these for self-awareness"
+                        }
+                except Exception as e:
+                    logger.debug(f"Could not detect patterns: {e}")
+                
+                # Only include learning_context if we have something meaningful
+                if learning_context:
+                    response_data["learning_context"] = {
+                        "_purpose": "Your own history, surfaced for in-context learning",
+                        **learning_context
+                    }
+            except Exception as e:
+                # Never fail the update because of learning context
+                logger.debug(f"Could not build learning context: {e}")
+
+            # Optional: compact response mode to reduce cognitive load / token bloat.
+            # Defaults to "full" for backward compatibility. Can be overridden per-call or via env.
+            try:
+                import os
+                response_mode = (arguments.get("response_mode") or os.getenv("UNITARES_PROCESS_UPDATE_RESPONSE_MODE", "full")).strip().lower()
+                if response_mode in ("compact", "minimal", "lite"):
+                    metrics = response_data.get("metrics", {}) if isinstance(response_data.get("metrics"), dict) else {}
+                    decision = response_data.get("decision", {}) if isinstance(response_data.get("decision"), dict) else {}
+
+                    # Canonical risk_score: prefer point-in-time latest_risk_score when present, else risk_score.
+                    canonical_risk = metrics.get("latest_risk_score")
+                    if canonical_risk is None:
+                        canonical_risk = metrics.get("risk_score")
+
+                    compact_metrics = {
+                        "E": metrics.get("E"),
+                        "I": metrics.get("I"),
+                        "S": metrics.get("S"),
+                        "V": metrics.get("V"),
+                        "coherence": metrics.get("coherence"),
+                        "risk_score": canonical_risk,
+                        "phi": metrics.get("phi"),
+                        "verdict": metrics.get("verdict"),
+                        "lambda1": metrics.get("lambda1"),
+                        "health_status": metrics.get("health_status"),
+                        "health_message": metrics.get("health_message"),
+                    }
+
+                    # Strip risk duplicates inside decision payload if present.
+                    compact_decision = {
+                        "action": decision.get("action"),
+                        "reason": decision.get("reason"),
+                        "require_human": decision.get("require_human"),
+                    }
+
+                    health_status = response_data.get("health_status") or compact_metrics.get("health_status") or response_data.get("status")
+                    coherence = compact_metrics.get("coherence")
+                    risk_val = compact_metrics.get("risk_score")
+                    action = compact_decision.get("action") or response_data.get("status")
+                    summary = f"{action} | health={health_status} | coherence={coherence} | risk_score={risk_val}"
+
+                    response_data = {
+                        "success": True,
+                        "agent_id": response_data.get("agent_id"),
+                        "status": response_data.get("status"),
+                        "health_status": health_status,
+                        "health_message": response_data.get("health_message"),
+                        "decision": compact_decision,
+                        "metrics": compact_metrics,
+                        "sampling_params": response_data.get("sampling_params"),
+                        "summary": summary,
+                        "_mode": "compact",
+                    }
+            except Exception:
+                pass
+
             # Return immediately - wrap in try/except to catch serialization errors
             # This prevents server crashes if serialization fails
             try:
@@ -1046,8 +1349,7 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                             "S": float(metrics.get("S", 0)),
                             "V": float(metrics.get("V", 0)),
                             "coherence": float(metrics.get("coherence", 0)),
-                            "risk_score": float(metrics.get("risk_score") or metrics.get("attention_score", 0)),
-                            "attention_score": float(metrics.get("risk_score") or metrics.get("attention_score", 0))  # DEPRECATED
+                            "risk_score": float(metrics.get("risk_score", 0))
                         },
                         "sampling_params": result.get("sampling_params", {}),
                         "_warning": "Response serialization had issues - some fields may be missing"

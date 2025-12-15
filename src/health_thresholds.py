@@ -55,11 +55,11 @@ class HealthThresholds:
         # Use attention_score (renamed from risk_score) if available
         if risk_score is not None:
             if risk_score < self.risk_healthy_max:
-                return HealthStatus.HEALTHY, f"Low attention ({risk_score:.2%})"
+                return HealthStatus.HEALTHY, f"Low risk ({risk_score:.2%})"
             elif risk_score < self.risk_moderate_max:
-                return HealthStatus.MODERATE, f"Typical attention ({risk_score:.2%}) - normal for development work"
+                return HealthStatus.MODERATE, f"Typical risk ({risk_score:.2%}) - normal for development work"
             else:
-                return HealthStatus.CRITICAL, f"High attention ({risk_score:.2%}) - consider simplifying approach"
+                return HealthStatus.CRITICAL, f"High risk ({risk_score:.2%}) - consider simplifying approach"
         
         # Fallback to coherence if risk not available
         if coherence is not None:

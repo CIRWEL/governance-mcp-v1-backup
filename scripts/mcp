@@ -1,0 +1,377 @@
+#!/bin/bash
+# Unified MCP Tool - THE canonical interface for Claude Code CLI
+# All agents use THIS script - do not create new ones!
+#
+# Usage: ./mcp [command] [args...]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_DIR" || exit 1
+
+COMMAND="${1:-help}"
+
+case "$COMMAND" in
+  paths)
+    # Print common MCP config file locations (best-effort)
+    #
+    # Usage:
+    #   ./scripts/mcp paths
+    #
+    # Note: Some clients have multiple possible locations depending on version.
+    echo "MCP config locations (macOS):"
+    echo ""
+    echo "  Cursor:"
+    echo "    - ~/.cursor/mcp.json"
+    echo "    - ~/Library/Application Support/Cursor/User/globalStorage/mcp.json"
+    echo ""
+    echo "  Claude Desktop:"
+    echo "    - ~/Library/Application Support/Claude/claude_desktop_config.json"
+    echo ""
+    echo "Tip: generate config JSON with:"
+    echo "  ./scripts/mcp config cursor http://127.0.0.1:8765/sse"
+    echo "  ./scripts/mcp config claude-desktop http://127.0.0.1:8765/sse"
+    exit 0
+    ;;
+
+  write-config)
+    # Write a generated config JSON into the repo (for sharing with admins)
+    #
+    # Usage:
+    #   ./scripts/mcp write-config cursor [sse-url] [output-path]
+    #   ./scripts/mcp write-config claude-desktop [sse-url] [output-path]
+    CLIENT="${2:-}"
+    SSE_URL="${3:-http://127.0.0.1:8765/sse}"
+    OUT="${4:-}"
+    if [[ -z "$CLIENT" ]]; then
+      echo "Usage:"
+      echo "  ./scripts/mcp write-config cursor [http://127.0.0.1:8765/sse] [config/generated-cursor.json]"
+      echo "  ./scripts/mcp write-config claude-desktop [http://127.0.0.1:8765/sse] [config/generated-claude-desktop.json]"
+      exit 1
+    fi
+    if [[ -z "$OUT" ]]; then
+      if [[ "$CLIENT" == "cursor" ]]; then
+        OUT="config/generated-cursor-mcp.json"
+      elif [[ "$CLIENT" == "claude-desktop" ]]; then
+        OUT="config/generated-claude-desktop-mcp.json"
+      else
+        echo "Error: client must be 'cursor' or 'claude-desktop'"
+        exit 1
+      fi
+    fi
+    mkdir -p "$(dirname "$OUT")"
+    "$0" config "$CLIENT" "$SSE_URL" > "$OUT"
+    echo "Wrote: $PROJECT_DIR/$OUT"
+    exit 0
+    ;;
+
+  config)
+    # Generate client-specific MCP config JSON (prints to stdout)
+    #
+    # Usage:
+    #   ./scripts/mcp config cursor [--sse-url URL]
+    #   ./scripts/mcp config claude-desktop [--sse-url URL]
+    #
+    CLIENT="${2:-}"
+    SSE_URL="${3:-http://127.0.0.1:8765/sse}"
+    if [[ "$CLIENT" != "cursor" && "$CLIENT" != "claude-desktop" ]]; then
+      echo "Usage:"
+      echo "  ./scripts/mcp config cursor [http://127.0.0.1:8765/sse]"
+      echo "  ./scripts/mcp config claude-desktop [http://127.0.0.1:8765/sse]"
+      exit 1
+    fi
+    if [[ "$CLIENT" == "cursor" ]]; then
+      cat <<EOF
+{
+  "mcpServers": {
+    "governance-monitor-v1": {
+      "url": "${SSE_URL}"
+    }
+  }
+}
+EOF
+      exit 0
+    fi
+
+    # Claude Desktop: stdio client (recommended to proxy to SSE for shared state)
+    cat <<EOF
+{
+  "mcpServers": {
+    "governance-monitor-v1": {
+      "command": "python3",
+      "args": [
+        "${PROJECT_DIR}/src/mcp_server_std.py"
+      ],
+      "env": {
+        "PYTHONPATH": "${PROJECT_DIR}",
+        "UNITARES_STDIO_PROXY_SSE_URL": "${SSE_URL}",
+        "UNITARES_STDIO_PROXY_STRICT": "1"
+      }
+    }
+  }
+}
+EOF
+    exit 0
+    ;;
+
+  deps)
+    # Quick dependency check
+    #
+    # Usage:
+    #   ./scripts/mcp deps core
+    #   ./scripts/mcp deps full
+    PROFILE="${2:-core}"
+    if [[ "$PROFILE" == "core" ]]; then
+      python3 -c "import mcp, numpy" 2>/dev/null && echo "✅ core deps ok" && exit 0
+      echo "❌ core deps missing"
+      echo "Install: pip install -r requirements-core.txt"
+      exit 1
+    fi
+    if [[ "$PROFILE" == "full" ]]; then
+      python3 -c "import mcp, numpy, uvicorn, starlette" 2>/dev/null && echo "✅ full deps ok" && exit 0
+      echo "❌ full deps missing"
+      echo "Install: pip install -r requirements-full.txt"
+      exit 1
+    fi
+    echo "Usage: ./scripts/mcp deps core|full"
+    exit 1
+    ;;
+
+  log|governance)
+    # Log work to governance system
+    echo "📅 $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    AGENT_ID="${2:-claude_code_$(date +%Y%m%d_%H%M%S)}"
+    RESPONSE_TEXT="${3:-Logging activity via unified MCP tool}"
+    COMPLEXITY="${4:-0.5}"
+
+    python3 << PYTHON
+import asyncio, sys
+sys.path.insert(0, '$PROJECT_DIR')
+from scripts.mcp_sse_client import GovernanceMCPClient
+
+async def main():
+    try:
+        async with GovernanceMCPClient() as client:
+            result = await client.process_agent_update(
+                agent_id='$AGENT_ID',
+                response_text='$RESPONSE_TEXT',
+                complexity=float($COMPLEXITY)
+            )
+
+            from src.mcp_handlers.utils import print_metrics
+
+            print("┌─────────────────────────────────────────────────────┐")
+            print("│         GOVERNANCE DECISION (Canonical MCP)         │")
+            print("└─────────────────────────────────────────────────────┘")
+            decision = result.get('decision', {})
+            print(f"  Action:   {decision.get('action', 'unknown').upper()}")
+            print(f"  Reason:   {decision.get('reason', 'N/A')}")
+            if decision.get('guidance'):
+                print(f"  Guidance: {decision['guidance']}")
+            print("")
+
+            agent_id = result.get('agent_id', '$AGENT_ID')
+            metrics = result.get('metrics', {})
+            print_metrics(agent_id, metrics, title="Core Metrics")
+
+            print("")
+            print("┌─────────────────────────────────────────────────────┐")
+            print("│                OPERATIONAL STATE                    │")
+            print("└─────────────────────────────────────────────────────┘")
+            print(f"  Regime:            {metrics.get('regime', 'N/A')}")
+            print(f"  Confidence:        {metrics.get('confidence', 'N/A'):.3f}")
+            print(f"  Health Status:     {metrics.get('health_status', 'N/A')}")
+            if metrics.get('health_message'):
+                print(f"  Health Message:    {metrics['health_message']}")
+            print("")
+
+            if 'api_key' in result:
+                print("┌─────────────────────────────────────────────────────┐")
+                print("│                  NEW AGENT                          │")
+                print("└─────────────────────────────────────────────────────┘")
+                print(f"  API Key: {result['api_key']}")
+                print("  ⚠️  Save this key for future calls!")
+                print("")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        print("\nTroubleshooting:")
+        print("  1. Check SSE server: ./mcp server")
+        print("  2. Restart: launchctl restart com.unitares.governance-mcp")
+        sys.exit(1)
+asyncio.run(main())
+PYTHON
+    ;;
+
+  status|health)
+    echo "📅 $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo "🏥 SYSTEM HEALTH"
+    python3 << EOF
+import asyncio, sys, json
+sys.path.insert(0, '$PROJECT_DIR')
+from scripts.mcp_sse_client import GovernanceMCPClient
+async def check():
+    async with GovernanceMCPClient() as client:
+        result = await client.call_tool("get_workspace_health", {})
+        if hasattr(result, 'content'):
+            for c in result.content:
+                if hasattr(c, 'text'):
+                    data = json.loads(c.text)
+                    print(f"  Status: {data.get('status', 'unknown')}")
+                    print(f"  Active agents: {data.get('active_agents', 0)}")
+                    print(f"  Total discoveries: {data.get('total_discoveries', 0)}")
+asyncio.run(check())
+EOF
+    ;;
+
+  agents|list)
+    echo "👥 ACTIVE AGENTS"
+    python3 << EOF
+import asyncio, sys, json
+sys.path.insert(0, '$PROJECT_DIR')
+from scripts.mcp_sse_client import GovernanceMCPClient
+async def check():
+    async with GovernanceMCPClient() as client:
+        result = await client.call_tool("list_agents", {})
+        if hasattr(result, 'content'):
+            for c in result.content:
+                if hasattr(c, 'text'):
+                    data = json.loads(c.text)
+                    agents_dict = data.get('agents', {})
+                    # agents is a dict with keys: active, waiting_input, paused, archived, deleted
+                    active_agents = agents_dict.get('active', [])
+                    summary = data.get('summary', {})
+                    total = summary.get('total', 0)
+                    print(f"  Total: {total}")
+                    print(f"  Active: {len(active_agents)}\n")
+                    # Limit agents before loop to avoid async cleanup issues
+                    limited = active_agents[0:10] if len(active_agents) > 10 else active_agents
+                    for agent in limited:
+                        aid = agent.get('agent_id', 'unknown')
+                        status = agent.get('lifecycle_status', '?')
+                        updates = agent.get('total_updates', 0)
+                        health = agent.get('health_status', '?')
+                        print(f"  • {aid[0:50]}")
+                        print(f"    Status: {status}, Health: {health}, Updates: {updates}")
+asyncio.run(check())
+EOF
+    ;;
+
+  tools)
+    echo "🔧 MCP TOOLS"
+    python3 << EOF
+import asyncio, sys
+sys.path.insert(0, '$PROJECT_DIR')
+from scripts.mcp_sse_client import GovernanceMCPClient
+async def check():
+    async with GovernanceMCPClient() as client:
+        tools = await client.list_tools()
+        print(f"  Total: {len(tools)}\n")
+        # Limit tools before loop to avoid async cleanup issues
+        limited_tools = tools[0:20] if len(tools) > 20 else tools
+        for tool in limited_tools:
+            print(f"  • {tool.name}")
+        if len(tools) > 20:
+            print(f"\n  ... and {len(tools) - 20} more")
+asyncio.run(check())
+EOF
+    ;;
+
+  server)
+    echo "🌐 SSE SERVER STATUS"
+    echo "  Port 8765:"
+    lsof -i :8765 | grep LISTEN && echo "    ✅ Running" || echo "    ❌ Not running"
+    echo ""
+    echo "  launchd service:"
+    launchctl list | grep governance && echo "    ✅ Loaded" || echo "    ❌ Not loaded"
+    ;;
+
+  restart)
+    echo "🔄 RESTARTING GOVERNANCE MCP SERVER"
+    echo ""
+    launchctl kickstart -k gui/$(id -u)/com.unitares.governance-mcp
+    sleep 2
+    echo ""
+    echo "✅ Server restarted"
+    echo ""
+    echo "Verifying connection..."
+    curl -s http://127.0.0.1:8765/sse | head -5
+    echo ""
+    echo "✅ Governance MCP is back online"
+    ;;
+
+  explore)
+    echo "📅 $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo "╔════════════════════════════════════════════════════════╗"
+    echo "║              COMPLETE MCP EXPLORATION                  ║"
+    echo "╚════════════════════════════════════════════════════════╝"
+    echo ""
+    $0 server
+    echo ""
+    $0 status
+    echo ""
+    $0 agents
+    ;;
+
+  help|*)
+    cat << 'HELP'
+╔════════════════════════════════════════════════════════╗
+║        Unified MCP Tool - Canonical Interface          ║
+╚════════════════════════════════════════════════════════╝
+
+⚠️  ALL AGENTS USE THIS SCRIPT - DO NOT CREATE NEW ONES!
+
+USAGE:
+  ./mcp [command] [args...]
+
+COMMANDS:
+
+  Configuration:
+    ./mcp paths                          - Show MCP config file locations
+    ./mcp config <client> [sse-url]      - Generate config JSON (cursor|claude-desktop)
+    ./mcp write-config <client> [url]    - Write config to repo
+    ./mcp deps <profile>                 - Check dependencies (core|full)
+
+  Log to Governance:
+    ./mcp log "agent_id" "what you did" 0.5
+    ./mcp governance "agent_id" "work" 0.7
+
+  System Checks:
+    ./mcp status        - System health
+    ./mcp agents        - List active agents
+    ./mcp tools         - Show MCP tools
+    ./mcp server        - Check SSE server
+    ./mcp restart       - Restart SSE server
+    ./mcp explore       - Full system check
+
+  Help:
+    ./mcp help          - Show this help
+
+EXAMPLES:
+
+  # Log your work (most common)
+  ./mcp log "claude_code_$(date +%Y%m%d)" "completed feature X" 0.7
+
+  # Quick health check
+  ./mcp status
+
+  # See who else is active
+  ./mcp agents
+
+  # Full exploration
+  ./mcp explore
+
+COMPLEXITY GUIDE:
+  0.1-0.3  Simple tasks
+  0.4-0.6  Moderate work (most common)
+  0.7-0.9  Complex reasoning
+  1.0      Maximum complexity
+
+ANTI-PROLIFERATION POLICY:
+  ✅ Use THIS script for all MCP interactions
+  ❌ Do NOT create new scripts
+  ❌ Do NOT write ad-hoc Python MCP code
+
+  This is THE canonical MCP interface for Claude Code CLI.
+
+HELP
+    ;;
+esac

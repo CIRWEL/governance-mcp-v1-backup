@@ -224,7 +224,8 @@ class TestIntegration:
 
         deltas = trajectory.deltas()
         assert hasattr(deltas, 'V')
-        assert deltas.V == -0.06  # -0.07 - (-0.01)
+        # Use approximate comparison due to floating point precision
+        assert abs(deltas.V - (-0.06)) < 1e-10, f"Expected ~-0.06, got {deltas.V}"  # -0.07 - (-0.01)
 
     def test_percent_changes_include_all_four(self):
         """Percent changes must include V."""

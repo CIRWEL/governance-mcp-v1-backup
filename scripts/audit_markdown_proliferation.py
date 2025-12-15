@@ -21,21 +21,29 @@ from typing import Dict, List, Tuple, Set
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Approved markdown files (from policy)
+# Approved markdown files (from policy) - updated 2025-12-09
 APPROVED_FILES = {
+    # Root
     'README.md',
     'CHANGELOG.md',
+    'START_HERE.md',
+    # Docs
     'docs/README.md',
-    'docs/QUICK_REFERENCE.md',
-    'docs/DOC_MAP.md',
-    'docs/DOCUMENTATION_GUIDELINES.md',
-    'docs/meta/MARKDOWN_PROLIFERATION_POLICY.md',
     'docs/guides/ONBOARDING.md',
-    'docs/guides/USAGE_GUIDE.md',
     'docs/guides/TROUBLESHOOTING.md',
-    'docs/architecture/ARCHITECTURE.md',
-    'docs/architecture/LAYER_ARCHITECTURE.md',
+    'docs/guides/MCP_SETUP.md',
+    'docs/guides/THRESHOLDS.md',
+    'docs/reference/AI_ASSISTANT_GUIDE.md',
+    # Module READMEs (auto-approved)
+    'governance_core/README.md',
+    'scripts/README.md',
+    'data/README.md',
+    'demos/README.md',
+    'tools/README.md',
 }
+
+# Max total files allowed (hard limit)
+MAX_MARKDOWN_FILES = 20
 
 # Directories that should be mostly migrated
 MIGRATION_TARGET_DIRS = {

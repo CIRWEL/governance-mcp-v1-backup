@@ -145,7 +145,7 @@ def cross_validate_dynamics() -> Tuple[bool, Dict]:
     print(f"\n  Overall max difference: {max_diff:.2e}")
     print(f"  All match: {'✅ YES' if all_match else '❌ NO'}")
     
-    return all_match, {"max_diff": max_diff, "results": results}
+    assert all_match, f"Coherence consistency failed, max_diff={max_diff:.2e}"
 
 
 def benchmark_performance() -> Dict:
@@ -229,7 +229,7 @@ def benchmark_performance() -> Dict:
     }
 
 
-def test_coherence_consistency() -> Tuple[bool, Dict]:
+def test_coherence_consistency():
     """Test coherence function consistency"""
     print("\n" + "="*70)
     print("COHERENCE FUNCTION CONSISTENCY")
@@ -264,10 +264,10 @@ def test_coherence_consistency() -> Tuple[bool, Dict]:
     print(f"\n  Max difference: {max_diff:.2e}")
     print(f"  All match: {'✅ YES' if all_match else '❌ NO'}")
     
-    return all_match, {"max_diff": max_diff, "results": results}
+    assert all_match, f"Coherence consistency failed, max_diff={max_diff:.2e}"
 
 
-def test_phi_consistency() -> Tuple[bool, Dict]:
+def test_phi_consistency():
     """Test phi objective consistency"""
     print("\n" + "="*70)
     print("PHI OBJECTIVE CONSISTENCY")
@@ -308,7 +308,7 @@ def test_phi_consistency() -> Tuple[bool, Dict]:
     print(f"\n  Max difference: {max_diff:.2e}")
     print(f"  All match: {'✅ YES' if all_match else '❌ NO'}")
     
-    return all_match, {"max_diff": max_diff, "results": results}
+    assert all_match, f"Phi consistency failed, max_diff={max_diff:.2e}"
 
 
 def run_all_validation_tests() -> int:

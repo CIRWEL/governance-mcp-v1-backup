@@ -9,17 +9,23 @@ from mcp.types import TextContent
 from datetime import datetime, timedelta
 import sys
 
-# Import from mcp_server_std module
-if 'src.mcp_server_std' in sys.modules:
-    mcp_server = sys.modules['src.mcp_server_std']
-else:
-    import src.mcp_server_std as mcp_server
+# Import from mcp_server_std module (using shared utility)
+from .shared import get_mcp_server
+mcp_server = get_mcp_server()
 
 from .utils import (
     require_agent_id,
     require_registered_agent,
     success_response,
     error_response
+)
+from .error_helpers import (
+    agent_not_found_error,
+    authentication_error,
+    authentication_required_error,
+    ownership_error,
+    validation_error,
+    system_error as system_error_helper
 )
 from .decorators import mcp_tool
 from src.governance_monitor import UNITARESMonitor
@@ -29,26 +35,90 @@ logger = get_logger(__name__)
 
 
 @mcp_tool("list_agents", timeout=15.0, rate_limit_exempt=True)
-async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """List all agents currently being monitored with lifecycle metadata and health status"""
+async def handle_list_agents(arguments: ToolArgumentsDict) -> Sequence[TextContent]:
+    """List all agents currently being monitored with lifecycle metadata and health status
+    
+    LITE MODE: Use lite=true for minimal response (~1KB vs ~15KB)
+    """
     try:
         # Reload metadata to ensure we have latest state (non-blocking)
         import asyncio
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, mcp_server.load_metadata)
         
+        # LITE MODE: Minimal response for local/smaller models (DEFAULT)
+        lite_mode = arguments.get("lite", True)
+        if lite_mode:
+            # Helper to identify test agents
+            def is_test_agent(agent_id: str) -> bool:
+                aid_lower = agent_id.lower()
+                return (
+                    agent_id.startswith("test_") or 
+                    agent_id.startswith("demo_") or
+                    "test" in aid_lower or
+                    "demo" in aid_lower
+                )
+            
+            # Ultra-compact response - only real agents
+            agents = []
+            for agent_id, meta in mcp_server.agent_metadata.items():
+                if meta.status != "active":
+                    continue
+                if meta.total_updates < 2:
+                    continue
+                if is_test_agent(agent_id):  # Filter test agents
+                    continue
+                agents.append({
+                    "id": agent_id,
+                    "updates": meta.total_updates,
+                    "last": meta.last_update[:10] if meta.last_update else None,
+                })
+            agents.sort(key=lambda x: x.get("updates", 0), reverse=True)
+            return success_response({
+                "agents": agents[:20],  # Top 20 only
+                "total": len(agents),
+                "more": "list_agents(lite=false) for full details" if len(agents) > 20 else None
+            })
+        
         grouped = arguments.get("grouped", True)
         include_metrics = arguments.get("include_metrics", True)
-        status_filter = arguments.get("status_filter", "all")
+        status_filter = arguments.get("status_filter", "active")  # Changed: default to active only
         loaded_only = arguments.get("loaded_only", False)
         summary_only = arguments.get("summary_only", False)
         standardized = arguments.get("standardized", True)
+        include_test_agents = arguments.get("include_test_agents", False)  # Default: filter out test agents
+        min_updates = arguments.get("min_updates", 2)  # NEW: filter out one-shot agents by default
+        
+        # Pagination support (optimization)
+        offset = arguments.get("offset", 0)
+        limit = arguments.get("limit")  # None = no limit (backward compatible)
 
         agents_list = []
         
+        # Helper function to identify test agents (consistent with auto_archive_old_test_agents)
+        def is_test_agent(agent_id: str) -> bool:
+            """Identify test/demo agents by naming patterns"""
+            agent_id_lower = agent_id.lower()
+            return (
+                agent_id.startswith("test_") or 
+                agent_id.startswith("demo_") or
+                agent_id.startswith("test") or
+                "test" in agent_id_lower or
+                "demo" in agent_id_lower
+            )
+        
+        # First pass: collect all matching agents (without loading monitors)
         for agent_id, meta in mcp_server.agent_metadata.items():
             # Filter by status if requested
             if status_filter != "all" and meta.status != status_filter:
+                continue
+            
+            # Filter out test agents by default (unless explicitly requested)
+            if not include_test_agents and is_test_agent(agent_id):
+                continue
+            
+            # Filter out low-activity agents (one-shot fragmentation cleanup)
+            if min_updates and meta.total_updates < min_updates:
                 continue
             
             # Filter by loaded status if requested
@@ -66,61 +136,101 @@ async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]
                 "notes": meta.notes if meta.notes else "",
             }
             
-            # Add health status and metrics if requested
-            if include_metrics and agent_id in mcp_server.monitors:
-                try:
-                    monitor = mcp_server.monitors[agent_id]
-                    metrics = monitor.get_metrics()
-                    agent_info["health_status"] = metrics.get("status", "unknown")
-                    agent_info["metrics"] = {
-                        "E": float(monitor.state.E),
-                        "I": float(monitor.state.I),
-                        "S": float(monitor.state.S),
-                        "V": float(monitor.state.V),
-                        "coherence": float(monitor.state.coherence),
-                        "current_risk": metrics.get("current_risk"),  # Recent trend (last 10) - USED FOR HEALTH STATUS
-                        "attention_score": float(metrics.get("attention_score") or metrics.get("current_risk") or metrics.get("mean_risk", 0.5)),  # Renamed from risk_score - complexity/attention blend
-                        "phi": metrics.get("phi"),  # Primary physics signal: Φ objective function
-                        "verdict": metrics.get("verdict"),  # Primary governance signal: safe/caution/high-risk
-                        "risk_score": float(metrics.get("attention_score") or metrics.get("current_risk") or metrics.get("mean_risk", 0.5)),  # DEPRECATED: Use attention_score instead
-                        "mean_risk": float(metrics.get("mean_risk", 0.5)),  # Overall mean (all-time average) - for historical context
-                        "lambda1": float(monitor.state.lambda1),
-                        "void_active": bool(monitor.state.void_active)
-                    }
-                except Exception as e:
-                    agent_info["health_status"] = "error"
+            # Lazy load metrics only if requested (optimization)
+            if include_metrics:
+                # Only load monitor if already in memory (fast path)
+                if agent_id in mcp_server.monitors:
+                    try:
+                        monitor = mcp_server.monitors[agent_id]
+                        metrics = monitor.get_metrics()
+                        
+                        # Calculate health_status consistently with process_agent_update
+                        # Use health_checker.get_health_status() instead of metrics.get("status")
+                        # to ensure consistency across all tools
+                        risk_score = metrics.get("risk_score") or metrics.get("current_risk")
+                        coherence = float(monitor.state.coherence) if monitor.state else None
+                        void_active = bool(monitor.state.void_active) if monitor.state else False
+                        
+                        health_status_obj, _ = mcp_server.health_checker.get_health_status(
+                            risk_score=risk_score,
+                            coherence=coherence,
+                            void_active=void_active
+                        )
+                        agent_info["health_status"] = health_status_obj.value
+                        agent_info["metrics"] = {
+                            "E": float(monitor.state.E),
+                            "I": float(monitor.state.I),
+                            "S": float(monitor.state.S),
+                            "V": float(monitor.state.V),
+                            "coherence": float(monitor.state.coherence),
+                            "current_risk": metrics.get("current_risk"),  # Recent trend (last 10) - USED FOR HEALTH STATUS
+                            "risk_score": float(metrics.get("risk_score") or metrics.get("current_risk") or metrics.get("mean_risk", 0.5)),  # Governance/operational risk
+                            "phi": metrics.get("phi"),  # Primary physics signal: Φ objective function
+                            "verdict": metrics.get("verdict"),  # Primary governance signal: safe/caution/high-risk
+                            "mean_risk": float(metrics.get("mean_risk", 0.5)),  # Overall mean (all-time average) - for historical context
+                            "lambda1": float(monitor.state.lambda1),
+                            "void_active": bool(monitor.state.void_active)
+                        }
+                    except Exception as e:
+                        agent_info["health_status"] = "error"
+                        agent_info["metrics"] = None
+                        logger.warning(f"Error getting metrics for {agent_id}: {e}")
+                else:
+                    # Monitor not in memory - try cached health status first, calculate if missing
+                    cached_health = getattr(meta, 'health_status', None)
+                    if cached_health and cached_health != "unknown":
+                        agent_info["health_status"] = cached_health
+                    else:
+                        # No cached health status or it's "unknown" - calculate it
+                        try:
+                            monitor = mcp_server.get_or_create_monitor(agent_id)
+                            metrics_dict = monitor.get_metrics()
+                            risk_score = metrics_dict.get('risk_score', None)
+                            coherence = metrics_dict.get('coherence', None)
+                            void_active = metrics_dict.get('void_active', False)
+                            
+                            health_status_obj, _ = mcp_server.health_checker.get_health_status(
+                                risk_score=attention_score,
+                                coherence=coherence,
+                                void_active=void_active
+                            )
+                            agent_info["health_status"] = health_status_obj.value
+                            
+                            # Cache for future use
+                            if meta:
+                                meta.health_status = health_status_obj.value
+                        except Exception as e:
+                            logger.debug(f"Could not calculate health status for agent '{agent_id}': {e}")
+                            agent_info["health_status"] = "unknown"
                     agent_info["metrics"] = None
-                    logger.warning(f"Error getting metrics for {agent_id}: {e}")
             else:
-                # Try to get health status even if monitor not loaded
-                if include_metrics:
+                # No metrics requested - try cached health_status first, calculate if missing
+                cached_health = getattr(meta, 'health_status', None)
+                if cached_health and cached_health != "unknown":
+                    agent_info["health_status"] = cached_health
+                else:
+                    # No cached health status or it's "unknown" - calculate it
                     try:
                         monitor = mcp_server.get_or_create_monitor(agent_id)
-                        metrics = monitor.get_metrics()
-                        agent_info["health_status"] = metrics.get("status", "unknown")
-                        # Try to get basic metrics
-                        try:
-                            agent_info["metrics"] = {
-                                "E": float(monitor.state.E),
-                                "I": float(monitor.state.I),
-                                "S": float(monitor.state.S),
-                                "V": float(monitor.state.V),
-                                "coherence": float(monitor.state.coherence),
-                                "current_risk": metrics.get("current_risk"),  # Recent trend (for health status)
-                                "risk_score": float(metrics.get("mean_risk", 0.5)),  # Overall mean (for display)
-                                "mean_risk": float(metrics.get("mean_risk", 0.5)),  # Alias for backward compatibility
-                                "lambda1": float(monitor.state.lambda1),
-                                "void_active": bool(monitor.state.void_active)
-                            }
-                        except Exception:
-                            agent_info["metrics"] = None
+                        metrics_dict = monitor.get_metrics()
+                        attention_score = metrics_dict.get('attention_score') or metrics_dict.get('risk_score', None)
+                        coherence = metrics_dict.get('coherence', None)
+                        void_active = metrics_dict.get('void_active', False)
+                        
+                        health_status_obj, _ = mcp_server.health_checker.get_health_status(
+                            risk_score=attention_score,
+                            coherence=coherence,
+                            void_active=void_active
+                        )
+                        agent_info["health_status"] = health_status_obj.value
+                        
+                        # Cache for future use
+                        if meta:
+                            meta.health_status = health_status_obj.value
                     except Exception as e:
+                        logger.debug(f"Could not calculate health status for agent '{agent_id}': {e}")
                         agent_info["health_status"] = "unknown"
-                        agent_info["metrics"] = None
-                        logger.warning(f"Could not load monitor for {agent_id}: {e}")
-                else:
-                    agent_info["health_status"] = "unknown"
-                    agent_info["metrics"] = None
+                agent_info["metrics"] = None
             
             # Add standardized fields if requested
             if standardized:
@@ -131,6 +241,13 @@ async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]
         
         # Sort by last_update (most recent first)
         agents_list.sort(key=lambda x: x.get("last_update", ""), reverse=True)
+        
+        # Apply pagination (optimization)
+        total_count = len(agents_list)
+        if limit is not None:
+            agents_list = agents_list[offset:offset + limit]
+        elif offset > 0:
+            agents_list = agents_list[offset:]
         
         # Group by status if requested
         if grouped and not summary_only:
@@ -146,20 +263,16 @@ async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]
                 "success": True,
                 "agents": grouped_agents,
                 "summary": {
-                    "total": len(agents_list),
+                    "total": total_count,  # Use total_count (before pagination)
+                    "returned": len(agents_list),  # Number actually returned (after pagination)
+                    "offset": offset,
+                    "limit": limit,
                     "by_status": {
                         "active": sum(1 for a in agents_list if a.get("lifecycle_status") == "active"),
                         "waiting_input": sum(1 for a in agents_list if a.get("lifecycle_status") == "waiting_input"),
                         "paused": sum(1 for a in agents_list if a.get("lifecycle_status") == "paused"),
                         "archived": sum(1 for a in agents_list if a.get("lifecycle_status") == "archived"),
                         "deleted": sum(1 for a in agents_list if a.get("lifecycle_status") == "deleted")
-                    },
-                    "by_health": {
-                        "healthy": sum(1 for a in agents_list if a.get("health_status") == "healthy"),
-                        "moderate": sum(1 for a in agents_list if a.get("health_status") == "moderate"),
-                        "critical": sum(1 for a in agents_list if a.get("health_status") == "critical"),
-                        "unknown": sum(1 for a in agents_list if a.get("health_status") == "unknown"),
-                        "error": sum(1 for a in agents_list if a.get("health_status") == "error")
                     }
                 }
             }
@@ -178,7 +291,10 @@ async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]
                 "success": True,
                 "agents": agents_list,
                 "summary": {
-                    "total": len(agents_list),
+                    "total": total_count,  # Use total_count (before pagination)
+                    "returned": len(agents_list),  # Number actually returned (after pagination)
+                    "offset": offset,
+                    "limit": limit,
                     "by_status": {
                         "active": sum(1 for a in agents_list if a.get("lifecycle_status") == "active"),
                         "waiting_input": sum(1 for a in agents_list if a.get("lifecycle_status") == "waiting_input"),
@@ -206,7 +322,10 @@ async def handle_list_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]
         return success_response(response_data)
         
     except Exception as e:
-        return [error_response(f"Error listing agents: {str(e)}")]
+        return system_error_helper(
+            "list_agents",
+            e
+        )
 
 
 @mcp_tool("get_agent_metadata", timeout=10.0)
@@ -248,8 +367,12 @@ async def handle_get_agent_metadata(arguments: Sequence[TextContent]) -> list:
 
 @mcp_tool("update_agent_metadata", timeout=10.0)
 async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Update agent tags and notes"""
-    # PROACTIVE GATE: Require agent to be registered
+    """Update agent tags and notes
+    
+    SECURITY: Requires API key authentication and ownership verification.
+    Agents can only update their own metadata.
+    """
+    # SECURITY FIX: Require registered agent_id (prevents phantom agent_ids)
     agent_id, error = require_registered_agent(arguments)
     if error:
         return [error]
@@ -260,9 +383,60 @@ async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[Te
     await loop.run_in_executor(None, mcp_server.load_metadata)
     
     if agent_id not in mcp_server.agent_metadata:
-        return [error_response(f"Agent '{agent_id}' not found")]
+        return agent_not_found_error(agent_id)
     
     meta = mcp_server.agent_metadata[agent_id]
+    
+    # SECURITY FIX: Require API key authentication
+    api_key = arguments.get("api_key")
+    
+    # FRICTION FIX: Auto-fallback to session-bound identity if API key not provided
+    if not api_key:
+        try:
+            from .identity import get_bound_agent_id, get_bound_api_key
+            bound_id = get_bound_agent_id(arguments=arguments)
+            if bound_id == agent_id:
+                bound_key = get_bound_api_key(arguments=arguments)
+                if bound_key:
+                    api_key = bound_key
+                    arguments["api_key"] = api_key
+                    logger.debug(f"Auto-retrieved API key from session-bound identity for agent '{agent_id}'")
+            else:
+                bound_id_fallback = get_bound_agent_id()
+                if bound_id_fallback == agent_id:
+                    bound_key_fallback = get_bound_api_key()
+                    if bound_key_fallback:
+                        api_key = bound_key_fallback
+                        arguments["api_key"] = api_key
+                        logger.debug(f"Auto-retrieved API key from session-bound identity (fallback) for agent '{agent_id}'")
+        except (ImportError, AttributeError, Exception):
+            pass  # Continue with auth check below
+    
+    if not api_key:
+        return [error_response(
+            "API key required to update agent metadata. "
+            "Agent metadata updates require authentication to prevent unauthorized modifications.",
+            recovery={
+                "action": "Provide api_key parameter or bind your identity",
+                "related_tools": ["get_agent_api_key", "bind_identity"],
+                "workflow": [
+                    "Option 1: Get API key via get_agent_api_key and include in update_agent_metadata call",
+                    "Option 2: Call bind_identity(agent_id, api_key) once, then API key auto-retrieved from session"
+                ]
+            }
+        )]
+    
+    # SECURITY FIX: Verify API key matches agent_id (ownership check)
+    if not meta.api_key or meta.api_key != api_key:
+        return [error_response(
+            "Invalid API key for updating agent metadata. "
+            "API key must match the agent_id. You can only update your own metadata.",
+            recovery={
+                "action": "Verify your API key matches your agent_id",
+                "related_tools": ["get_agent_api_key"],
+                "workflow": "1. Get correct API key for your agent_id 2. Retry with correct key"
+            }
+        )]
     
     # Update tags if provided
     if "tags" in arguments:
@@ -294,8 +468,13 @@ async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[Te
 
 @mcp_tool("archive_agent", timeout=15.0)
 async def handle_archive_agent(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Archive an agent for long-term storage"""
-    agent_id, error = require_agent_id(arguments)
+    """Archive an agent for long-term storage
+    
+    SECURITY: Requires API key authentication and ownership verification.
+    Agents can only archive themselves.
+    """
+    # SECURITY FIX: Require registered agent_id (prevents phantom agent_ids)
+    agent_id, error = require_registered_agent(arguments)
     if error:
         return [error]
     
@@ -305,12 +484,53 @@ async def handle_archive_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
     await loop.run_in_executor(None, mcp_server.load_metadata)
     
     if agent_id not in mcp_server.agent_metadata:
-        return [error_response(f"Agent '{agent_id}' not found")]
+        return agent_not_found_error(agent_id)
     
     meta = mcp_server.agent_metadata[agent_id]
     
     if meta.status == "archived":
-        return [error_response(f"Agent '{agent_id}' is already archived")]
+        return [error_response(
+            f"Agent '{agent_id}' is already archived",
+            error_code="AGENT_ALREADY_ARCHIVED",
+            error_category="validation_error",
+            details={"error_type": "agent_already_archived", "agent_id": agent_id, "status": meta.status},
+            recovery={
+                "action": "Agent is already archived",
+                "related_tools": ["get_agent_metadata", "list_agents"],
+                "workflow": ["1. Check agent status with get_agent_metadata", "2. Archived agents cannot be archived again"]
+            }
+        )]
+    
+    # SECURITY FIX: Require API key authentication
+    # Use centralized fallback chain (explicit → session → metadata → SQLite)
+    from .utils import get_api_key_with_fallback
+    api_key = get_api_key_with_fallback(agent_id, arguments)
+    
+    if not api_key:
+        return [error_response(
+            "API key required to archive agent. "
+            "Agent archiving requires authentication to prevent unauthorized agent lifecycle changes.",
+            recovery={
+                "action": "Provide api_key parameter or bind your identity",
+                "related_tools": ["get_agent_api_key", "bind_identity"],
+                "workflow": [
+                    "Option 1: Get API key via get_agent_api_key and include in archive_agent call",
+                    "Option 2: Call bind_identity(agent_id, api_key) once, then API key auto-retrieved from session"
+                ]
+            }
+        )]
+    
+    # SECURITY FIX: Verify API key matches agent_id (ownership check - can only archive yourself)
+    if not meta.api_key or meta.api_key != api_key:
+        return [error_response(
+            "Invalid API key for archiving agent. "
+            "API key must match the agent_id. You can only archive your own agent.",
+            recovery={
+                "action": "Verify your API key matches your agent_id",
+                "related_tools": ["get_agent_api_key"],
+                "workflow": "1. Get correct API key for your agent_id 2. Retry with correct key"
+            }
+        )]
     
     reason = arguments.get("reason", "Manual archive")
     keep_in_memory = arguments.get("keep_in_memory", False)
@@ -341,8 +561,13 @@ async def handle_archive_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
 
 @mcp_tool("delete_agent", timeout=15.0)
 async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Handle delete_agent tool - delete agent and archive data (protected: cannot delete pioneer agents)"""
-    agent_id, error = require_agent_id(arguments)
+    """Handle delete_agent tool - delete agent and archive data (protected: cannot delete pioneer agents)
+    
+    SECURITY: Requires API key authentication and ownership verification.
+    Agents can only delete themselves.
+    """
+    # SECURITY FIX: Require registered agent_id (prevents phantom agent_ids)
+    agent_id, error = require_registered_agent(arguments)
     if error:
         return [error]
     
@@ -356,7 +581,7 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
     await loop.run_in_executor(None, mcp_server.load_metadata)
     
     if agent_id not in mcp_server.agent_metadata:
-        return [error_response(f"Agent '{agent_id}' not found")]
+        return agent_not_found_error(agent_id)
     
     meta = mcp_server.agent_metadata[agent_id]
     
@@ -371,6 +596,57 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
             }
         )]
     
+    # SECURITY FIX: Require API key authentication
+    api_key = arguments.get("api_key")
+    
+    # FRICTION FIX: Auto-fallback to session-bound identity if API key not provided
+    if not api_key:
+        try:
+            from .identity import get_bound_agent_id, get_bound_api_key
+            bound_id = get_bound_agent_id(arguments=arguments)
+            if bound_id == agent_id:
+                bound_key = get_bound_api_key(arguments=arguments)
+                if bound_key:
+                    api_key = bound_key
+                    arguments["api_key"] = api_key
+                    logger.debug(f"Auto-retrieved API key from session-bound identity for agent '{agent_id}'")
+            else:
+                bound_id_fallback = get_bound_agent_id()
+                if bound_id_fallback == agent_id:
+                    bound_key_fallback = get_bound_api_key()
+                    if bound_key_fallback:
+                        api_key = bound_key_fallback
+                        arguments["api_key"] = api_key
+                        logger.debug(f"Auto-retrieved API key from session-bound identity (fallback) for agent '{agent_id}'")
+        except (ImportError, AttributeError, Exception):
+            pass  # Continue with auth check below
+    
+    if not api_key:
+        return [error_response(
+            "API key required to delete agent. "
+            "Agent deletion requires authentication to prevent unauthorized agent lifecycle changes.",
+            recovery={
+                "action": "Provide api_key parameter or bind your identity",
+                "related_tools": ["get_agent_api_key", "bind_identity"],
+                "workflow": [
+                    "Option 1: Get API key via get_agent_api_key and include in delete_agent call",
+                    "Option 2: Call bind_identity(agent_id, api_key) once, then API key auto-retrieved from session"
+                ]
+            }
+        )]
+    
+    # SECURITY FIX: Verify API key matches agent_id (ownership check - can only delete yourself)
+    if not meta.api_key or meta.api_key != api_key:
+        return [error_response(
+            "Invalid API key for deleting agent. "
+            "API key must match the agent_id. You can only delete your own agent.",
+            recovery={
+                "action": "Verify your API key matches your agent_id",
+                "related_tools": ["get_agent_api_key"],
+                "workflow": "1. Get correct API key for your agent_id 2. Retry with correct key"
+            }
+        )]
+    
     backup_first = arguments.get("backup_first", True)
     
     # Backup if requested
@@ -381,7 +657,6 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
             import asyncio
             from pathlib import Path
             backup_dir = Path(mcp_server.project_root) / "data" / "archives"
-            backup_dir.mkdir(parents=True, exist_ok=True)
             backup_file = backup_dir / f"{agent_id}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             backup_data = {
                 "agent_id": agent_id,
@@ -393,6 +668,10 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
             loop = asyncio.get_running_loop()
             def _write_backup_sync():
                 """Synchronous backup write - runs in executor"""
+                # Create directory if needed (inside executor to avoid blocking)
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Write backup file
                 with open(backup_file, 'w', encoding='utf-8') as f:
                     json.dump(backup_data, f, indent=2)
             
@@ -423,11 +702,20 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
     })
 
 
-@mcp_tool("archive_old_test_agents", timeout=30.0, rate_limit_exempt=True)
+@mcp_tool("archive_old_test_agents", timeout=20.0, rate_limit_exempt=True)
 async def handle_archive_old_test_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Manually archive old test/demo agents that haven't been updated recently"""
-    max_age_hours = arguments.get("max_age_hours", 6)  # Default: 6 hours (test/ping agents don't need to stick around)
+    """Archive stale agents - test agents by default, or ALL stale agents with include_all=true
+    
+    Use include_all=true to clean up any agent inactive for max_age_days (default: 3 days)
+    """
+    max_age_hours = arguments.get("max_age_hours", 6)  # Default: 6 hours for test agents
     max_age_days = arguments.get("max_age_days")  # Backward compatibility: convert days to hours
+    include_all = arguments.get("include_all", False)  # NEW: archive ALL stale agents, not just test
+    dry_run = arguments.get("dry_run", False)  # NEW: preview without archiving
+    
+    # If include_all, use longer default (3 days)
+    if include_all and max_age_days is None and "max_age_hours" not in arguments:
+        max_age_days = 3
     
     # Convert days to hours if provided (backward compatibility)
     if max_age_days is not None:
@@ -445,8 +733,9 @@ async def handle_archive_old_test_agents(arguments: Dict[str, Any]) -> Sequence[
     cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
     
     for agent_id, meta in list(mcp_server.agent_metadata.items()):
-        # Only archive test/demo agents
-        if not (agent_id.startswith("test_") or agent_id.startswith("demo_") or "test" in agent_id.lower()):
+        # Filter: only test/demo agents unless include_all
+        is_test = (agent_id.startswith("test_") or agent_id.startswith("demo_") or "test" in agent_id.lower())
+        if not include_all and not is_test:
             continue
         
         # Skip if already archived/deleted
@@ -454,43 +743,48 @@ async def handle_archive_old_test_agents(arguments: Dict[str, Any]) -> Sequence[
             continue
         
         # Archive immediately if very low update count (1-2 updates = just a ping/test)
-        if meta.total_updates <= 2:
-            meta.status = "archived"
-            meta.archived_at = datetime.now().isoformat()
-            meta.add_lifecycle_event("archived", f"Auto-archived: test/ping agent with {meta.total_updates} update(s)")
-            archived_agents.append(agent_id)
-            
-            # Unload from memory
-            if agent_id in mcp_server.monitors:
-                del mcp_server.monitors[agent_id]
+        if meta.total_updates <= 2 and is_test:
+            if not dry_run:
+                meta.status = "archived"
+                meta.archived_at = datetime.now().isoformat()
+                meta.add_lifecycle_event("archived", f"Auto-archived: test/ping agent with {meta.total_updates} update(s)")
+                # Unload from memory
+                if agent_id in mcp_server.monitors:
+                    del mcp_server.monitors[agent_id]
+            archived_agents.append({"id": agent_id, "reason": "low_updates", "updates": meta.total_updates})
             continue
         
         # Check age for agents with more updates
-        last_update_dt = datetime.fromisoformat(meta.last_update)
+        try:
+            last_update_dt = datetime.fromisoformat(meta.last_update.replace('Z', '+00:00').replace('+00:00', ''))
+        except:
+            continue
+            
         if last_update_dt < cutoff_time:
             age_hours = (datetime.now() - last_update_dt).total_seconds() / 3600
-            meta.status = "archived"
-            meta.archived_at = datetime.now().isoformat()
-            meta.add_lifecycle_event("archived", f"Inactive for {age_hours:.1f} hours (threshold: {max_age_hours} hours)")
-            archived_agents.append(agent_id)
-            
-            # Unload from memory
-            if agent_id in mcp_server.monitors:
-                del mcp_server.monitors[agent_id]
+            age_days = age_hours / 24
+            if not dry_run:
+                meta.status = "archived"
+                meta.archived_at = datetime.now().isoformat()
+                meta.add_lifecycle_event("archived", f"Inactive for {age_hours:.1f} hours (threshold: {max_age_hours} hours)")
+                # Unload from memory
+                if agent_id in mcp_server.monitors:
+                    del mcp_server.monitors[agent_id]
+            archived_agents.append({"id": agent_id, "reason": "stale", "days_inactive": round(age_days, 1)})
     
-    if archived_agents:
+    if archived_agents and not dry_run:
         # Schedule batched metadata save (non-blocking)
-        import asyncio
-        loop = asyncio.get_running_loop()
         await mcp_server.schedule_metadata_save(force=False)
     
     return success_response({
         "success": True,
+        "dry_run": dry_run,
         "archived_count": len(archived_agents),
-        "archived_agents": archived_agents,
-        "max_age_hours": max_age_hours,
-        "threshold_used": max_age_hours,
-        "note": "Test agents with ≤2 updates archived immediately. Others archived after inactivity threshold."
+        "archived_agents": archived_agents[:20],  # Limit output
+        "total_would_archive": len(archived_agents),
+        "max_age_days": max_age_hours / 24,
+        "include_all": include_all,
+        "action": "preview - use dry_run=false to execute" if dry_run else "archived"
     })
 
 
@@ -508,14 +802,17 @@ async def handle_get_agent_api_key(arguments: Dict[str, Any]) -> Sequence[TextCo
     
     # SECURITY: For existing agents, require authentication to get/regenerate key
     if not is_new_agent:
-        api_key = arguments.get("api_key")
+        # Use centralized fallback chain (explicit → session → metadata → SQLite)
+        from .utils import get_api_key_with_fallback
+        api_key = get_api_key_with_fallback(agent_id, arguments)
+        
         if not api_key:
             return [error_response(
                 "Authentication required to retrieve API key for existing agent. Provide your api_key parameter.",
                 recovery={
                     "action": "Include your api_key in the request to prove ownership",
-                    "related_tools": ["list_agents"],
-                    "workflow": "If you've lost your key, contact system administrator for recovery"
+                    "related_tools": ["list_agents", "bind_identity"],
+                    "workflow": "If you've bound your identity with bind_identity(), API key should auto-retrieve. Otherwise, contact system administrator for recovery."
                 }
             )]
         
@@ -543,7 +840,10 @@ async def handle_get_agent_api_key(arguments: Dict[str, Any]) -> Sequence[TextCo
     # Regenerate API key if requested (requires auth for existing agents)
     if regenerate:
         if not is_new_agent and not api_key:
-            return [error_response("Authentication required to regenerate API key for existing agent")]
+            return authentication_required_error(
+                "regenerating API key for existing agent",
+                context={"agent_id": agent_id, "operation": "regenerate_api_key"}
+            )
         
         new_key = mcp_server.generate_api_key()
         meta.api_key = new_key
@@ -581,19 +881,23 @@ async def handle_get_agent_api_key(arguments: Dict[str, Any]) -> Sequence[TextCo
 @mcp_tool("mark_response_complete", timeout=5.0)
 async def handle_mark_response_complete(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Mark agent as having completed response, waiting for input"""
-    agent_id, error = require_agent_id(arguments)
+    # SECURITY FIX: Require registered agent (prevents phantom agent_ids)
+    agent_id, error = require_registered_agent(arguments)
     if error:
         return [error]
     
     # Verify API key if provided
     api_key = arguments.get("api_key")
+    meta = mcp_server.agent_metadata.get(agent_id)
     if api_key:
-        meta = mcp_server.agent_metadata.get(agent_id)
         if meta and hasattr(meta, 'api_key') and meta.api_key != api_key:
-            return [error_response("Authentication failed: Invalid API key")]
+            return authentication_error(
+                "Authentication failed: Invalid API key",
+                agent_id=agent_id,
+                context={"operation": "mark_response_complete"}
+            )
     
-    # Get or create metadata
-    meta = mcp_server.get_or_create_metadata(agent_id)
+    # Get existing metadata (already verified to exist above)
     
     # Update status to waiting_input
     meta.status = "waiting_input"
@@ -688,22 +992,74 @@ async def handle_mark_response_complete(arguments: Dict[str, Any]) -> Sequence[T
 
 @mcp_tool("direct_resume_if_safe", timeout=10.0)
 async def handle_direct_resume_if_safe(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Direct resume without dialectic if agent state is safe. Tier 1 recovery for simple stuck scenarios."""
-    agent_id, error = require_agent_id(arguments)
+    """Direct resume without dialectic if agent state is safe. Tier 1 recovery for simple stuck scenarios.
+    
+    SECURITY: Requires registered agent_id and API key authentication.
+    """
+    # SECURITY FIX: Require registered agent_id (prevents phantom agent_ids)
+    agent_id, error = require_registered_agent(arguments)
     if error:
         return [error]
     
-    # Verify API key
-    api_key = arguments.get("api_key")
-    if not api_key:
-        return [error_response("API key required for direct resume")]
+    # Reload metadata to ensure we have latest state (non-blocking)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
     
     meta = mcp_server.agent_metadata.get(agent_id)
     if not meta:
-        return [error_response(f"Agent '{agent_id}' not found")]
+        return agent_not_found_error(agent_id)
     
-    if meta.api_key != api_key:
-        return [error_response("Authentication failed: Invalid API key")]
+    # SECURITY FIX: Require API key authentication
+    api_key = arguments.get("api_key")
+    
+    # FRICTION FIX: Auto-fallback to session-bound identity if API key not provided
+    if not api_key:
+        try:
+            from .identity import get_bound_agent_id, get_bound_api_key
+            bound_id = get_bound_agent_id(arguments=arguments)
+            if bound_id == agent_id:
+                bound_key = get_bound_api_key(arguments=arguments)
+                if bound_key:
+                    api_key = bound_key
+                    arguments["api_key"] = api_key
+                    logger.debug(f"Auto-retrieved API key from session-bound identity for agent '{agent_id}'")
+            else:
+                bound_id_fallback = get_bound_agent_id()
+                if bound_id_fallback == agent_id:
+                    bound_key_fallback = get_bound_api_key()
+                    if bound_key_fallback:
+                        api_key = bound_key_fallback
+                        arguments["api_key"] = api_key
+                        logger.debug(f"Auto-retrieved API key from session-bound identity (fallback) for agent '{agent_id}'")
+        except (ImportError, AttributeError, Exception):
+            pass  # Continue with auth check below
+    
+    if not api_key:
+        return [error_response(
+            "API key required for direct resume. "
+            "Direct resume requires authentication to prevent unauthorized state changes.",
+            recovery={
+                "action": "Provide api_key parameter or bind your identity",
+                "related_tools": ["get_agent_api_key", "bind_identity"],
+                "workflow": [
+                    "Option 1: Get API key via get_agent_api_key and include in direct_resume_if_safe call",
+                    "Option 2: Call bind_identity(agent_id, api_key) once, then API key auto-retrieved from session"
+                ]
+            }
+        )]
+    
+    # SECURITY FIX: Verify API key matches agent_id (ownership check)
+    if not meta.api_key or meta.api_key != api_key:
+        return [error_response(
+            "Authentication failed: Invalid API key. "
+            "API key must match the agent_id.",
+            recovery={
+                "action": "Verify your API key matches your agent_id",
+                "related_tools": ["get_agent_api_key"],
+                "workflow": "1. Get correct API key for your agent_id 2. Retry with correct key"
+            }
+        )]
     
     # Get current governance metrics
     try:
@@ -716,7 +1072,11 @@ async def handle_direct_resume_if_safe(arguments: Dict[str, Any]) -> Sequence[Te
         status = meta.status
         
     except Exception as e:
-        return [error_response(f"Error getting governance metrics: {str(e)}")]
+        return system_error_helper(
+            "get_governance_metrics",
+            e,
+            context={"agent_id": agent_id}
+        )
     
     # Safety checks
     safety_checks = {

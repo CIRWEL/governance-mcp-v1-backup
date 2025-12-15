@@ -43,26 +43,32 @@ cat data/agent_metadata.json | python3 -m json.tool | grep -A 5 "your_agent_id"
 
 #### Immediate Fix
 ```bash
-# Option 1: Observer effect (sometimes just checking releases locks)
-python3 ~/scripts/claude_code_bridge.py --status --agent-id <stuck_agent>
+# Option 1: Check agent status via Python
+python3 -c "
+from src.governance_monitor import UNITARESMonitor
+m = UNITARESMonitor('<stuck_agent>')
+print(m.get_metrics())
+"
 
 # Option 2: Clean old locks (use with caution!)
 find data/locks/ -mmin +10 -delete  # Remove locks >10 minutes old
 
-# Option 3: Cleanup zombie processes
-./scripts/cleanup_zombie_mcp_servers.sh
+# Option 3: Check for zombie processes
+ps aux | grep mcp_server
 ```
 
 #### Prevention
 ```bash
-# Always use unique agent IDs
-python3 ~/scripts/claude_code_bridge.py  # Prompts for unique ID
+# Always use unique agent IDs (include date/purpose)
+# Good: claude_opus_feature_work_20251209
+# Bad: agent1, test
 
-# For automation
-python3 ~/scripts/claude_code_bridge.py --non-interactive
-
-# Resume existing session (don't create duplicates)
-cat .governance_session  # Check current session
+# Check existing agents
+python3 -c "
+from src.mcp_handlers.lifecycle import handle_list_agents
+import asyncio
+asyncio.run(handle_list_agents({'summary_only': True}))
+"
 ```
 
 ### Why Unique Agent IDs Matter
@@ -249,7 +255,7 @@ Some metrics (like λ₁) only update every 10 cycles.
 
 1. **Check void state**: `void_active: false`?
 2. **Check coherence**: `coherence >= 0.60`?
-3. **Check risk score**: Does it match your expectations given the parameters?
+3. **Check attention score**: Does it match your expectations given the parameters?
 4. **Run multiple updates**: Some behavior is adaptive and takes time.
 
 ---
@@ -353,10 +359,10 @@ print(f\"Void active: {result['metrics']['void_active']}\")
 
 ---
 
-## Issue 5: Risk Score Doesn't Match Expectations
+## Issue 5: Attention Score Doesn't Match Expectations
 
 ### Symptoms
-You think the response is risky, but risk_score is low (or vice versa).
+You think the response is risky, but attention_score is low (or vice versa).
 
 ### Understanding Risk Calculation
 
@@ -671,7 +677,7 @@ if void_active:
     print("→ Fix: Balance E and I in parameters")
 ```
 
-### Step 3: Check Risk Score
+### Step 3: Check Attention Score
 ```python
 if risk > 0.70:
     print(f"❌ High risk: {risk:.2f}")

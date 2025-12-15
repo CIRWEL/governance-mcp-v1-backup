@@ -70,7 +70,8 @@ def lambda2(theta: Theta, params: Params = DEFAULT_PARAMS) -> float:
     return core_lambda2(theta, params)
 
 def step_state(state: State, theta: Theta, delta_eta: List[float], dt: float,
-               noise_S: float = 0.0, params: Params = DEFAULT_PARAMS) -> State:
+               noise_S: float = 0.0, params: Params = DEFAULT_PARAMS,
+               complexity: float = 0.5) -> State:
     """
     Step state forward by dt - delegates to governance_core.
     
@@ -83,7 +84,8 @@ def step_state(state: State, theta: Theta, delta_eta: List[float], dt: float,
         delta_eta=delta_eta,
         dt=dt,
         noise_S=noise_S,
-        params=params
+        params=params,
+        complexity=complexity
     )
 
 def phi_objective(state: State, delta_eta: List[float],

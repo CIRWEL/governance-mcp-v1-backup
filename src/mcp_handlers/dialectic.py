@@ -10,6 +10,13 @@ import json
 from datetime import datetime, timedelta
 import random
 
+# Import type definitions
+from .types import (
+    ToolArgumentsDict,
+    DialecticSessionDict,
+    ResolutionDict
+)
+
 from src.dialectic_protocol import (
     DialecticSession,
     DialecticMessage,
@@ -25,20 +32,48 @@ import os
 
 logger = get_logger(__name__)
 
-# Import from mcp_server_std module (same pattern as lifecycle handlers)
-if 'src.mcp_server_std' in sys.modules:
-    mcp_server = sys.modules['src.mcp_server_std']
-else:
-    import src.mcp_server_std as mcp_server
+
+def _maybe_fill_api_key_from_bound_identity(arguments: Dict[str, Any], agent_id: str) -> None:
+    """
+    Best-effort: If api_key is missing, try to resolve it from session-bound identity.
+
+    Uses `client_session_id` to avoid collision with dialectic `session_id`.
+    Only fills when the bound agent_id matches the requested agent_id.
+    """
+    if arguments.get("api_key"):
+        return
+    client_session_id = arguments.get("client_session_id")
+    if not client_session_id:
+        return
+    try:
+        from .identity import get_bound_agent_id, get_bound_api_key
+        bound_agent_id = get_bound_agent_id(session_id=client_session_id, arguments=arguments)
+        if bound_agent_id and bound_agent_id != agent_id:
+            return
+        bound_api_key = get_bound_api_key(session_id=client_session_id, arguments=arguments)
+        if bound_api_key:
+            arguments["api_key"] = bound_api_key
+    except Exception:
+        return
+
+# Import from mcp_server_std module (using shared utility)
+from .shared import get_mcp_server
+mcp_server = get_mcp_server()
 
 
-# Active dialectic sessions (in-memory + persistent storage)
-ACTIVE_SESSIONS: Dict[str, DialecticSession] = {}
+# Import session persistence from new module
+from .dialectic_session import (
+    save_session,
+    load_session,
+    load_all_sessions,
+    ACTIVE_SESSIONS,
+    SESSION_STORAGE_DIR,
+    _SESSION_METADATA_CACHE,
+    _CACHE_TTL
+)
 
-# Session metadata cache for fast lookups (avoids repeated disk I/O)
+# Session metadata cache for fast lookups (re-exported for backward compatibility)
 # Format: {agent_id: {'in_session': bool, 'timestamp': float, 'session_ids': [str]}}
-_SESSION_METADATA_CACHE: Dict[str, Dict[str, Any]] = {}
-_CACHE_TTL = 60.0  # Cache TTL in seconds (1 minute)
 
 # Check if aiofiles is available for async I/O
 try:
@@ -47,583 +82,28 @@ try:
 except ImportError:
     AIOFILES_AVAILABLE = False
 
-# Session storage directory
-from pathlib import Path
-if 'src.mcp_server_std' in sys.modules:
-    project_root = Path(sys.modules['src.mcp_server_std'].project_root)
-else:
-    project_root = Path(__file__).parent.parent.parent
 
-SESSION_STORAGE_DIR = project_root / "data" / "dialectic_sessions"
-SESSION_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+# NOTE: save_session, load_session, and load_all_sessions are now imported from dialectic_session.py
+# NOTE: Calibration functions are now imported from dialectic_calibration.py
+# NOTE: Resolution execution is now imported from dialectic_resolution.py
+from .dialectic_calibration import (
+    update_calibration_from_dialectic,
+    update_calibration_from_dialectic_disagreement,
+    backfill_calibration_from_historical_sessions
+)
+from .dialectic_resolution import execute_resolution
+from .dialectic_reviewer import select_reviewer, is_agent_in_active_session
 
-
-async def save_session(session: DialecticSession) -> None:
-    """
-    Persist dialectic session to disk - SYNCHRONOUS for critical persistence.
-    
-    Dialectic sessions are critical for recovery - they must be saved before handler returns.
-    Using synchronous write ensures file is on disk before response is sent.
-    """
-    try:
-        session_file = SESSION_STORAGE_DIR / f"{session.session_id}.json"
-        session_data = session.to_dict()
-        
-        # CRITICAL: Synchronous write for dialectic sessions
-        # These are small files (<10KB) and must persist before handler returns
-        # Blocking briefly is acceptable for critical recovery data
-        json_str = json.dumps(session_data, indent=2)
-        
-        with open(session_file, 'w', encoding='utf-8') as f:
-            f.write(json_str)
-            f.flush()  # Ensure buffered data written
-            os.fsync(f.fileno())  # Force write to disk
-        
-        # Verify file exists and has content
-        if not session_file.exists():
-            raise FileNotFoundError(f"Session file not found after write: {session_file}")
-        
-        file_size = session_file.stat().st_size
-        if file_size == 0:
-            raise ValueError(f"Session file is empty: {session_file}")
-            
-    except Exception as e:
-        import traceback
-        logger.error(f"Could not save session {session.session_id}: {e}", exc_info=True)
-        # Re-raise to ensure caller knows save failed
-        raise
-
-
-async def load_all_sessions() -> int:
-    """
-    Load all active dialectic sessions from disk into ACTIVE_SESSIONS.
-    Called on server startup to restore sessions after restart.
-    
-    Returns:
-        Number of sessions loaded
-    """
-    if not SESSION_STORAGE_DIR.exists():
-        return 0
-    
-    loaded_count = 0
-    try:
-        import asyncio
-        loop = asyncio.get_running_loop()
-        
-        # List all session files
-        session_files = list(SESSION_STORAGE_DIR.glob("*.json"))
-        
-        for session_file in session_files:
-            try:
-                session_id = session_file.stem
-                # Skip if already in memory
-                if session_id in ACTIVE_SESSIONS:
-                    continue
-                
-                # Load session
-                session = await load_session(session_id)
-                if session:
-                    # Only restore active sessions (not resolved/failed/escalated)
-                    from src.dialectic_protocol import DialecticPhase
-                    if session.phase not in [DialecticPhase.RESOLVED, DialecticPhase.FAILED, DialecticPhase.ESCALATED]:
-                        ACTIVE_SESSIONS[session_id] = session
-                        loaded_count += 1
-                    # Check for timeout - mark as failed if expired
-                    elif session.phase == DialecticPhase.THESIS or session.phase == DialecticPhase.ANTITHESIS:
-                        from datetime import datetime, timedelta
-                        if datetime.now() - session.created_at > DialecticSession.MAX_TOTAL_TIME:
-                            # Session expired - mark as failed
-                            session.phase = DialecticPhase.FAILED
-                            await save_session(session)
-            except (IOError, json.JSONDecodeError, KeyError, ValueError) as e:
-                logger.warning(f"Could not load session {session_file.stem}: {e}")
-                continue
-            except Exception as e:
-                logger.error(f"Unexpected error loading session {session_file.stem}: {e}", exc_info=True)
-                continue
-        
-        if loaded_count > 0:
-            logger.info(f"Loaded {loaded_count} active dialectic session(s) from disk")
-        
-        return loaded_count
-    except (IOError, OSError) as e:
-        logger.warning(f"Could not load sessions from disk: {e}")
-        return 0
-    except Exception as e:
-        logger.error(f"Unexpected error loading sessions from disk: {e}", exc_info=True)
-        return 0
-
-
-async def load_session(session_id: str) -> Optional[DialecticSession]:
-    """Load dialectic session from disk"""
-    try:
-        session_file = SESSION_STORAGE_DIR / f"{session_id}.json"
-        if not session_file.exists():
-            return None
-        
-        if AIOFILES_AVAILABLE:
-            import aiofiles
-            async with aiofiles.open(session_file, 'r') as f:
-                content = await f.read()
-                session_data = json.loads(content)
-        else:
-            with open(session_file, 'r') as f:
-                session_data = json.load(f)
-        
-        # Reconstruct session from dict
-        # IMPLEMENTED: Full reconstruction from saved session data
-        try:
-            from src.dialectic_protocol import DialecticSession, DialecticMessage, Resolution, DialecticPhase
-            from datetime import datetime
-            
-            # Reconstruct transcript
-            transcript = []
-            for msg_dict in session_data.get('transcript', []):
-                msg = DialecticMessage(
-                    phase=msg_dict.get('phase', 'thesis'),
-                    agent_id=msg_dict.get('agent_id', ''),
-                    timestamp=msg_dict.get('timestamp', ''),
-                    root_cause=msg_dict.get('root_cause'),
-                    observed_metrics=msg_dict.get('observed_metrics'),
-                    proposed_conditions=msg_dict.get('proposed_conditions'),
-                    reasoning=msg_dict.get('reasoning'),
-                    agrees=msg_dict.get('agrees'),
-                    concerns=msg_dict.get('concerns')
-                )
-                transcript.append(msg)
-            
-            # Reconstruct resolution if present
-            resolution = None
-            if session_data.get('resolution'):
-                res_dict = session_data['resolution']
-                # Resolution structure: action, conditions, root_cause, reasoning, signature_a, signature_b, timestamp
-                resolution = Resolution(
-                    action=res_dict.get('action', 'resume'),
-                    conditions=res_dict.get('conditions', []),
-                    root_cause=res_dict.get('root_cause', ''),
-                    reasoning=res_dict.get('reasoning', ''),
-                    signature_a=res_dict.get('signature_a', ''),
-                    signature_b=res_dict.get('signature_b', ''),
-                    timestamp=res_dict.get('timestamp', datetime.now().isoformat())
-                )
-            
-            # Reconstruct phase
-            phase_str = session_data.get('phase', 'thesis')
-            try:
-                phase = DialecticPhase(phase_str)
-            except ValueError:
-                phase = DialecticPhase.THESIS  # Default
-            
-            # Create session (need paused_agent_state, use empty dict if not available)
-            paused_agent_state = session_data.get('paused_agent_state', {})
-            session = DialecticSession(
-                paused_agent_id=session_data.get('paused_agent_id', ''),
-                reviewer_agent_id=session_data.get('reviewer_agent_id', ''),
-                paused_agent_state=paused_agent_state,
-                discovery_id=session_data.get('discovery_id'),  # Optional: Backward compatible
-                dispute_type=session_data.get('dispute_type'),  # Optional: Backward compatible
-                max_synthesis_rounds=session_data.get('max_synthesis_rounds', 5)
-            )
-            
-            # Override generated session_id with saved one
-            session.session_id = session_id
-            
-            # Restore state
-            session.phase = phase
-            session.transcript = transcript
-            session.resolution = resolution
-            session.synthesis_round = session_data.get('synthesis_round', 0)
-            session.created_at = datetime.fromisoformat(session_data.get('created_at', datetime.now().isoformat()))
-            
-            return session
-        except (KeyError, ValueError, TypeError, AttributeError) as e:
-            logger.error(f"Error reconstructing session {session_id}: {e}", exc_info=True)
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error reconstructing session {session_id}: {e}", exc_info=True)
-            return None
-    except (IOError, json.JSONDecodeError) as e:
-        logger.warning(f"Could not read session file {session_id}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error loading session {session_id}: {e}", exc_info=True)
-        return None
-
-
-async def update_calibration_from_dialectic(session: DialecticSession, resolution: Optional[Resolution] = None) -> bool:
-    """
-    Automatically update calibration from dialectic convergence.
-    
-    Uses peer agreement as a proxy for correctness (with lower weight than human ground truth).
-    This implements the insight from our dialectic discussion: peer verification is valuable
-    for uncertainty detection, not ground truth.
-    
-    Args:
-        session: Converged dialectic session (must have resolution if converged)
-        resolution: Optional resolution (if None, uses session.resolution)
-    
-    Returns:
-        True if calibration was updated, False otherwise
-    """
-    from src.calibration import calibration_checker
-    from src.audit_log import audit_logger
-    import asyncio
-    
-    # Only update for verification-type sessions
-    if session.dispute_type != "verification":
-        return False
-    
-    # Check if session has resolution (converged)
-    if resolution is None:
-        resolution = session.resolution
-    if resolution is None:
-        # Session not converged yet - can't update calibration
-        return False
-    
-    # Get paused agent's most recent decision from audit log
-    # Look for auto_attest entries around the time the session was created
-    loop = asyncio.get_running_loop()
-    
-    # Query audit log for paused agent's recent decisions
-    # Use a window around session creation time (wider window for historical sessions)
-    session_time = session.created_at
-    window_start = (session_time - timedelta(minutes=10)).isoformat()
-    window_end = (session_time + timedelta(minutes=10)).isoformat()
-    
-    audit_entries = await loop.run_in_executor(
-        None,
-        audit_logger.query_audit_log,
-        session.paused_agent_id,
-        "auto_attest",
-        window_start,
-        window_end,
-        1  # Just get the most recent one
-    )
-    
-    if not audit_entries:
-        # No decision found - can't update calibration
-        logger.debug(f"No audit log entry found for agent {session.paused_agent_id} around session creation")
-        return False
-    
-    entry = audit_entries[0]
-    original_confidence = entry.get("confidence", 0.0)
-    decision = entry.get("details", {}).get("decision", "unknown")
-    predicted_correct = decision == "proceed"
-    
-    # Peer agreement = both agents agreed (converged)
-    # Use this as a proxy for correctness, but with lower weight
-    # Agreement suggests correctness, but we acknowledge it's not ground truth
-    peer_agreed = True  # Session converged = both agents agreed
-    
-    # Update calibration with peer verification proxy (lower weight)
-    # Use dedicated method for peer verification (tracks separately from human ground truth)
-    calibration_checker.update_from_peer_verification(
-        confidence=float(original_confidence),
-        predicted_correct=predicted_correct,
-        peer_agreed=True,  # Session converged = both agents agreed
-        weight=0.7  # Peer verification is 70% as reliable as human ground truth
-    )
-    
-    logger.info(
-        f"Auto-calibration updated from dialectic convergence: "
-        f"agent={session.paused_agent_id}, confidence={original_confidence:.3f}, "
-        f"peer_agreed={peer_agreed}, proxy_correct={predicted_correct}"
-    )
-    
-    return True
-
-
-async def update_calibration_from_dialectic_disagreement(session: DialecticSession, 
-                                                          disagreement_severity: float = 0.5) -> bool:
-    """
-    Automatically update calibration from dialectic disagreement/escalation.
-    
-    Disagreement indicates the agent was overconfident - their confidence was too high
-    for the actual uncertainty. This lowers calibration to reflect overconfidence.
-    
-    Args:
-        session: Dialectic session that escalated or failed to converge
-        disagreement_severity: How severe the disagreement was (0.0-1.0)
-                              - 0.5 = moderate disagreement (default)
-                              - 1.0 = complete failure to converge (max rounds exceeded)
-                              - Lower values for minor disagreements
-    
-    Returns:
-        True if calibration was updated, False otherwise
-    """
-    from src.calibration import calibration_checker
-    from src.audit_log import audit_logger
-    from src.dialectic_protocol import DialecticPhase
-    import asyncio
-    
-    # Only update for verification-type sessions
-    if session.dispute_type != "verification":
-        return False
-    
-    # Check if session escalated or failed (disagreement scenarios)
-    if session.phase not in [DialecticPhase.ESCALATED, DialecticPhase.FAILED]:
-        # Check if we have explicit disagreement patterns
-        # Look for synthesis messages where agents disagree
-        synthesis_messages = [msg for msg in session.transcript if msg.phase == "synthesis"]
-        if synthesis_messages:
-            # Check if we have disagreement (one agent agrees=False or both disagree)
-            disagreed_messages = [msg for msg in synthesis_messages if msg.agrees is False]
-            if not disagreed_messages:
-                # No explicit disagreement found - can't update calibration
-                return False
-        else:
-            # No synthesis messages yet - can't determine disagreement
-            return False
-    
-    # Get paused agent's most recent decision from audit log
-    loop = asyncio.get_running_loop()
-    
-    # Query audit log for paused agent's recent decisions
-    session_time = session.created_at
-    window_start = (session_time - timedelta(minutes=10)).isoformat()
-    window_end = (session_time + timedelta(minutes=10)).isoformat()
-    
-    audit_entries = await loop.run_in_executor(
-        None,
-        audit_logger.query_audit_log,
-        session.paused_agent_id,
-        "auto_attest",
-        window_start,
-        window_end,
-        1  # Just get the most recent one
-    )
-    
-    if not audit_entries:
-        # No decision found - can't update calibration
-        logger.debug(f"No audit log entry found for agent {session.paused_agent_id} around session creation")
-        return False
-    
-    entry = audit_entries[0]
-    original_confidence = entry.get("confidence", 0.0)
-    decision = entry.get("details", {}).get("decision", "unknown")
-    predicted_correct = decision == "proceed"
-    
-    # Determine disagreement severity based on session state
-    if session.phase == DialecticPhase.ESCALATED:
-        # Max rounds exceeded = severe disagreement
-        severity = 1.0
-    elif session.phase == DialecticPhase.FAILED:
-        # Complete failure = severe disagreement
-        severity = 1.0
-    else:
-        # Use provided severity or calculate from synthesis rounds
-        # More rounds = more persistent disagreement = higher severity
-        severity = min(disagreement_severity + (session.synthesis_round / session.max_synthesis_rounds) * 0.3, 1.0)
-    
-    # Update calibration to reflect overconfidence
-    calibration_checker.update_from_peer_disagreement(
-        confidence=float(original_confidence),
-        predicted_correct=predicted_correct,
-        disagreement_severity=severity
-    )
-    
-    logger.info(
-        f"Auto-calibration updated from dialectic disagreement: "
-        f"agent={session.paused_agent_id}, confidence={original_confidence:.3f}, "
-        f"severity={severity:.2f}, phase={session.phase.value}"
-    )
-    
-    return True
-
-
-async def backfill_calibration_from_historical_sessions() -> Dict[str, Any]:
-    """
-    Retroactively update calibration from historical resolved verification-type sessions.
-    
-    This processes all existing resolved verification sessions that were created before
-    automatic calibration was implemented, ensuring they contribute to calibration.
-    
-    Returns:
-        Dict with backfill results: {"processed": int, "updated": int, "errors": int, "sessions": list}
-    """
-    results = {
-        "processed": 0,
-        "updated": 0,
-        "errors": 0,
-        "sessions": []
-    }
-    
-    if not SESSION_STORAGE_DIR.exists():
-        return results
-    
-    # Load all session files
-    session_files = list(SESSION_STORAGE_DIR.glob("*.json"))
-    
-    for session_file in session_files:
-        try:
-            session = await load_session(session_file.stem)
-            if not session:
-                continue
-            
-            # Only process resolved verification-type sessions
-            if session.dispute_type != "verification":
-                continue
-            
-            from src.dialectic_protocol import DialecticPhase
-            if session.phase != DialecticPhase.RESOLVED or not session.resolution:
-                continue
-            
-            results["processed"] += 1
-            
-            # Try to update calibration
-            try:
-                # Pass the resolution from the session
-                updated = await update_calibration_from_dialectic(session, session.resolution)
-                if updated:
-                    results["updated"] += 1
-                    results["sessions"].append({
-                        "session_id": session.session_id,
-                        "agent_id": session.paused_agent_id,
-                        "status": "calibrated"
-                    })
-                else:
-                    results["sessions"].append({
-                        "session_id": session.session_id,
-                        "agent_id": session.paused_agent_id,
-                        "status": "skipped (no audit log entry)"
-                    })
-            except Exception as e:
-                results["errors"] += 1
-                results["sessions"].append({
-                    "session_id": session.session_id,
-                    "agent_id": session.paused_agent_id,
-                    "status": f"error: {str(e)}"
-                })
-                logger.warning(f"Error updating calibration for session {session.session_id}: {e}")
-        except Exception as e:
-            results["errors"] += 1
-            logger.warning(f"Error processing session file {session_file.stem}: {e}")
-    
-    return results
-
-
-async def execute_resolution(session: DialecticSession, resolution: Resolution) -> Dict[str, Any]:
-    """
-    Execute the resolution: resume agent with agreed conditions.
-    
-    This actually modifies agent state and applies conditions.
-    """
-    agent_id = session.paused_agent_id
-    
-    # Load agent metadata (non-blocking)
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
-    
-    if agent_id not in mcp_server.agent_metadata:
-        raise ValueError(f"Agent '{agent_id}' not found")
-    
-    meta = mcp_server.agent_metadata[agent_id]
-    
-    # Verify agent is actually paused
-    if meta.status != "paused":
-        return {
-            "success": False,
-            "warning": f"Agent status is '{meta.status}', not 'paused'. No action taken."
-        }
-    
-    # Apply conditions (simplified - would need more sophisticated parsing)
-    # TODO: Implement full condition enforcement parser
-    # - Parse conditions into structured format (action + target + value)
-    # - Example: "Reduce complexity to 0.3" → {"action": "set", "target": "complexity", "value": 0.3}
-    # - Monitor agent behavior after resume
-    # - Re-pause + reputation penalty if conditions violated
-    # - See docs/DIALECTIC_FUTURE_DEFENSES.md for requirements
-    applied_conditions = []
-    for condition in resolution.conditions:
-        try:
-            # Parse and apply condition
-            # This is a simplified version - real implementation would parse conditions
-            # and modify governance thresholds, monitoring settings, etc.
-            applied_conditions.append({
-                "condition": condition,
-                "status": "applied",
-                "note": "Condition applied (simplified implementation - full enforcement deferred)"
-            })
-        except Exception as e:
-            applied_conditions.append({
-                "condition": condition,
-                "status": "failed",
-                "error": str(e)
-            })
-    
-    # Resume the agent (if paused - skip if discovery dispute)
-    if meta.status == "paused":
-        meta.status = "active"
-        meta.paused_at = None
-        meta.add_lifecycle_event("resumed", f"Resumed via dialectic synthesis: {resolution.root_cause}")
-    
-    # If linked to discovery, update discovery status based on resolution
-    discovery_updated = False
-    if session.discovery_id:
-        try:
-            from src.knowledge_graph import get_knowledge_graph
-            from datetime import datetime
-            graph = await get_knowledge_graph()
-            discovery = await graph.get_discovery(session.discovery_id)
-            
-            if discovery:
-                if resolution.action == "resume":  # Agreed correction/verification
-                    # Discovery was disputed and corrected
-                    if session.dispute_type in ["dispute", "correction"]:
-                        # Update discovery details with correction note
-                        updated_details = discovery.details
-                        if updated_details:
-                            updated_details += f"\n\n[Disputed and corrected via dialectic {session.session_id} on {datetime.now().isoformat()}]\nResolution: {resolution.root_cause}"
-                        else:
-                            updated_details = f"[Disputed and corrected via dialectic {session.session_id} on {datetime.now().isoformat()}]\nResolution: {resolution.root_cause}"
-                        
-                        await graph.update_discovery(session.discovery_id, {
-                            "status": "resolved",
-                            "resolved_at": datetime.now().isoformat(),
-                            "details": updated_details,
-                            "updated_at": datetime.now().isoformat()
-                        })
-                        discovery_updated = True
-                elif resolution.action == "block":  # Dispute rejected, discovery verified
-                    # Discovery was disputed but verified correct
-                    updated_details = discovery.details
-                    if updated_details:
-                        updated_details += f"\n\n[Disputed but verified correct via dialectic {session.session_id} on {datetime.now().isoformat()}]\nResolution: {resolution.root_cause}"
-                    else:
-                        updated_details = f"[Disputed but verified correct via dialectic {session.session_id} on {datetime.now().isoformat()}]\nResolution: {resolution.root_cause}"
-                    
-                    await graph.update_discovery(session.discovery_id, {
-                        "status": "open",  # Back to open (verified)
-                        "details": updated_details,
-                        "updated_at": datetime.now().isoformat()
-                    })
-                    discovery_updated = True
-        except Exception as e:
-            logger.warning(f"Could not update discovery {session.discovery_id}: {e}")
-            # Don't fail resolution if discovery update fails
-    
-    # Schedule batched metadata save (non-blocking)
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await mcp_server.schedule_metadata_save(force=False)
-    
-    result = {
-        "success": True,
-        "agent_id": agent_id,
-        "new_status": meta.status,
-        "applied_conditions": applied_conditions,
-        "resolution_hash": resolution.hash()
-    }
-    
-    # Add discovery update info if present
-    if session.discovery_id:
-        result["discovery_id"] = session.discovery_id
-        result["discovery_updated"] = discovery_updated
-        if discovery_updated:
-            result["discovery_status"] = "resolved" if resolution.action == "resume" else "open"
-    
-    return result
+# Import SQLite async functions for cross-process session storage
+from src.dialectic_db import (
+    create_session_async as sqlite_create_session,
+    update_session_phase_async as sqlite_update_phase,
+    update_session_reviewer_async as sqlite_update_reviewer,
+    add_message_async as sqlite_add_message,
+    resolve_session_async as sqlite_resolve_session,
+    get_session_async as sqlite_get_session,
+    get_session_by_agent_async as sqlite_get_session_by_agent,
+)
 
 
 # Check for aiofiles availability
@@ -635,7 +115,7 @@ except ImportError:
 
 
 @mcp_tool("request_dialectic_review", timeout=15.0)
-async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+async def handle_request_dialectic_review(arguments: ToolArgumentsDict) -> Sequence[TextContent]:
     """
     Request a dialectic review for a paused/critical agent OR an agent stuck in loops OR a discovery dispute.
 
@@ -652,29 +132,101 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
         api_key: Agent's API key for authentication
         discovery_id: Optional - ID of discovery being disputed/corrected
         dispute_type: Optional - "dispute", "correction", "verification" (default: None for recovery)
+        auto_progress: Optional - If True, auto-progresses through phases (smart mode, default: False)
+        reviewer_mode: Optional - "peer" (default), "self" (system-assisted recovery), or "auto" (try peer, fallback to self)
+        root_cause: Optional - Root cause (auto-generated if not provided and auto_progress=True)
+        proposed_conditions: Optional - Proposed conditions (auto-generated if not provided and auto_progress=True)
+        reasoning: Optional - Explanation (auto-generated if not provided and auto_progress=True)
 
     Returns:
-        Session info with reviewer_id and session_id
+        Session info with reviewer_id and session_id, or final resolution if auto_progressed
     """
     try:
         agent_id = arguments.get('agent_id')
         reason = arguments.get('reason', 'Circuit breaker triggered')
+        _maybe_fill_api_key_from_bound_identity(arguments, agent_id)
         api_key = arguments.get('api_key')
-        discovery_id = arguments.get('discovery_id')  # NEW: Optional discovery ID
-        dispute_type = arguments.get('dispute_type')  # NEW: Optional dispute type
+        reviewer_agent_id = arguments.get('reviewer_agent_id')  # Optional explicit peer reviewer override
+        discovery_id = arguments.get('discovery_id')  # Optional discovery ID
+        dispute_type = arguments.get('dispute_type')  # Optional dispute type
+        auto_progress = arguments.get('auto_progress', False)  # Smart mode
+        reviewer_mode = arguments.get('reviewer_mode', 'peer')  # peer, self, or auto
 
         if not agent_id:
             return [error_response("agent_id is required")]
+        
+        # QUICK WIN A: Auto-resolve stuck sessions before checking for conflicts
+        # This prevents false "session conflict" warnings when sessions are actually stuck
+        try:
+            from src.mcp_handlers.dialectic_auto_resolve import check_and_resolve_stuck_sessions
+            resolution_result = await check_and_resolve_stuck_sessions()
+            if resolution_result.get("resolved_count", 0) > 0:
+                logger.info(f"Auto-resolved {resolution_result['resolved_count']} stuck session(s) before creating new session")
+        except Exception as e:
+            logger.debug(f"Could not auto-resolve stuck sessions: {e}")
+        
+        # CRITICAL: Check for agent ID collision risk in dialectic context
+        # If another agent is using this ID, dialectic sessions will get confused
+        # This is especially problematic because:
+        # 1. Two agents with same ID will share governance state
+        # 2. Dialectic sessions will mix paused/reviewer roles
+        # 3. Session ownership becomes ambiguous
+        from src.mcp_handlers.dialectic_reviewer import is_agent_in_active_session
+        from datetime import datetime, timedelta
+        
+        # Check if this agent_id is already in an active dialectic session
+        # This could indicate another agent is using the same ID
+        try:
+            already_in_session = await is_agent_in_active_session(agent_id)
+            if already_in_session:
+                logger.warning(
+                    f"⚠️  Agent ID '{agent_id}' is already in an active dialectic session. "
+                    f"This may indicate an ID collision - another agent may be using the same ID. "
+                    f"Dialectic sessions may get confused about paused/reviewer roles."
+                )
+        except Exception as e:
+            logger.debug(f"Could not check active session status: {e}")
+        
+        # Handle self-recovery mode
+        if reviewer_mode == 'self':
+            return await handle_self_recovery({
+                'agent_id': agent_id,
+                'api_key': api_key,
+                'root_cause': arguments.get('root_cause', reason),
+                'proposed_conditions': arguments.get('proposed_conditions', []),
+                'reasoning': arguments.get('reasoning', 'Self-recovery requested')
+            })
 
-        # Verify API key if provided
-        if api_key:
-            # Get agent's stored API key
-            agent_meta_stored = mcp_server.agent_metadata.get(agent_id)
-            if agent_meta_stored and hasattr(agent_meta_stored, 'api_key'):
-                if agent_meta_stored.api_key != api_key:
-                    return [error_response("Authentication failed: Invalid API key")]
-            # If no stored key, allow (for backward compatibility)
-        # Note: API key verification is now implemented, but optional for backward compatibility
+        # CRITICAL: Require API key authentication for dialectic reviews
+        # This prevents agent ID collisions and ensures identity ownership
+        # Dialectic reviews are critical operations - identity must be verified
+        import asyncio
+        loop = asyncio.get_running_loop()
+        
+        # Use existing auth function with strict enforcement for dialectic reviews
+        auth_valid, auth_error = await loop.run_in_executor(
+            None,
+            mcp_server.require_agent_auth,
+            agent_id,
+            arguments,
+            True  # enforce=True: require API key even for migration cases
+        )
+        
+        if not auth_valid:
+            # Enhance error message with dialectic-specific context
+            if auth_error:
+                error_text = auth_error.text if hasattr(auth_error, 'text') else str(auth_error)
+                try:
+                    import json
+                    error_data = json.loads(error_text)
+                    error_data["dialectic_context"] = (
+                        "Dialectic reviews require authentication to prevent agent ID collisions. "
+                        "Multiple agents using the same ID would cause state mixing and confusion."
+                    )
+                    return [TextContent(type="text", text=json.dumps(error_data, indent=2))]
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    pass  # Fall through to default error handling
+            return [auth_error] if auth_error else [error_response("Authentication required for dialectic review")]
 
         # Load agent metadata to get state (non-blocking)
         import asyncio
@@ -695,7 +247,8 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
         agent_meta = metadata_objects[agent_id]
         
         # Check if agent has completed work (not stuck, just waiting for input)
-        if agent_meta.status == "waiting_input":
+        # SKIP this check if discovery_id is provided - design debates don't require stuck state
+        if agent_meta.status == "waiting_input" and not discovery_id:
             return [error_response(
                 f"Agent '{agent_id}' has completed work and is waiting for input, not stuck.",
                 recovery={
@@ -706,7 +259,8 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
                     "workflow": [
                         "1. Check agent status with get_agent_metadata",
                         "2. If status is 'waiting_input', agent is done and waiting",
-                        "3. Dialectic review is not needed - agent can resume when user responds"
+                        "3. Dialectic review is not needed - agent can resume when user responds",
+                        "4. OR provide discovery_id to start a design debate (skip stuck check)"
                     ]
                 }
             )]
@@ -751,13 +305,11 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
         try:
             monitor = mcp_server.get_or_create_monitor(agent_id)
             metrics = monitor.get_metrics()
-            # Support both attention_score (new) and risk_score (deprecated)
-            attention_score = metrics.get('attention_score') or metrics.get('risk_score', 0.5)
+            risk_score = metrics.get('risk_score', 0.5)
             agent_state = {
-                'attention_score': attention_score,  # Renamed from risk_score
+                'risk_score': risk_score,  # Governance/operational risk
                 'phi': metrics.get('phi'),  # Primary physics signal
                 'verdict': metrics.get('verdict'),  # Primary governance signal
-                'risk_score': attention_score,  # DEPRECATED: Use attention_score instead
                 'coherence': metrics.get('coherence', 0.5),
                 'void_active': metrics.get('void_active', False),
                 'E': metrics.get('E', 0.5),
@@ -769,8 +321,7 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
             # Fallback to mock if monitor not available
             logger.warning(f"Could not load agent state for {agent_id}: {e}")
             agent_state = {
-                'attention_score': 0.65,  # Renamed from risk_score
-                'risk_score': 0.65,  # DEPRECATED
+                'risk_score': 0.65,  # Governance/operational risk
                 'coherence': 0.45,
                 'void_active': False
             }
@@ -786,7 +337,7 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
                 elif hasattr(paused_meta, 'tags'):
                     paused_agent_tags = paused_meta.tags or []
             
-            reviewer_id = select_reviewer(agent_id, metadata, agent_state, paused_agent_tags=paused_agent_tags)
+            reviewer_id = await select_reviewer(agent_id, metadata, agent_state, paused_agent_tags=paused_agent_tags)
         except Exception as e:
             import traceback
             # SECURITY: Log full traceback internally but sanitize for client
@@ -840,8 +391,64 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
                     }
                 )]
         
-        # Select reviewer (use discovery owner if dispute, otherwise system-selected)
-        if discovery_owner_id:
+        # Select reviewer
+        # Explicit reviewer override:
+        # - Allowed for peer/auto modes (ignored for reviewer_mode='self')
+        # - Must not be the same as the requesting agent (avoid accidental self-review)
+        # - For discovery disputes/corrections we still default to owner-as-reviewer (unless you redesign that policy),
+        #   but for verification we allow peer override (or peer selection).
+        if reviewer_agent_id and reviewer_mode != 'self':
+            try:
+                reviewer_candidate = str(reviewer_agent_id).strip()
+            except Exception:
+                reviewer_candidate = None
+            if reviewer_candidate:
+                if reviewer_candidate == agent_id:
+                    return [error_response(
+                        "reviewer_agent_id cannot equal agent_id unless reviewer_mode='self'",
+                        recovery={
+                            "action": "Provide a different reviewer_agent_id or set reviewer_mode='self'",
+                            "related_tools": ["list_agents", "request_exploration_session"]
+                        },
+                        context={"agent_id": agent_id, "reviewer_agent_id": reviewer_candidate}
+                    )]
+
+                # Verify reviewer exists and is active-ish
+                reviewer_meta_obj = metadata_objects.get(reviewer_candidate)
+                if not reviewer_meta_obj:
+                    return [error_response(
+                        f"Reviewer agent '{reviewer_candidate}' not found",
+                        recovery={"action": "Choose a reviewer_agent_id from list_agents", "related_tools": ["list_agents"]},
+                        context={"reviewer_agent_id": reviewer_candidate}
+                    )]
+                reviewer_status = getattr(reviewer_meta_obj, "status", None)
+                if reviewer_status and reviewer_status not in ['active', 'waiting_input']:
+                    return [error_response(
+                        f"Reviewer agent '{reviewer_candidate}' must be active (current status: {reviewer_status})",
+                        recovery={"action": "Pick a different reviewer_agent_id", "related_tools": ["list_agents"]},
+                        context={"reviewer_agent_id": reviewer_candidate, "status": reviewer_status}
+                    )]
+
+                # Avoid assigning reviewers already in active sessions (reduces recursion / deadlocks)
+                try:
+                    if await is_agent_in_active_session(reviewer_candidate):
+                        return [error_response(
+                            f"Reviewer agent '{reviewer_candidate}' is already in an active dialectic session",
+                            recovery={"action": "Pick a different reviewer_agent_id or wait and retry", "related_tools": ["get_dialectic_session", "list_agents"]},
+                            context={"reviewer_agent_id": reviewer_candidate}
+                        )]
+                except Exception:
+                    pass
+
+                # Only apply override for verification / general recovery; leave dispute/correction policy intact.
+                if not discovery_id or dispute_type == "verification" or dispute_type is None:
+                    reviewer_id = reviewer_candidate
+
+        #
+        # For discovery disputes:
+        # - dispute/correction: reviewer should be the discovery owner (fastest resolution of factual ownership)
+        # - verification: reviewer should be a *peer* (not the owner) to avoid self-review / circular validation
+        if discovery_owner_id and dispute_type in ("dispute", "correction"):
             reviewer_id = discovery_owner_id
             # Verify discovery owner exists
             if reviewer_id not in metadata:
@@ -853,7 +460,17 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
                     }
                 )]
         elif not reviewer_id:
-            return [error_response("No healthy reviewer available - escalating to strict default")]
+            # Handle reviewer_mode: auto falls back to self-recovery
+            if reviewer_mode == 'auto':
+                return await handle_self_recovery({
+                    'agent_id': agent_id,
+                    'api_key': api_key,
+                    'root_cause': arguments.get('root_cause', reason),
+                    'proposed_conditions': arguments.get('proposed_conditions', []),
+                    'reasoning': arguments.get('reasoning', 'No reviewers available - using self-recovery')
+                })
+            else:
+                return [error_response("No healthy reviewer available. Use reviewer_mode='self' or 'auto' for self-recovery.")]
 
         # Create dialectic session with discovery context
         session = DialecticSession(
@@ -862,32 +479,101 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
             paused_agent_state=agent_state,
             discovery_id=discovery_id,  # NEW: Link to discovery
             dispute_type=dispute_type,  # NEW: Type of dispute
+            # Default 5 rounds: enough negotiation to converge, but prevents infinite loops.
+            # (Also matches DialecticSession default in src/dialectic_protocol.py)
             max_synthesis_rounds=5
         )
 
-        # Store session
+        # Store session in memory (process-local)
         ACTIVE_SESSIONS[session.session_id] = session
-        
+
         # Invalidate cache for both agents (they're now in a session)
         import time
         if agent_id in _SESSION_METADATA_CACHE:
             del _SESSION_METADATA_CACHE[agent_id]
         if reviewer_id in _SESSION_METADATA_CACHE:
             del _SESSION_METADATA_CACHE[reviewer_id]
-        
-        # Persist session to disk immediately (survives server restart)
+
+        # Persist session to SQLite (cross-process visibility) AND JSON (backward compat)
+        try:
+            await sqlite_create_session(
+                session_id=session.session_id,
+                paused_agent_id=agent_id,
+                reviewer_agent_id=reviewer_id,
+                reason=reason,
+                discovery_id=discovery_id,
+                dispute_type=dispute_type,
+                session_type="recovery",
+                topic=None,
+                max_synthesis_rounds=session.max_synthesis_rounds,
+                synthesis_round=session.synthesis_round,
+                paused_agent_state=agent_state,
+            )
+        except Exception as e:
+            logger.warning(f"Could not create session in SQLite (continuing with JSON): {e}")
+
+        # Also persist to JSON for backward compat
         await save_session(session)
 
-        result = {
-            "success": True,
-            "session_id": session.session_id,
-            "paused_agent_id": agent_id,
-            "reviewer_agent_id": reviewer_id,
-            "phase": session.phase.value,
-            "reason": reason,
-            "next_step": f"Agent '{agent_id}' should submit thesis via submit_thesis()",
-            "created_at": session.created_at.isoformat()
-        }
+        # Handle auto-progress mode (smart dialectic)
+        if auto_progress:
+            # Auto-generate reason if not provided
+            if reason == 'Circuit breaker triggered':
+                if agent_state.get('attention_score', agent_state.get('risk_score', 0.5)) > 0.60:
+                    reason = "Circuit breaker triggered - high risk score"
+                elif agent_state.get('coherence', 0.5) < 0.40:
+                    reason = "Low coherence - system instability"
+                else:
+                    reason = "Agent requesting peer review"
+            
+            # Auto-generate thesis if minimal input provided
+            root_cause = arguments.get('root_cause')
+            proposed_conditions = arguments.get('proposed_conditions', [])
+            reasoning = arguments.get('reasoning')
+            
+            if not root_cause:
+                root_cause = reason
+            if not proposed_conditions:
+                proposed_conditions = ["Monitor metrics closely", "Reduce complexity if needed"]
+            if not reasoning:
+                risk_val = agent_state.get('risk_score', 0.5)
+                reasoning = f"Auto-generated from state: coherence={agent_state.get('coherence', 0.5):.3f}, risk_score={risk_val:.3f}"
+            
+            # Submit thesis automatically
+            thesis_result = await handle_submit_thesis({
+                'session_id': session.session_id,
+                'agent_id': agent_id,
+                'api_key': api_key,
+                'root_cause': root_cause,
+                'proposed_conditions': proposed_conditions,
+                'reasoning': reasoning
+            })
+            
+            # Return session info with auto-progress note
+            result = {
+                "success": True,
+                "session_id": session.session_id,
+                "paused_agent_id": agent_id,
+                "reviewer_agent_id": reviewer_id,
+                "phase": "antithesis",  # Moved to antithesis after auto-thesis
+                "reason": reason,
+                "auto_progressed": True,
+                "thesis_submitted": True,
+                "next_step": f"Reviewer '{reviewer_id}' should submit antithesis via submit_antithesis()",
+                "created_at": session.created_at.isoformat(),
+                "note": "Auto-progress mode: thesis submitted automatically. Reviewer should submit antithesis."
+            }
+        else:
+            result = {
+                "success": True,
+                "session_id": session.session_id,
+                "paused_agent_id": agent_id,
+                "reviewer_agent_id": reviewer_id,
+                "phase": session.phase.value,
+                "reason": reason,
+                "next_step": f"Agent '{agent_id}' should submit thesis via submit_thesis()",
+                "created_at": session.created_at.isoformat()
+            }
         
         # Add discovery context if present
         if discovery_id:
@@ -901,200 +587,154 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
         return [error_response(f"Error requesting dialectic review: {str(e)}")]
 
 
-@mcp_tool("smart_dialectic_review", timeout=20.0)
-async def handle_smart_dialectic_review(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+@mcp_tool("request_exploration_session", timeout=15.0)
+async def handle_request_exploration_session(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
-    Smart dialectic that auto-progresses when possible.
+    Request a collaborative exploration session between two active agents.
     
-    Flow:
-    1. Request review → Auto-select reviewer
-    2. Auto-generate thesis from agent state (if agent provides minimal input)
-    3. Reviewer submits antithesis (or auto-generate if reviewer unavailable)
-    4. Auto-merge synthesis if conditions are compatible
-    5. Execute if safe
+    Unlike recovery sessions, exploration sessions are for:
+    - Collaborative idea exploration
+    - Peer review of concepts before implementation
+    - Structured debates on design decisions
+    - Open-ended philosophical discussions
     
-    Reduces manual steps by 50-70% compared to full dialectic.
+    Both agents must be active (not paused/stuck). No resolution required - 
+    sessions can be ongoing and iterative.
     
     Args:
-        agent_id: Agent ID requesting review
-        api_key: Agent's API key
-        reason: Reason for review (optional - auto-generated if not provided)
-        root_cause: Root cause (optional - auto-generated from state if not provided)
-        proposed_conditions: Proposed conditions (optional - auto-generated if not provided)
-        reasoning: Explanation (optional - auto-generated if not provided)
-        auto_progress: Whether to auto-progress through phases (default: True)
+        agent_id: ID of agent initiating exploration
+        partner_agent_id: Optional - specific agent to explore with (if not provided, system selects)
+        topic: Optional - topic/theme for exploration
+        api_key: Agent's API key for authentication
     
     Returns:
-        Session info or final resolution if auto-progressed
+        Session info with partner_id and session_id
     """
     try:
         agent_id = arguments.get('agent_id')
+        partner_agent_id = arguments.get('partner_agent_id')  # Optional: specific partner
+        topic = arguments.get('topic')  # Optional: exploration topic
+        _maybe_fill_api_key_from_bound_identity(arguments, agent_id)
         api_key = arguments.get('api_key')
-        auto_progress = arguments.get('auto_progress', True)
         
-        if not agent_id or not api_key:
-            return [error_response("agent_id and api_key are required")]
+        if not agent_id:
+            return [error_response("agent_id is required")]
         
-        # Verify API key (non-blocking)
+        # Verify API key if provided
+        if api_key:
+            agent_meta_stored = mcp_server.agent_metadata.get(agent_id)
+            if agent_meta_stored and hasattr(agent_meta_stored, 'api_key'):
+                if agent_meta_stored.api_key != api_key:
+                    return [error_response("Authentication failed: Invalid API key")]
+        
+        # Load agent metadata
         import asyncio
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, mcp_server.load_metadata)
-        meta = mcp_server.agent_metadata.get(agent_id)
-        if not meta:
+        metadata_objects = mcp_server.agent_metadata
+        
+        if agent_id not in metadata_objects:
             return [error_response(f"Agent '{agent_id}' not found")]
         
-        if meta.api_key != api_key:
-            return [error_response("Authentication failed: Invalid API key")]
+        agent_meta = metadata_objects[agent_id]
         
-        # Get current metrics
-        try:
-            monitor = mcp_server.get_or_create_monitor(agent_id)
-            metrics = monitor.get_metrics()
-            attention_score = metrics.get('attention_score') or metrics.get('mean_risk', 0.5)
-            agent_state = {
-                'coherence': float(monitor.state.coherence),
-                'attention_score': float(attention_score),  # Renamed from risk_score
-                'phi': metrics.get('phi'),  # Primary physics signal
-                'verdict': metrics.get('verdict'),  # Primary governance signal
-                'risk_score': float(attention_score),  # DEPRECATED
-                'void_active': bool(monitor.state.void_active),
-                'E': float(monitor.state.E),
-                'I': float(monitor.state.I),
-                'S': float(monitor.state.S),
-                'V': float(monitor.state.V)
-            }
-        except Exception as e:
-            return [error_response(f"Error getting governance metrics: {str(e)}")]
+        # For exploration, both agents must be active (not paused/stuck)
+        if agent_meta.status not in ['active', 'waiting_input']:
+            return [error_response(
+                f"Agent '{agent_id}' must be active for exploration (current status: {agent_meta.status})",
+                recovery={
+                    "action": "Only active agents can participate in exploration sessions",
+                    "related_tools": ["get_agent_metadata", "request_dialectic_review"],
+                    "workflow": [
+                        "1. Use request_dialectic_review for recovery if agent is paused/stuck",
+                        "2. Ensure agent is active before requesting exploration"
+                    ]
+                }
+            )]
         
-        # Auto-generate reason if not provided
-        reason = arguments.get('reason')
-        if not reason:
-            if agent_state.get('attention_score', agent_state.get('risk_score', 0.5)) > 0.60:
-                reason = "Circuit breaker triggered - high attention score"
-            elif agent_state['coherence'] < 0.40:
-                reason = "Low coherence - system instability"
-            else:
-                reason = "Agent requesting peer review"
-        
-        # Try to select reviewer
-        metadata_objects = mcp_server.agent_metadata
-        metadata = {}
-        for aid, meta_obj in metadata_objects.items():
-            if isinstance(meta_obj, str) or meta_obj is None:
-                continue
-            if hasattr(meta_obj, 'to_dict'):
-                try:
-                    metadata[aid] = meta_obj.to_dict()
-                except Exception:
-                    continue
-            elif isinstance(meta_obj, dict):
-                metadata[aid] = meta_obj
-        
-        paused_agent_tags = []
-        paused_meta = metadata.get(agent_id)
-        if paused_meta:
-            paused_agent_tags = paused_meta.get('tags', [])
-        
-        reviewer_id = select_reviewer(agent_id, metadata, agent_state, paused_agent_tags=paused_agent_tags)
-        
-        # If no reviewer available and auto_progress, use self-recovery
-        if not reviewer_id and auto_progress:
-            return await handle_self_recovery({
-                'agent_id': agent_id,
-                'api_key': api_key,
-                'root_cause': arguments.get('root_cause', reason),
-                'proposed_conditions': arguments.get('proposed_conditions', []),
-                'reasoning': arguments.get('reasoning', 'No reviewers available - using smart recovery')
-            })
-        
-        if not reviewer_id:
-            return [error_response("No healthy reviewer available. Use self_recovery for single-agent recovery.")]
-        
-        # Create dialectic session
-        session = DialecticSession(
-            paused_agent_id=agent_id,
-            reviewer_agent_id=reviewer_id,
-            paused_agent_state=agent_state,
-            max_synthesis_rounds=3  # Reduced for smart dialectic
-        )
-        
-        ACTIVE_SESSIONS[session.session_id] = session
-        
-        # Auto-generate thesis if minimal input provided
-        root_cause = arguments.get('root_cause')
-        proposed_conditions = arguments.get('proposed_conditions', [])
-        reasoning = arguments.get('reasoning')
-        
-        if not root_cause:
-            attention_score = agent_state.get('attention_score', agent_state.get('risk_score', 0.5))
-            root_cause = f"Agent state: coherence={agent_state['coherence']:.3f}, attention_score={attention_score:.3f}"
-        
-        if not proposed_conditions:
-            # Auto-generate basic conditions based on state
-            if agent_state.get('attention_score', agent_state.get('risk_score', 0.5)) > 0.50:
-                proposed_conditions.append("Monitor risk score closely")
-            if agent_state['coherence'] < 0.50:
-                proposed_conditions.append("Monitor coherence for stability")
-            if not proposed_conditions:
-                proposed_conditions.append("Resume with standard monitoring")
-        
-        if not reasoning:
-            reasoning = f"Auto-generated from agent state. Reason: {reason}"
-        
-        # Auto-submit thesis if auto_progress
-        if auto_progress:
-            thesis = DialecticMessage(
-                phase="thesis",
-                agent_id=agent_id,
-                timestamp=datetime.now().isoformat(),
-                root_cause=root_cause,
-                proposed_conditions=proposed_conditions,
-                reasoning=reasoning
+        # Select partner agent
+        if partner_agent_id:
+            # Use specified partner
+            if partner_agent_id not in metadata_objects:
+                return [error_response(f"Partner agent '{partner_agent_id}' not found")]
+            
+            partner_meta = metadata_objects[partner_agent_id]
+            if partner_meta.status not in ['active', 'waiting_input']:
+                return [error_response(
+                    f"Partner agent '{partner_agent_id}' must be active (current status: {partner_meta.status})"
+                )]
+            
+            reviewer_id = partner_agent_id
+        else:
+            # System selects partner (similar to recovery, but both agents are active)
+            # Use select_reviewer but allow any active agent
+            reviewer_id = await select_reviewer(
+                paused_agent_id=agent_id,
+                paused_agent_state={},  # Not needed for exploration
+                paused_agent_tags=getattr(agent_meta, 'tags', []),
+                metadata=metadata_objects,
+                exclude_agent_ids=[agent_id]  # Can't explore with self
             )
             
-            result = session.submit_thesis(thesis, api_key)
-            if not result.get("success"):
-                return [error_response(f"Error submitting auto-generated thesis: {result.get('error')}")]
-            
-            await save_session(session)
-            
-            return success_response({
-                "success": True,
-                "session_id": session.session_id,
-                "paused_agent_id": agent_id,
-                "reviewer_agent_id": reviewer_id,
-                "phase": session.phase.value,
-                "auto_progressed": True,
-                "thesis_submitted": True,
-                "next_step": f"Reviewer '{reviewer_id}' should submit antithesis, or wait for auto-timeout",
-                "created_at": session.created_at.isoformat(),
-                "note": "Thesis auto-submitted. Reviewer can submit antithesis, or session will auto-resolve after timeout."
-            })
+            if not reviewer_id:
+                return [error_response("No active partner agent available for exploration")]
         
-        # Manual mode - return session info
-        return success_response({
+        # Create exploration session
+        session = DialecticSession(
+            paused_agent_id=agent_id,  # Initiating agent
+            reviewer_agent_id=reviewer_id,  # Exploring partner
+            paused_agent_state={},  # Not needed for exploration
+            session_type="exploration",
+            topic=topic,
+            # More rounds for exploration: allow longer open-ended iteration.
+            max_synthesis_rounds=10
+        )
+        
+        # Store session in memory (process-local)
+        ACTIVE_SESSIONS[session.session_id] = session
+
+        # Invalidate cache for both agents
+        import time
+        if agent_id in _SESSION_METADATA_CACHE:
+            del _SESSION_METADATA_CACHE[agent_id]
+        if reviewer_id in _SESSION_METADATA_CACHE:
+            del _SESSION_METADATA_CACHE[reviewer_id]
+
+        # Persist session to SQLite (cross-process visibility) AND JSON (backward compat)
+        try:
+            await sqlite_create_session(
+                session_id=session.session_id,
+                paused_agent_id=agent_id,
+                reviewer_agent_id=reviewer_id,
+                reason=f"exploration: {topic}" if topic else "exploration session",
+                session_type="exploration",
+                topic=topic,
+                max_synthesis_rounds=session.max_synthesis_rounds,
+                synthesis_round=session.synthesis_round,
+            )
+        except Exception as e:
+            logger.warning(f"Could not create exploration session in SQLite (continuing with JSON): {e}")
+
+        # Also persist to JSON for backward compat
+        await save_session(session)
+
+        result = {
             "success": True,
             "session_id": session.session_id,
-            "paused_agent_id": agent_id,
-            "reviewer_agent_id": reviewer_id,
+            "initiating_agent_id": agent_id,
+            "partner_agent_id": reviewer_id,
             "phase": session.phase.value,
-            "reason": reason,
-            "next_step": f"Agent '{agent_id}' should submit thesis via submit_thesis()",
+            "topic": topic,
+            "session_type": "exploration",
+            "next_step": f"Agent '{agent_id}' should submit thesis via submit_thesis() to begin exploration",
             "created_at": session.created_at.isoformat(),
-            "note": "Set auto_progress=true for automatic thesis submission"
-        })
+            "note": "Exploration sessions are flexible - no resolution required. Agents can iterate through thesis/antithesis/synthesis cycles to explore ideas."
+        }
+        
+        return success_response(result)
     
     except Exception as e:
-        import traceback
-        # SECURITY: Log full traceback internally but sanitize for client
-        logger.error(f"Error in smart dialectic review: {e}", exc_info=True)
-        return [error_response(
-            f"Error in smart dialectic review: {str(e)}",
-            recovery={
-                "action": "Check parameters and agent state, then retry",
-                "related_tools": ["get_governance_metrics", "get_agent_metadata"]
-            }
-        )]
+        return [error_response(f"Error requesting exploration session: {str(e)}")]
 
 
 @mcp_tool("submit_thesis", timeout=10.0)
@@ -1117,9 +757,36 @@ async def handle_submit_thesis(arguments: Dict[str, Any]) -> Sequence[TextConten
         session_id = arguments.get('session_id')
         agent_id = arguments.get('agent_id')
         api_key = arguments.get('api_key', '')
+        
+        # QUICK WIN C: Auto-retrieve API key from bound identity if not provided
+        if not api_key:
+            try:
+                from .identity import get_bound_agent_id, get_bound_api_key
+                bound_id = get_bound_agent_id(arguments=arguments)
+                if bound_id == agent_id:
+                    bound_key = get_bound_api_key(arguments=arguments)
+                    if bound_key:
+                        api_key = bound_key
+                        arguments["api_key"] = api_key
+                        logger.debug(f"Auto-retrieved API key from session-bound identity for thesis submission")
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"Could not auto-retrieve API key: {e}")
+            except Exception as e:
+                logger.debug(f"Error auto-retrieving API key: {e}")
 
         if not session_id or not agent_id:
-            return [error_response("session_id and agent_id are required")]
+            return [error_response(
+                "session_id and agent_id are required",
+                recovery={
+                    "action": "Provide both session_id and agent_id",
+                    "what_you_can_do": [
+                        "1. Get session_id from get_dialectic_session",
+                        "2. Use your agent_id (the paused agent in the session)",
+                        "3. Include api_key for authentication (or bind_identity first)"
+                    ],
+                    "related_tools": ["get_dialectic_session", "bind_identity"]
+                }
+            )]
 
         # Get session - reload from disk if not in memory (handles server restarts)
         session = ACTIVE_SESSIONS.get(session_id)
@@ -1129,7 +796,22 @@ async def handle_submit_thesis(arguments: Dict[str, Any]) -> Sequence[TextConten
             if session:
                 ACTIVE_SESSIONS[session_id] = session
             else:
-                return [error_response(f"Session '{session_id}' not found")]
+                # QUICK WIN B: Improved error message
+                return [error_response(
+                    f"Session '{session_id}' not found",
+                    recovery={
+                        "action": "Session may have been auto-resolved or expired",
+                        "what_happened": "The session you're looking for doesn't exist or was resolved",
+                        "what_you_can_do": [
+                            "1. Check if session was auto-resolved (stuck sessions resolve after 5 minutes)",
+                            "2. Request a new dialectic review if you need to start over",
+                            "3. Use get_dialectic_session to find active sessions",
+                            "4. Check your agent status with get_agent_metadata"
+                        ],
+                        "related_tools": ["get_dialectic_session", "request_dialectic_review", "get_agent_metadata"],
+                        "note": "Stuck sessions are now automatically resolved after 5 minutes of inactivity"
+                    }
+                )]
 
         # Create thesis message
         message = DialecticMessage(
@@ -1146,11 +828,25 @@ async def handle_submit_thesis(arguments: Dict[str, Any]) -> Sequence[TextConten
 
         if result["success"]:
             result["next_step"] = f"Reviewer '{session.reviewer_agent_id}' should submit antithesis"
-            # Persist session after thesis submission (survives server restart)
+
+            # Update SQLite (cross-process visibility)
+            try:
+                await sqlite_add_message(
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    message_type="thesis",
+                    root_cause=arguments.get('root_cause'),
+                    proposed_conditions=arguments.get('proposed_conditions', []),
+                    reasoning=arguments.get('reasoning'),
+                )
+                await sqlite_update_phase(session_id, session.phase.value)
+            except Exception as e:
+                logger.warning(f"Could not update SQLite after thesis: {e}")
+
+            # Persist to JSON (backward compat)
             try:
                 await save_session(session)
             except Exception as e:
-                # Log error but don't fail the request
                 logger.warning(f"Could not save session after thesis: {e}")
 
         return success_response(result)
@@ -1163,15 +859,15 @@ async def handle_submit_thesis(arguments: Dict[str, Any]) -> Sequence[TextConten
 async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
     Reviewer agent submits antithesis: "What I observe, my concerns"
-
+    
     Args:
         session_id: Dialectic session ID
         agent_id: Reviewer agent ID
-        api_key: Reviewer's API key
+        api_key: Reviewer's API key (auto-retrieved from bound identity if not provided)
         observed_metrics: Metrics observed about paused agent
         concerns: List of concerns
         reasoning: Natural language explanation
-
+    
     Returns:
         Status with next phase
     """
@@ -1179,9 +875,36 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
         session_id = arguments.get('session_id')
         agent_id = arguments.get('agent_id')
         api_key = arguments.get('api_key', '')
+        
+        # QUICK WIN C: Auto-retrieve API key from bound identity if not provided
+        if not api_key:
+            try:
+                from .identity import get_bound_agent_id, get_bound_api_key
+                bound_id = get_bound_agent_id(arguments=arguments)
+                if bound_id == agent_id:
+                    bound_key = get_bound_api_key(arguments=arguments)
+                    if bound_key:
+                        api_key = bound_key
+                        arguments["api_key"] = api_key
+                        logger.debug(f"Auto-retrieved API key from session-bound identity for antithesis submission")
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"Could not auto-retrieve API key: {e}")
+            except Exception as e:
+                logger.debug(f"Error auto-retrieving API key: {e}")
 
         if not session_id or not agent_id:
-            return [error_response("session_id and agent_id are required")]
+            return [error_response(
+                "session_id and agent_id are required",
+                recovery={
+                    "action": "Provide both session_id and agent_id",
+                    "what_you_can_do": [
+                        "1. Get session_id from get_dialectic_session",
+                        "2. Use your agent_id (the reviewer agent in the session)",
+                        "3. Include api_key for authentication (or bind_identity first)"
+                    ],
+                    "related_tools": ["get_dialectic_session", "bind_identity"]
+                }
+            )]
 
         # Get session - reload from disk if not in memory (handles server restarts)
         session = ACTIVE_SESSIONS.get(session_id)
@@ -1191,7 +914,21 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
             if session:
                 ACTIVE_SESSIONS[session_id] = session
             else:
-                return [error_response(f"Session '{session_id}' not found")]
+                # QUICK WIN B: Improved error message
+                return [error_response(
+                    f"Session '{session_id}' not found",
+                    recovery={
+                        "action": "Session may have been auto-resolved or expired",
+                        "what_happened": "The session you're looking for doesn't exist or was resolved",
+                        "what_you_can_do": [
+                            "1. Check if session was auto-resolved (stuck sessions resolve after 5 minutes)",
+                            "2. Request a new dialectic review if you need to start over",
+                            "3. Use get_dialectic_session to find active sessions"
+                        ],
+                        "related_tools": ["get_dialectic_session", "request_dialectic_review"],
+                        "note": "Stuck sessions are now automatically resolved after 5 minutes of inactivity"
+                    }
+                )]
 
         # Create antithesis message
         message = DialecticMessage(
@@ -1208,11 +945,25 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
 
         if result["success"]:
             result["next_step"] = "Both agents should negotiate via submit_synthesis() until convergence"
-            # Persist session after antithesis submission (survives server restart)
+
+            # Update SQLite (cross-process visibility)
+            try:
+                await sqlite_add_message(
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    message_type="antithesis",
+                    observed_metrics=arguments.get('observed_metrics', {}),
+                    concerns=arguments.get('concerns', []),
+                    reasoning=arguments.get('reasoning'),
+                )
+                await sqlite_update_phase(session_id, session.phase.value)
+            except Exception as e:
+                logger.warning(f"Could not update SQLite after antithesis: {e}")
+
+            # Persist to JSON (backward compat)
             try:
                 await save_session(session)
             except Exception as e:
-                # Log error but don't fail the request
                 logger.warning(f"Could not save session after antithesis: {e}")
 
         return success_response(result)
@@ -1225,16 +976,16 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
 async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
     Either agent submits synthesis proposal during negotiation.
-
+    
     Args:
         session_id: Dialectic session ID
         agent_id: Agent ID (either paused or reviewer)
-        api_key: Agent's API key
+        api_key: Agent's API key (auto-retrieved from bound identity if not provided)
         proposed_conditions: Proposed resumption conditions
         root_cause: Agreed understanding of root cause
         reasoning: Explanation of proposal
         agrees: Whether this agent agrees with current proposal (bool)
-
+    
     Returns:
         Status with convergence info
     """
@@ -1242,9 +993,36 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
         session_id = arguments.get('session_id')
         agent_id = arguments.get('agent_id')
         api_key = arguments.get('api_key', '')
+        
+        # QUICK WIN C: Auto-retrieve API key from bound identity if not provided
+        if not api_key:
+            try:
+                from .identity import get_bound_agent_id, get_bound_api_key
+                bound_id = get_bound_agent_id(arguments=arguments)
+                if bound_id == agent_id:
+                    bound_key = get_bound_api_key(arguments=arguments)
+                    if bound_key:
+                        api_key = bound_key
+                        arguments["api_key"] = api_key
+                        logger.debug(f"Auto-retrieved API key from session-bound identity for synthesis submission")
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"Could not auto-retrieve API key: {e}")
+            except Exception as e:
+                logger.debug(f"Error auto-retrieving API key: {e}")
 
         if not session_id or not agent_id:
-            return [error_response("session_id and agent_id are required")]
+            return [error_response(
+                "session_id and agent_id are required",
+                recovery={
+                    "action": "Provide both session_id and agent_id",
+                    "what_you_can_do": [
+                        "1. Get session_id from get_dialectic_session",
+                        "2. Use your agent_id (either paused or reviewer in the session)",
+                        "3. Include api_key for authentication (or bind_identity first)"
+                    ],
+                    "related_tools": ["get_dialectic_session", "bind_identity"]
+                }
+            )]
 
         # Get session - always reload from disk to ensure latest state (handles stale memory)
         # This ensures we have the latest phase and transcript after server restarts or concurrent updates
@@ -1255,7 +1033,22 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
             # Fallback to memory if file doesn't exist
             session = ACTIVE_SESSIONS.get(session_id)
             if not session:
-                return [error_response(f"Session '{session_id}' not found")]
+                # QUICK WIN B: Improved error message
+                return [error_response(
+                    f"Session '{session_id}' not found",
+                    recovery={
+                        "action": "Session may have been auto-resolved or expired",
+                        "what_happened": "The session you're looking for doesn't exist or was resolved",
+                        "what_you_can_do": [
+                            "1. Check if session was auto-resolved (stuck sessions resolve after 5 minutes)",
+                            "2. Request a new dialectic review if you need to start over",
+                            "3. Use get_dialectic_session to find active sessions",
+                            "4. Check timing - synthesis submissions may have timing constraints"
+                        ],
+                        "related_tools": ["get_dialectic_session", "request_dialectic_review"],
+                        "note": "Stuck sessions are now automatically resolved after 5 minutes of inactivity. Timing constraints may cause rapid submissions to fail - try again after a brief pause."
+                    }
+                )]
 
         # Create synthesis message
         message = DialecticMessage(
@@ -1273,10 +1066,25 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
 
         # Save session after synthesis submission (even if not converged yet)
         if result.get("success"):
+            # Update SQLite (cross-process visibility)
+            try:
+                await sqlite_add_message(
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    message_type="synthesis",
+                    root_cause=arguments.get('root_cause'),
+                    proposed_conditions=arguments.get('proposed_conditions', []),
+                    reasoning=arguments.get('reasoning'),
+                    agrees=arguments.get('agrees', False),
+                )
+                await sqlite_update_phase(session_id, session.phase.value)
+            except Exception as e:
+                logger.warning(f"Could not update SQLite after synthesis: {e}")
+
+            # Persist to JSON (backward compat)
             try:
                 await save_session(session)
             except Exception as e:
-                # Log error but don't fail the request
                 logger.warning(f"Could not save session after synthesis: {e}")
 
         # If converged, proceed to finalize
@@ -1311,7 +1119,16 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
             if not is_safe:
                 result["action"] = "block"
                 result["reason"] = f"Safety violation: {violation}"
-                # Save session before blocking
+                # Resolve in SQLite with failed status
+                try:
+                    await sqlite_resolve_session(
+                        session_id=session_id,
+                        resolution={"action": "block", "reason": violation},
+                        status="failed"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not resolve session in SQLite: {e}")
+                # Save session to JSON (backward compat)
                 await save_session(session)
             else:
                 result["action"] = "resume"
@@ -1346,19 +1163,48 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
                 except Exception as e:
                     result["execution_error"] = str(e)
                     result["next_step"] = f"Failed to execute resolution: {e}. Manual intervention may be needed."
-                
-                # Save session after execution
+
+                # Resolve in SQLite (cross-process visibility)
+                try:
+                    await sqlite_resolve_session(
+                        session_id=session_id,
+                        resolution=resolution.to_dict(),
+                        status="resolved"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not resolve session in SQLite: {e}")
+
+                # Save session to JSON (backward compat)
                 await save_session(session)
 
         elif not result.get("success"):
-            # Max rounds exceeded - escalate
-            # TODO: Implement quorum mechanism
-            # - Require 3+ reviewers for high-risk decisions (attention_score > 0.60, void_active)
+            # Max rounds exceeded - SELF-GOVERNANCE: make conservative autonomous decision
+            # Instead of waiting for human intervention, apply default safe behavior:
+            # 1. Default to conservative option (keep current state)
+            # 2. Log disagreement for learning
+            # 3. Allow retry after cooldown
+            #
+            # Future enhancement: Implement quorum mechanism for high-stakes decisions
+            # - Require 3+ reviewers for high-risk decisions (risk_score > 0.60, void_active)
             # - Supermajority requirement: 2/3 must agree
             # - Weighted voting by reviewer authority score
-            # - Escalate if quorum can't be reached
             # - See docs/DIALECTIC_FUTURE_DEFENSES.md for requirements
-            result["next_step"] = "Escalate to quorum (not yet implemented - see docs/DIALECTIC_FUTURE_DEFENSES.md)"
+            
+            # SELF-GOVERNANCE: Default to conservative outcome (don't resume if peers can't agree)
+            result["autonomous_resolution"] = True
+            result["resolution_type"] = "conservative_default"
+            result["next_step"] = (
+                "Peers could not reach consensus. Applying conservative default: "
+                "maintaining current state. Agent may retry after 1 hour cooldown."
+            )
+            result["cooldown_until"] = (datetime.now() + timedelta(hours=1)).isoformat()
+            result["reason"] = "Self-governance: when peers disagree, system defaults to caution"
+            
+            # Log for future learning (this disagreement is useful calibration signal)
+            logger.info(
+                f"Dialectic {session_id} resolved autonomously (no consensus): "
+                f"conservative default applied, cooldown until {result['cooldown_until']}"
+            )
             
             # AUTOMATIC CALIBRATION: Update calibration from dialectic disagreement
             # Disagreement indicates overconfidence - lower calibration
@@ -1487,16 +1333,29 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                         reasoning=f"Session auto-failed: {timeout_reason}"
                     ))
                     await save_session(session)
+                    # QUICK WIN B: Improved error message with actionable guidance
                     return success_response({
                         "success": False,
                         "error": timeout_reason,
                         "session": session.to_dict(),
-                        "fallback": "Try direct_resume_if_safe or request new reviewer"
+                        "recovery": {
+                            "action": "Session timed out - automatic resolution",
+                            "what_happened": timeout_reason,
+                            "what_you_can_do": [
+                                "1. Request a new dialectic review if you as the paused agent",
+                                "2. Use direct_resume_if_safe if you believe you can proceed safely",
+                                "3. Check your agent status with get_agent_metadata",
+                                "4. Sessions now auto-resolve if inactive >5 minutes"
+                            ],
+                            "related_tools": ["request_dialectic_review", "direct_resume_if_safe", "get_agent_metadata"],
+                            "note": "Stuck sessions are now automatically resolved after 5 minutes of inactivity"
+                        }
                     })
                 
                 # Check if reviewer is stuck
                 if await check_reviewer_stuck(session):
                     session.phase = DialecticPhase.FAILED
+                    # type: ignore
                     session.transcript.append(DialecticMessage(
                         phase=session.phase.value,
                         agent_id="system",
@@ -1504,11 +1363,23 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                         reasoning="Reviewer stuck - session aborted"
                     ))
                     await save_session(session)
+                    # QUICK WIN B: Improved error message with actionable guidance
                     return success_response({
                         "success": False,
                         "error": "Reviewer stuck - session aborted",
                         "session": session.to_dict(),
-                        "fallback": "Try direct_resume_if_safe or request new reviewer"
+                        "recovery": {
+                            "action": "Session aborted because reviewer didn't respond within timeout",
+                            "what_happened": f"Reviewer '{session.reviewer_agent_id}' was assigned but didn't submit antithesis within 30 minutes",
+                            "what_you_can_do": [
+                                "1. Request a new dialectic review with a different reviewer",
+                                "2. Use direct_resume_if_safe if you believe you can proceed safely",
+                                "3. Check reviewer status with get_agent_metadata",
+                                "4. Try reviewer_mode='self' for self-assisted recovery"
+                            ],
+                            "related_tools": ["request_dialectic_review", "direct_resume_if_safe", "get_agent_metadata"],
+                            "prevention": "Sessions now auto-resolve if inactive >5 minutes to prevent this issue"
+                        }
                     })
             
             result = session.to_dict()
@@ -1540,9 +1411,19 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                 if session.paused_agent_id == agent_id or session.reviewer_agent_id == agent_id:
                     matching_sessions.append(session.to_dict())
             
-            # Also check disk for persisted sessions
-            if SESSION_STORAGE_DIR.exists():
-                for session_file in SESSION_STORAGE_DIR.glob("*.json"):
+            # Also check disk for persisted sessions (run in executor to avoid blocking)
+            loop = asyncio.get_running_loop()
+            
+            def _list_disk_sessions_sync():
+                """Synchronous directory check and file listing - runs in executor"""
+                SESSION_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+                if not SESSION_STORAGE_DIR.exists():
+                    return []
+                return list(SESSION_STORAGE_DIR.glob("*.json"))
+            
+            disk_session_files = await loop.run_in_executor(None, _list_disk_sessions_sync)
+            
+            for session_file in disk_session_files:
                     try:
                         loaded_session = await load_session(session_file.stem)
                         if loaded_session:
@@ -1610,6 +1491,125 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
         )]
 
 
+@mcp_tool("nudge_dialectic_session", timeout=5.0, rate_limit_exempt=True)
+async def handle_nudge_dialectic_session(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    Nudge a dialectic/exploration session that appears stuck.
+
+    Returns next actor + suggested tool call + idle time. Optionally writes an audit event.
+    """
+    try:
+        session_id = (arguments.get("session_id") or "").strip()
+        if not session_id:
+            return [error_response("session_id is required")]
+
+        post = bool(arguments.get("post", False))
+        note = arguments.get("note")
+
+        # Prefer SQLite session as cross-process source of truth
+        session = await sqlite_get_session(session_id)
+        if not session:
+            # Fallback to in-memory / JSON session storage (legacy)
+            try:
+                loaded = await load_session(session_id)
+                if loaded:
+                    session = {
+                        "session_id": loaded.session_id,
+                        "paused_agent_id": loaded.paused_agent_id,
+                        "reviewer_agent_id": loaded.reviewer_agent_id,
+                        "phase": loaded.phase.value if hasattr(loaded, "phase") else None,
+                        "created_at": loaded.created_at.isoformat() if getattr(loaded, "created_at", None) else None,
+                        "updated_at": loaded.get_last_update_timestamp() if hasattr(loaded, "get_last_update_timestamp") else None,
+                        "session_type": getattr(loaded, "session_type", None),
+                        "topic": getattr(loaded, "topic", None),
+                    }
+            except Exception:
+                session = None
+
+        if not session:
+            return [error_response(
+                f"Session '{session_id}' not found",
+                recovery={
+                    "action": "Check session_id or use get_dialectic_session(agent_id=...) to discover sessions",
+                    "related_tools": ["get_dialectic_session", "request_dialectic_review"],
+                },
+            )]
+
+        phase = session.get("phase")
+        paused_agent_id = session.get("paused_agent_id")
+        reviewer_agent_id = session.get("reviewer_agent_id")
+        session_type = session.get("session_type")
+        topic = session.get("topic")
+        created_at = session.get("created_at")
+        updated_at = session.get("updated_at") or created_at
+
+        from datetime import datetime, timezone
+        idle_seconds = None
+        last_activity_at = None
+        try:
+            if updated_at:
+                ts = str(updated_at).replace("Z", "+00:00")
+                last_dt = datetime.fromisoformat(ts)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                last_activity_at = last_dt.isoformat()
+                idle_seconds = (datetime.now(timezone.utc) - last_dt.astimezone(timezone.utc)).total_seconds()
+        except Exception:
+            pass
+
+        next_actor = None
+        next_tool = None
+        if phase == "thesis":
+            next_actor = paused_agent_id
+            next_tool = "submit_thesis"
+        elif phase == "antithesis":
+            next_actor = reviewer_agent_id
+            next_tool = "submit_antithesis"
+        elif phase == "synthesis":
+            next_actor = "either"
+            next_tool = "submit_synthesis"
+        elif phase == "resolved":
+            next_actor = None
+            next_tool = None
+
+        suggested_call = None
+        if next_tool:
+            suggested_call = {"name": next_tool, "arguments": {"session_id": session_id}}
+
+        if post:
+            try:
+                from src.audit_log import audit_logger
+                audit_logger.log_dialectic_nudge(
+                    agent_id=str(arguments.get("agent_id") or "system"),
+                    session_id=session_id,
+                    phase=str(phase),
+                    next_actor=str(next_actor) if next_actor else None,
+                    idle_seconds=idle_seconds,
+                    details={"note": note, "session_type": session_type, "topic": topic}
+                )
+            except Exception:
+                pass
+
+        return success_response({
+            "success": True,
+            "session_id": session_id,
+            "session_type": session_type,
+            "topic": topic,
+            "phase": phase,
+            "paused_agent_id": paused_agent_id,
+            "reviewer_agent_id": reviewer_agent_id,
+            "last_activity_at": last_activity_at,
+            "idle_seconds": idle_seconds,
+            "next_actor": next_actor,
+            "next_tool": next_tool,
+            "suggested_call": suggested_call,
+            "posted_audit_event": bool(post),
+            "note": "This tool does not force progress; it only reports who should act next and optionally records an audit event."
+        })
+    except Exception as e:
+        return [error_response(f"Error nudging session: {str(e)}")]
+
+
 async def generate_system_antithesis(agent_id: str, metrics: Dict[str, Any], thesis: DialecticMessage) -> DialecticMessage:
     """
     Generate system antithesis based on agent metrics and thesis.
@@ -1625,24 +1625,22 @@ async def generate_system_antithesis(agent_id: str, metrics: Dict[str, Any], the
         System-generated antithesis message
     """
     coherence = metrics.get('coherence', 0.5)
-    # Support both attention_score (new) and risk_score (deprecated)
-    attention_score = metrics.get('attention_score') or metrics.get('risk_score', 0.5)
+    risk_score_value = metrics.get('risk_score', 0.5)
     void_active = metrics.get('void_active', False)
     
     # Generate concerns based on metrics
     concerns = []
     observed_metrics = {
         'coherence': coherence,
-        'attention_score': attention_score,  # Renamed from risk_score
-        'risk_score': attention_score,  # DEPRECATED: Use attention_score instead
+        'risk_score': risk_score_value,  # Governance/operational risk
         'void_active': void_active
     }
     
     if coherence < 0.50:
         concerns.append(f"Coherence is low ({coherence:.3f}) - may indicate internal inconsistency")
     
-    if attention_score > 0.50:
-        concerns.append(f"Attention score is elevated ({attention_score:.3f}) - requires careful monitoring")
+    if risk_score_value > 0.50:
+        concerns.append(f"Risk score is elevated ({risk_score_value:.3f}) - requires careful monitoring")
     
     if void_active:
         concerns.append("Void events are active - system instability detected")
@@ -1654,7 +1652,7 @@ async def generate_system_antithesis(agent_id: str, metrics: Dict[str, Any], the
     
     # Generate reasoning
     reasoning_parts = [
-        f"System analysis: coherence={coherence:.3f}, attention_score={attention_score:.3f}"
+        f"System analysis: coherence={coherence:.3f}, risk_score={risk_score_value:.3f}"
     ]
     
     if concerns:
@@ -1674,7 +1672,7 @@ async def generate_system_antithesis(agent_id: str, metrics: Dict[str, Any], the
     )
 
 
-@mcp_tool("self_recovery", timeout=15.0)
+# Internal function for self-recovery (called by request_dialectic_review when reviewer_mode='self')
 async def handle_self_recovery(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
     Allow agent to recover without reviewer (for when no reviewers available).
@@ -1744,14 +1742,13 @@ async def handle_self_recovery(arguments: Dict[str, Any]) -> Sequence[TextConten
         
         # Check if safe to resume (same checks as direct_resume_if_safe)
         coherence = agent_state['coherence']
-        attention_score = agent_state.get('attention_score', agent_state.get('risk_score', 0.5))
+        risk_score = agent_state.get('risk_score', 0.5)
         void_active = agent_state['void_active']
         status = meta.status
         
         safety_checks = {
             "coherence_ok": coherence > 0.40,
-            "attention_ok": attention_score < 0.60,  # Renamed from risk_ok
-            "risk_ok": attention_score < 0.60,  # DEPRECATED: Use attention_ok instead
+            "risk_ok": risk_score < 0.60,  # Governance/operational risk check
             "no_void": not void_active,
             "status_ok": status in ["paused", "waiting_input", "moderate"]
         }
@@ -1760,7 +1757,7 @@ async def handle_self_recovery(arguments: Dict[str, Any]) -> Sequence[TextConten
             failed_checks = [k for k, v in safety_checks.items() if not v]
             return [error_response(
                 f"Not safe to resume via self-recovery. Failed checks: {failed_checks}. "
-                f"Metrics: coherence={coherence:.3f}, attention_score={attention_score:.3f}, "
+                f"Metrics: coherence={coherence:.3f}, risk_score={risk_score:.3f}, "
                 f"void_active={void_active}, status={status}. "
                 f"System antithesis: {system_antithesis.reasoning}. "
                 f"Use request_dialectic_review for peer-assisted recovery."
@@ -1825,301 +1822,4 @@ async def handle_self_recovery(arguments: Dict[str, Any]) -> Sequence[TextConten
         )]
 
 
-def _has_recently_reviewed(reviewer_id: str, paused_agent_id: str, hours: int = 24) -> bool:
-    """
-    Check if reviewer has recently reviewed the paused agent.
-    
-    Prevents collusion by ensuring reviewers don't repeatedly review the same agent.
-    
-    Args:
-        reviewer_id: Potential reviewer agent ID
-        paused_agent_id: Paused agent ID
-        hours: Time window in hours (default: 24)
-    
-    Returns:
-        True if reviewer reviewed paused agent within the time window, False otherwise
-    """
-    from datetime import datetime, timedelta
-    import json
-    
-    cutoff_time = datetime.now() - timedelta(hours=hours)
-    
-    # Check resolved sessions from disk
-    try:
-        if SESSION_STORAGE_DIR.exists():
-            session_files = sorted(SESSION_STORAGE_DIR.glob("*.json"), 
-                                 key=lambda p: p.stat().st_mtime, 
-                                 reverse=True)[:100]  # Check recent 100 sessions
-            
-            for session_file in session_files:
-                try:
-                    with open(session_file, 'r') as f:
-                        session_data = json.load(f)
-                    
-                    # Check if this session matches reviewer/paused pair
-                    if (session_data.get('reviewer_agent_id') == reviewer_id and 
-                        session_data.get('paused_agent_id') == paused_agent_id):
-                        # Check if session is resolved and within time window
-                        phase = session_data.get('phase')
-                        if phase == 'resolved':
-                            created_at_str = session_data.get('created_at')
-                            if created_at_str:
-                                try:
-                                    created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                                    if created_at >= cutoff_time:
-                                        return True
-                                except (ValueError, AttributeError):
-                                    # Skip if timestamp parsing fails
-                                    continue
-                except (json.JSONDecodeError, KeyError, IOError, OSError) as e:
-                    # Skip corrupted or unreadable files
-                    logger.debug(f"Skipping unreadable session file in _has_recently_reviewed: {e}")
-                    continue
-    except (IOError, OSError) as e:
-        # If disk check fails, fall back to allowing (don't block on errors)
-        logger.debug(f"Disk check failed for _has_recently_reviewed, allowing: {e}")
-        pass
-    except Exception as e:
-        logger.warning(f"Unexpected error checking recent reviews: {e}")
-        pass
-    
-    return False
-
-
-def is_agent_in_active_session(agent_id: str) -> bool:
-    """
-    Check if agent is already participating in an active dialectic session.
-    
-    Prevents recursive assignment where an agent reviewing someone else
-    gets assigned as a reviewer in another session.
-    
-    OPTIMIZED: Uses in-memory lookup first, then cache, then disk (only if needed).
-    This is 10-50x faster for repeated calls.
-    
-    Args:
-        agent_id: Agent ID to check
-        
-    Returns:
-        True if agent is in an active session (as paused agent or reviewer), False otherwise
-    """
-    import time
-    
-    # Step 1: Check in-memory sessions first (fastest - O(n) where n is active sessions)
-    for session in ACTIVE_SESSIONS.values():
-        # Check if agent is paused agent or reviewer
-        if (session.paused_agent_id == agent_id or 
-            session.reviewer_agent_id == agent_id):
-            # Only count if session is still active (not resolved/failed)
-            if session.phase not in [DialecticPhase.RESOLVED, DialecticPhase.FAILED, DialecticPhase.ESCALATED]:
-                # Update cache with positive result
-                _SESSION_METADATA_CACHE[agent_id] = {
-                    'in_session': True,
-                    'timestamp': time.time(),
-                    'session_ids': [session.session_id]
-                }
-                return True
-    
-    # Step 2: Check cache (fast - O(1))
-    cache_key = agent_id
-    if cache_key in _SESSION_METADATA_CACHE:
-        cached = _SESSION_METADATA_CACHE[cache_key]
-        cache_age = time.time() - cached['timestamp']
-        
-        if cache_age < _CACHE_TTL:
-            # Cache hit - return cached result
-            return cached['in_session']
-        else:
-            # Cache expired - remove and continue to disk check
-            del _SESSION_METADATA_CACHE[cache_key]
-    
-    # Step 3: Check disk sessions (slow - only if cache miss)
-    # Limit to recent 50 sessions to avoid performance issues
-    try:
-        if SESSION_STORAGE_DIR.exists():
-            # Load session files (limit to recent 50 to avoid performance issues)
-            session_files = sorted(SESSION_STORAGE_DIR.glob("*.json"), 
-                                 key=lambda p: p.stat().st_mtime, 
-                                 reverse=True)[:50]
-            
-            found_sessions = []
-            for session_file in session_files:
-                try:
-                    with open(session_file, 'r') as f:
-                        session_data = json.load(f)
-                    
-                    # Check if agent is in this session
-                    if (session_data.get('paused_agent_id') == agent_id or 
-                        session_data.get('reviewer_agent_id') == agent_id):
-                        # Check if session is still active
-                        phase = session_data.get('phase')
-                        if phase not in ['resolved', 'failed', 'escalated']:
-                            found_sessions.append(session_data.get('session_id', session_file.stem))
-                            # Update cache with positive result
-                            _SESSION_METADATA_CACHE[agent_id] = {
-                                'in_session': True,
-                                'timestamp': time.time(),
-                                'session_ids': found_sessions
-                            }
-                            return True
-                except (json.JSONDecodeError, KeyError, IOError, OSError) as e:
-                    # Skip corrupted or unreadable files
-                    logger.debug(f"Skipping unreadable session file in is_agent_in_active_session: {e}")
-                    continue
-            
-            # No active sessions found - cache negative result
-            _SESSION_METADATA_CACHE[agent_id] = {
-                'in_session': False,
-                'timestamp': time.time(),
-                'session_ids': []
-            }
-    except (IOError, OSError) as e:
-        # If disk check fails, fall back to in-memory only
-        logger.debug(f"Disk check failed for is_agent_in_active_session, using in-memory only: {e}")
-        # Cache negative result (conservative - assume not in session if we can't check)
-        _SESSION_METADATA_CACHE[agent_id] = {
-            'in_session': False,
-            'timestamp': time.time(),
-            'session_ids': []
-        }
-    except Exception as e:
-        logger.warning(f"Unexpected error checking active sessions: {e}")
-        # Cache negative result (conservative)
-        _SESSION_METADATA_CACHE[agent_id] = {
-            'in_session': False,
-            'timestamp': time.time(),
-            'session_ids': []
-        }
-    
-    return False
-
-
-def select_reviewer(paused_agent_id: str,
-                   metadata: Dict[str, Any],
-                   paused_agent_state: Dict[str, Any] = None,
-                   paused_agent_tags: List[str] = None) -> str:
-    """
-    Select a healthy reviewer agent for dialectic session.
-
-    Selection criteria:
-    - Healthy (risk < 0.40)
-    - Not the paused agent
-    - Not already in another active session (prevents recursive assignment)
-    - Not recently reviewed this agent (prevent collusion)
-    - Weighted by authority score
-
-    Args:
-        paused_agent_id: ID of paused agent
-        metadata: All agent metadata (dict mapping agent_id -> AgentMetadata)
-        paused_agent_state: State of paused agent
-        paused_agent_tags: Tags of paused agent (for expertise matching)
-
-    Returns:
-        Selected reviewer agent_id, or None if no reviewer available
-    """
-    # Ensure metadata is a dict (not a string or other type)
-    if not isinstance(metadata, dict):
-        raise TypeError(f"metadata must be a dict, got {type(metadata).__name__}: {metadata}")
-    
-    # Get all agents - iterate over items() to get (agent_id, meta) pairs
-    # This matches the pattern used in lifecycle.py
-    candidates = []
-    scores = []
-    
-    for agent_id, agent_meta in metadata.items():
-        # Validate agent_id is a string
-        if not isinstance(agent_id, str):
-            continue  # Skip invalid keys
-        
-        # Skip paused agent
-        if agent_id == paused_agent_id:
-            continue
-        
-        # Skip agents already in active sessions (prevents recursive assignment)
-        if is_agent_in_active_session(agent_id):
-            continue
-        
-        # IMPLEMENTED: Skip agents who recently reviewed this paused agent (prevent collusion)
-        # Check resolved sessions from last 24 hours
-        if _has_recently_reviewed(agent_id, paused_agent_id, hours=24):
-            continue
-        
-        # Validate agent_meta is not a string (should be AgentMetadata object or dict)
-        # FIXED: Properly handle invalid entries and log for debugging
-        if isinstance(agent_meta, str) or agent_meta is None:
-            # Skip invalid entries (strings, None, etc.)
-            # This should not happen if metadata is properly loaded, but defensive check
-            logger.warning(f"Invalid metadata entry for {agent_id}: type={type(agent_meta).__name__}")
-            continue
-        
-        # Skip non-active agents (for MVP, only consider active agents)
-        # FIXED: Use .get() for dicts since agent_meta is converted from AgentMetadata above
-        status = agent_meta.get('status') if isinstance(agent_meta, dict) else getattr(agent_meta, 'status', None)
-        if status and status != 'active':
-            continue
-        
-        # Convert AgentMetadata to dict for calculate_authority_score
-        agent_meta_dict = None
-        if hasattr(agent_meta, 'to_dict'):
-            try:
-                agent_meta_dict = agent_meta.to_dict()
-            except Exception:
-                continue
-        elif isinstance(agent_meta, dict):
-            agent_meta_dict = agent_meta
-        elif hasattr(agent_meta, '__dict__'):
-            # Convert object to dict manually
-            try:
-                agent_meta_dict = {}
-                for key, value in agent_meta.__dict__.items():
-                    if not key.startswith('_'):
-                        agent_meta_dict[key] = value
-            except Exception:
-                continue
-        else:
-            # Skip if we can't convert
-            continue
-        
-        # Validate we got a dict
-        if not isinstance(agent_meta_dict, dict):
-            continue
-        
-        # Get reviewer's actual state if available, otherwise use mock
-        reviewer_state = None
-        if paused_agent_state:
-            # Use paused agent's state as proxy (MVP - could load reviewer's actual state)
-            reviewer_state = paused_agent_state
-        else:
-            # Mock state for authority calculation (MVP - assume healthy)
-            reviewer_state = {'risk_score': 0.25}
-        
-        # Add paused agent tags to metadata for expertise matching
-        agent_meta_dict_with_tags = agent_meta_dict.copy()
-        agent_meta_dict_with_tags['paused_agent_tags'] = paused_agent_tags or []
-        
-        # TODO: Implement reputation tracking
-        # - Update total_reviews and successful_reviews on session resolution
-        # - Track "success" as: agent didn't re-pause within 24h after review
-        # - Use reputation in calculate_authority_score() (already has 30% weight)
-        # - See docs/DIALECTIC_FUTURE_DEFENSES.md for requirements
-        # TODO: Implement collusion detection
-        # - Track agreement rate per agent pair: (agreements) / (total_sessions)
-        # - Flag pairs with >90% agreement rate as potentially colluding
-        # - Lower selection probability for flagged pairs
-        # - See docs/DIALECTIC_FUTURE_DEFENSES.md for requirements
-        try:
-            score = calculate_authority_score(agent_meta_dict_with_tags, reviewer_state)
-            candidates.append(agent_id)
-            scores.append(score)
-        except Exception as e:
-            # Skip this agent if score calculation fails
-            continue
-
-    if not candidates:
-        return None
-
-    # Weighted random selection
-    if sum(scores) == 0 or all(s == 0 for s in scores):
-        return random.choice(candidates)
-
-    selected = random.choices(candidates, weights=scores, k=1)[0]
-    return selected
+# Tool wrapper for backward compatibility (deprecated)

@@ -1,3 +1,4 @@
+import pytest
 #!/usr/bin/env python3
 """
 Security Audit Tests - Actually Try to Break Things
@@ -46,6 +47,7 @@ class SecurityAudit:
         })
 
 
+@pytest.mark.asyncio
 async def test_parameter_array_dos():
     """
     VULNERABILITY: Unbounded parameters array
@@ -96,6 +98,7 @@ async def test_parameter_array_dos():
     return audit
 
 
+@pytest.mark.asyncio
 async def test_response_text_redos():
     """
     VULNERABILITY: No length limit on response_text
@@ -157,6 +160,7 @@ async def test_response_text_redos():
     return audit
 
 
+@pytest.mark.asyncio
 async def test_ethical_drift_manipulation():
     """
     VULNERABILITY: No rate-of-change limit on ethical_drift
@@ -206,6 +210,7 @@ async def test_ethical_drift_manipulation():
     return audit
 
 
+@pytest.mark.asyncio
 async def test_state_file_corruption():
     """
     VULNERABILITY: No checksums/signatures on state files
@@ -276,6 +281,7 @@ async def test_state_file_corruption():
     return audit
 
 
+@pytest.mark.asyncio
 async def test_knowledge_graph_poisoning():
     """
     VULNERABILITY: No content validation on knowledge graph
@@ -334,6 +340,7 @@ async def test_knowledge_graph_poisoning():
     return audit
 
 
+@pytest.mark.asyncio
 async def test_concurrent_updates_race():
     """
     VULNERABILITY: Race conditions in concurrent updates
