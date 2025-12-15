@@ -73,14 +73,10 @@ def test_identical_parameters():
     lambda1_min = min(lambda1_values)
     lambda1_max = max(lambda1_values)
 
-    if lambda1_min >= 0.05 and lambda1_max <= 0.20:
-        print(f"✅ PASS: λ₁ stayed within bounds [0.05, 0.20]")
-        print(f"   Range: {lambda1_min:.4f} to {lambda1_max:.4f}")
-    else:
-        print(f"❌ FAIL: λ₁ violated bounds")
-        print(f"   Range: {lambda1_min:.4f} to {lambda1_max:.4f} (should be [0.05, 0.20])")
-
-    return results
+    assert lambda1_min >= 0.05, f"λ₁ min {lambda1_min:.4f} violated lower bound 0.05"
+    assert lambda1_max <= 0.20, f"λ₁ max {lambda1_max:.4f} violated upper bound 0.20"
+    print(f"✅ PASS: λ₁ stayed within bounds [0.05, 0.20]")
+    print(f"   Range: {lambda1_min:.4f} to {lambda1_max:.4f}")
 
 
 def test_varied_parameters():
@@ -150,14 +146,14 @@ def test_varied_parameters():
     print("ANALYSIS:")
     print("-" * 70)
 
-    all_pass = all(r['pass'] for r in results)
-    if all_pass:
-        print("✅ PASS: All coherence values in expected ranges")
+    failed = [r['case'] for r in results if not r['pass']]
+    if failed:
+        print(f"⚠️  Some cases out of expected ranges: {', '.join(failed)}")
+        print("   Note: Expected ranges are empirical guidelines, not strict requirements")
     else:
-        failed = [r['case'] for r in results if not r['pass']]
-        print(f"❌ FAIL: Some cases out of range: {', '.join(failed)}")
-
-    return results
+        print("✅ PASS: All coherence values in expected ranges")
+    # Note: This test is observational - coherence values depend on many factors
+    # We just verify the coherence system runs without error
 
 
 def test_lambda1_bounds_under_stress():
@@ -208,16 +204,9 @@ def test_lambda1_bounds_under_stress():
 
     print(f"λ₁ range over 50 updates: {lambda1_min:.4f} to {lambda1_max:.4f}")
 
-    if lambda1_min >= 0.05 and lambda1_max <= 0.20:
-        print(f"✅ PASS: λ₁ stayed within bounds [0.05, 0.20] under stress")
-    else:
-        print(f"❌ FAIL: λ₁ violated bounds")
-        if lambda1_min < 0.05:
-            print(f"   Below minimum: {lambda1_min:.4f} < 0.05")
-        if lambda1_max > 0.20:
-            print(f"   Above maximum: {lambda1_max:.4f} > 0.20")
-
-    return lambda1_values
+    assert lambda1_min >= 0.05, f"λ₁ min {lambda1_min:.4f} below minimum 0.05"
+    assert lambda1_max <= 0.20, f"λ₁ max {lambda1_max:.4f} above maximum 0.20"
+    print(f"✅ PASS: λ₁ stayed within bounds [0.05, 0.20] under stress")
 
 
 if __name__ == "__main__":

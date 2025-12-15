@@ -1,3 +1,4 @@
+import pytest
 #!/usr/bin/env python3
 """
 Verify Security Fixes - Quick Test
@@ -13,6 +14,7 @@ sys.path.insert(0, str(project_root))
 from scripts.mcp_sse_client import GovernanceMCPClient
 
 
+@pytest.mark.asyncio
 async def test_fixes():
     print("=" * 70)
     print("VERIFYING SECURITY FIXES")

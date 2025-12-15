@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 import sys
 
+# Import structured logging
+from src.logging_utils import get_logger
+logger = get_logger(__name__)
+
 try:
     import psutil
     PSUTIL_AVAILABLE = True

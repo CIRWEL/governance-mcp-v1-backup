@@ -1,0 +1,164 @@
+# SSE Server - Background Service Info
+
+## Status: Running Automatically
+
+The SSE server runs as a **persistent background service** via macOS launchd.
+
+## Current Setup
+
+**Service name:** `com.unitares.governance-mcp`
+**Port:** 8765
+**Status:** Running (PID can be checked with `launchctl list | grep governance`)
+
+## How It Works
+
+```
+macOS Login
+    ↓
+launchd loads: ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+    ↓
+Starts: python3 src/mcp_server_sse.py --port 8765
+    ↓
+Server runs continuously
+    ↓
+If it crashes → launchd automatically restarts it (KeepAlive: true)
+```
+
+## Configuration
+
+**File:** `~/Library/LaunchAgents/com.unitares.governance-mcp.plist`
+
+**Key settings:**
+- `RunAtLoad: true` - Starts automatically on login
+- `KeepAlive: true` - Restarts if it crashes
+- `WorkingDirectory` - Set to project root
+- `StandardOutPath` - Logs to data/logs/sse_server.log
+- `StandardErrorPath` - Errors to data/logs/sse_server_error.log
+
+## For New Agents
+
+**You don't need to start the server!** It's already running.
+
+Just use:
+```bash
+./scripts/governance_cli.sh "agent_id" "work" 0.5
+```
+
+## Management Commands
+
+**Check status:**
+```bash
+launchctl list | grep governance
+lsof -i :8765
+```
+
+**Restart:**
+```bash
+launchctl restart com.unitares.governance-mcp
+```
+
+**Stop:**
+```bash
+launchctl stop com.unitares.governance-mcp
+```
+
+**Unload (disable auto-start):**
+```bash
+launchctl unload ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+```
+
+**Reload (enable auto-start):**
+```bash
+launchctl load ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+```
+
+## Logs
+
+**Standard output:**
+```bash
+tail -f /Users/cirwel/projects/governance-mcp-v1/data/logs/sse_server.log
+```
+
+**Errors:**
+```bash
+tail -f /Users/cirwel/projects/governance-mcp-v1/data/logs/sse_server_error.log
+```
+
+## Why This Matters for Onboarding
+
+**Old assumption:** "New agents need to manually start the server"
+**Reality:** Server is always running via launchd
+
+**This means:**
+- ✅ New agents can immediately use `governance_cli.sh`
+- ✅ No "server not found" errors (unless launchd failed)
+- ✅ Simpler onboarding - one command works
+- ✅ Persistent across sessions
+
+## Troubleshooting
+
+### Server not responding
+
+1. **Check if running:**
+   ```bash
+   lsof -i :8765
+   ```
+
+2. **Check launchd status:**
+   ```bash
+   launchctl list | grep governance
+   ```
+
+3. **Check logs:**
+   ```bash
+   tail -50 data/logs/sse_server_error.log
+   ```
+
+4. **Restart:**
+   ```bash
+   launchctl restart com.unitares.governance-mcp
+   ```
+
+### Port already in use
+
+If something else is using port 8765:
+```bash
+# Find what's using it
+lsof -i :8765
+
+# Kill the process if needed
+kill -9 <PID>
+
+# Restart governance service
+launchctl restart com.unitares.governance-mcp
+```
+
+### Logs not updating
+
+Check file permissions:
+```bash
+ls -la data/logs/
+# Should be writable by your user
+```
+
+## For Future Updates
+
+If the server code changes:
+1. launchd will keep using the old version until restarted
+2. Run: `launchctl restart com.unitares.governance-mcp`
+3. Or: Unload and reload the plist
+
+## Integration with MCP Clients
+
+**Cursor, Claude Desktop, etc. connect to this same server:**
+- All share the same SSE endpoint: http://127.0.0.1:8765/sse
+- State is shared across all connected clients
+- launchd ensures the server is always available
+
+**This is why "single source of truth" works** - the persistent background service ensures all clients get the same canonical feedback.
+
+---
+
+**Last Updated:** 2025-12-10
+**Service Status:** Active via launchd
+**Onboarding Impact:** Simplified - no manual server management needed

@@ -4,11 +4,16 @@ Integration Test: UNITARES v2.0 with governance_core
 
 Verifies that the UNITARES production monitor works correctly
 with the new governance_core module.
+
+NOTE: These tests are designed to be run both via pytest and as a standalone script.
+When run via pytest, each test function is independent.
+When run as script, run_all_tests() chains them together.
 """
 
 import sys
 import numpy as np
 from pathlib import Path
+import pytest
 
 # Add paths
 project_root = Path(__file__).parent.parent  # Go up from tests/ to project root
@@ -18,16 +23,23 @@ sys.path.insert(0, str(project_root / "src"))
 from src.governance_monitor import UNITARESMonitor
 
 
+# Pytest fixture for monitor instance
+@pytest.fixture
+def monitor():
+    """Create a fresh monitor for each test"""
+    return UNITARESMonitor(agent_id="test_agent_v2")
+
+
 def test_monitor_creation():
     """Test that monitor can be created"""
     print("\n1. Testing monitor creation...")
-    monitor = UNITARESMonitor(agent_id="test_agent_v2")
-    assert monitor.agent_id == "test_agent_v2"
+    mon = UNITARESMonitor(agent_id="test_agent_v2")
+    assert mon.agent_id == "test_agent_v2"
     print("   ✅ Monitor created successfully")
-    print(f"   - Initial λ₁: {monitor.state.lambda1:.4f}")
-    print(f"   - Initial E: {monitor.state.E:.3f}")
-    print(f"   - Initial I: {monitor.state.I:.3f}")
-    return monitor
+    print(f"   - Initial λ₁: {mon.state.lambda1:.4f}")
+    print(f"   - Initial E: {mon.state.E:.3f}")
+    print(f"   - Initial I: {mon.state.I:.3f}")
+    return mon
 
 
 def test_process_update(monitor):

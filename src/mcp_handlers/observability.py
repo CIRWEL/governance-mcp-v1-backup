@@ -12,11 +12,9 @@ from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
-# Import from mcp_server_std module
-if 'src.mcp_server_std' in sys.modules:
-    mcp_server = sys.modules['src.mcp_server_std']
-else:
-    import src.mcp_server_std as mcp_server
+# Import from mcp_server_std module (using shared utility)
+from .shared import get_mcp_server
+mcp_server = get_mcp_server()
 
 
 @mcp_tool("observe_agent", timeout=15.0)
@@ -53,10 +51,9 @@ async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
                 "S": float(monitor.state.S),
                 "V": float(monitor.state.V),
                 "coherence": float(monitor.state.coherence),
-                "attention_score": float(metrics.get("attention_score") or metrics.get("current_risk") or 0.0),  # Renamed from risk_score
+                "risk_score": float(metrics.get("risk_score") or metrics.get("current_risk") or 0.0),  # Governance/operational risk
                 "phi": metrics.get("phi"),  # Primary physics signal
                 "verdict": metrics.get("verdict"),  # Primary governance signal
-                "risk_score": float(metrics.get("attention_score") or metrics.get("current_risk") or 0.0),  # DEPRECATED
                 "lambda1": float(monitor.state.lambda1),
                 "update_count": monitor.state.update_count
             }
@@ -72,7 +69,7 @@ async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
     return success_response(response_data)
 
 
-@mcp_tool("compare_agents", timeout=20.0)
+@mcp_tool("compare_agents", timeout=15.0)
 async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Compare governance patterns across multiple agents"""
     # Reload metadata to get latest state (handles multi-process sync) - non-blocking
@@ -91,7 +88,7 @@ async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextConte
             }
         )]
     
-    compare_metrics = arguments.get("compare_metrics", ["attention_score", "coherence", "E", "I", "S", "V"])  # Updated default: attention_score instead of risk_score, added V
+    compare_metrics = arguments.get("compare_metrics", ["risk_score", "coherence", "E", "I", "S", "V"])  # Default metrics for comparison
     
     # Get metrics for all agents
     agents_data = []
@@ -107,20 +104,32 @@ async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextConte
         
         if monitor:
             metrics = monitor.get_metrics()
+            
+            # Calculate health_status consistently with process_agent_update
+            # Use health_checker.get_health_status() instead of metrics.get("status")
+            risk_score = metrics.get("risk_score") or metrics.get("current_risk")
+            coherence = float(monitor.state.coherence) if monitor.state else None
+            void_active = bool(monitor.state.void_active) if monitor.state else False
+            
+            health_status_obj, _ = mcp_server.health_checker.get_health_status(
+                risk_score=risk_score,
+                coherence=coherence,
+                void_active=void_active
+            )
+            
             agents_data.append({
                 "agent_id": agent_id,
                 "current_risk": metrics.get("current_risk"),  # Recent trend (last 10) - USED FOR HEALTH STATUS
-                "attention_score": float(metrics.get("attention_score") or metrics.get("current_risk") or metrics.get("mean_risk", 0.0)),  # Renamed from risk_score
+                "risk_score": float(metrics.get("risk_score") or metrics.get("current_risk") or metrics.get("mean_risk", 0.0)),  # Governance/operational risk
                 "phi": metrics.get("phi"),  # Primary physics signal
                 "verdict": metrics.get("verdict"),  # Primary governance signal
-                "risk_score": float(metrics.get("attention_score") or metrics.get("current_risk") or metrics.get("mean_risk", 0.0)),  # DEPRECATED
                 "mean_risk": metrics.get("mean_risk", 0.0),  # Overall mean (all-time average) - for historical context
                 "coherence": float(monitor.state.coherence),
                 "E": float(monitor.state.E),
                 "I": float(monitor.state.I),
                 "S": float(monitor.state.S),
                 "V": float(monitor.state.V),  # Added missing V
-                "health_status": metrics.get("status", "unknown")
+                "health_status": health_status_obj.value  # Use consistent calculation
             })
     
     if len(agents_data) < 2:
@@ -187,7 +196,150 @@ async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextConte
     return success_response(response_data)
 
 
-@mcp_tool("detect_anomalies", timeout=20.0)
+@mcp_tool("compare_me_to_similar", timeout=15.0)
+async def handle_compare_me_to_similar(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """Compare yourself to similar agents automatically - finds similar agents and compares
+    
+    IMPROVEMENT #5: Agent comparison templates
+    """
+    # SECURITY FIX: Require registered agent (prevents phantom agent_ids)
+    agent_id, error = require_registered_agent(arguments)
+    if error:
+        return [error]
+    
+    # Reload metadata to get latest state
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, mcp_server.load_metadata)
+    
+    # Get current agent's metrics
+    monitor = mcp_server.get_or_create_monitor(agent_id)
+    my_metrics = monitor.get_metrics()
+    
+    my_E = float(my_metrics.get('E', 0.7))
+    my_I = float(my_metrics.get('I', 0.8))
+    my_S = float(my_metrics.get('S', 0.2))
+    my_coherence = float(my_metrics.get('coherence', 0.5))
+    my_phi = my_metrics.get('phi', 0.0)
+    my_verdict = my_metrics.get('verdict', 'caution')
+    
+    # Find similar agents (similar EISV values)
+    similar_agents = []
+    similarity_threshold = arguments.get("similarity_threshold", 0.15)  # Within 15% on each metric
+    
+    for other_id, other_meta in mcp_server.agent_metadata.items():
+        if other_id == agent_id or other_meta.status not in ["active", "waiting_input"]:
+            continue
+        
+        try:
+            other_monitor = mcp_server.get_or_create_monitor(other_id)
+            other_metrics = other_monitor.get_metrics()
+            
+            other_E = float(other_metrics.get('E', 0.7))
+            other_I = float(other_metrics.get('I', 0.8))
+            other_S = float(other_metrics.get('S', 0.2))
+            other_coherence = float(other_metrics.get('coherence', 0.5))
+            
+            # Calculate similarity (Euclidean distance in EISV space)
+            E_diff = abs(my_E - other_E)
+            I_diff = abs(my_I - other_I)
+            S_diff = abs(my_S - other_S)
+            coherence_diff = abs(my_coherence - other_coherence)
+            
+            # Similar if within threshold on all metrics
+            if (E_diff <= similarity_threshold and 
+                I_diff <= similarity_threshold and 
+                S_diff <= similarity_threshold):
+                
+                similarity_score = 1.0 - ((E_diff + I_diff + S_diff + coherence_diff) / 4.0)
+                similar_agents.append({
+                    "agent_id": other_id,
+                    "similarity_score": similarity_score,
+                    "metrics": {
+                        "E": other_E,
+                        "I": other_I,
+                        "S": other_S,
+                        "coherence": other_coherence,
+                        "phi": other_metrics.get('phi', 0.0),
+                        "verdict": other_metrics.get('verdict', 'caution'),
+                        "risk_score": other_metrics.get('risk_score', 0.4)
+                    },
+                    "differences": {
+                        "E": other_E - my_E,
+                        "I": other_I - my_I,
+                        "S": other_S - my_S,
+                        "coherence": other_coherence - my_coherence
+                    },
+                    "total_updates": other_meta.total_updates,
+                    "status": other_meta.status
+                })
+        except Exception as e:
+            logger.debug(f"Could not compare with agent {other_id}: {e}")
+            continue
+    
+    # Sort by similarity score (highest first)
+    similar_agents.sort(key=lambda x: x["similarity_score"], reverse=True)
+    
+    # Take top 3 most similar
+    top_similar = similar_agents[:3]
+    
+    if not top_similar:
+        return success_response({
+            "agent_id": agent_id,
+            "message": "No similar agents found (within similarity threshold)",
+            "my_metrics": {
+                "E": my_E,
+                "I": my_I,
+                "S": my_S,
+                "coherence": my_coherence,
+                "phi": my_phi,
+                "verdict": my_verdict
+            },
+            "suggestion": "Try adjusting similarity_threshold parameter or use compare_agents with specific agent_ids"
+        })
+    
+    # Build comparison response
+    comparison_data = {
+        "agent_id": agent_id,
+        "my_metrics": {
+            "E": my_E,
+            "I": my_I,
+            "S": my_S,
+            "coherence": my_coherence,
+            "phi": my_phi,
+            "verdict": my_verdict,
+            "risk_score": my_metrics.get('risk_score', 0.4)
+        },
+        "similar_agents": top_similar,
+        "message": f"Found {len(top_similar)} similar agent(s). Here's how you compare:",
+        "insights": []
+    }
+    
+    # Generate insights
+    for similar in top_similar:
+        insights = []
+        if similar["metrics"]["I"] > my_I + 0.05:
+            insights.append(f"Higher Information Integrity ({similar['metrics']['I']:.2f} vs {my_I:.2f})")
+        if similar["metrics"]["S"] < my_S - 0.05:
+            insights.append(f"Lower Entropy ({similar['metrics']['S']:.2f} vs {my_S:.2f})")
+        if similar["metrics"]["phi"] > my_phi + 0.05:
+            insights.append(f"Better phi score ({similar['metrics']['phi']:.2f} vs {my_phi:.2f}) - closer to 'safe' verdict")
+        if similar["metrics"]["verdict"] == "safe" and my_verdict != "safe":
+            insights.append(f"Achieved 'safe' verdict (you're at '{my_verdict}')")
+        
+        if insights:
+            comparison_data["insights"].append({
+                "agent_id": similar["agent_id"],
+                "insights": insights,
+                "total_updates": similar["total_updates"]
+            })
+    
+    comparison_data["eisv_labels"] = UNITARESMonitor.get_eisv_labels()
+    
+    return success_response(comparison_data)
+
+
+@mcp_tool("detect_anomalies", timeout=15.0)
 async def handle_detect_anomalies(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Detect anomalies across agents"""
     import asyncio
@@ -256,10 +408,9 @@ async def handle_detect_anomalies(arguments: Dict[str, Any]) -> Sequence[TextCon
                 elif isinstance(result, Exception):
                     # Log but continue
                     import sys
-                    print(f"[UNITARES MCP] Error processing agent in detect_anomalies: {result}", file=sys.stderr)
+                    logger.warning(f"Error processing agent in detect_anomalies: {result}", exc_info=True)
     except Exception as e:
-        import sys
-        print(f"[UNITARES MCP] Error in detect_anomalies: {e}", file=sys.stderr)
+        logger.error(f"Error in detect_anomalies: {e}", exc_info=True)
         return [error_response(f"Error detecting anomalies: {str(e)}")]
     
     # Sort by severity (high first)
@@ -307,7 +458,7 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
     total_agents = len(agent_ids)
     agents_with_data = 0
     total_updates = 0
-    attention_scores = []  # Renamed from risk_scores
+    risk_scores = []  # Governance/operational risk scores
     coherence_scores = []
     health_statuses = {"healthy": 0, "moderate": 0, "critical": 0, "unknown": 0}
     decision_counts = {"proceed": 0, "pause": 0}  # Two-tier system (backward compat: approve/reflect/reject mapped)
@@ -326,13 +477,14 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
             agents_with_data += 1
             metrics = monitor.get_metrics()
             
-            # Aggregate attention_score (renamed from risk_score) and coherence
-            attention_score = metrics.get("attention_score") or metrics.get("current_risk")
-            if attention_score is not None:
-                attention_scores.append(float(attention_score))
+            # Aggregate risk_score and coherence
+            risk_score = metrics.get("risk_score") or metrics.get("current_risk")
+            if risk_score is not None:
+                risk_scores.append(float(risk_score))
             elif monitor.state.risk_history:
-                # Fallback to risk_history if attention_score not available
-                attention_scores.extend([float(r) for r in monitor.state.risk_history[-10:]])  # Last 10 updates
+                # Fallback to risk_history if risk_score not available
+                history_values = [float(r) for r in monitor.state.risk_history[-10:]]  # Last 10 updates
+                risk_scores.extend(history_values)
             coherence_scores.append(float(monitor.state.coherence))
             
             # Aggregate health status
@@ -359,8 +511,8 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
         "total_agents": total_agents,
         "agents_with_data": agents_with_data,
         "total_updates": total_updates,
-        "mean_attention_score": float(np.mean(attention_scores)) if attention_scores else 0.0,  # Renamed from mean_risk
-        "mean_risk": float(np.mean(attention_scores)) if attention_scores else 0.0,  # DEPRECATED: Use mean_attention_score
+        "mean_risk_score": float(np.mean(risk_scores)) if risk_scores else 0.0,  # Governance/operational risk (mean)
+        "mean_risk": float(np.mean(risk_scores)) if risk_scores else 0.0,  # DEPRECATED: Use mean_risk_score instead
         "mean_coherence": float(np.mean(coherence_scores)) if coherence_scores else 0.0,
         "decision_distribution": {
             **decision_counts,

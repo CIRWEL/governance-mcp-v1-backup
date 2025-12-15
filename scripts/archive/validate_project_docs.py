@@ -53,7 +53,8 @@ class GovernanceDocValidator:
 
     def __init__(self, project_root: Path = None):
         if project_root is None:
-            project_root = Path(__file__).parent.parent
+            # Script is in scripts/archive/, so go up 2 levels to project root
+            project_root = Path(__file__).parent.parent.parent
         self.project_root = project_root
         self.issues: List[Issue] = []
         self.checks_passed = 0
@@ -185,7 +186,8 @@ class GovernanceDocValidator:
             # Look for "Created:" or "Updated:" dates
             date_patterns = [
                 r'\*\*(?:Created|Last Updated|Updated|Date):\*\*\s*(\w+ \d{1,2},? \d{4})',
-                r'(?:Created|Last Updated|Updated|Date):\s*(\d{4}-\d{2}-\d{2})',
+                r'\*\*(?:Created|Last Updated|Updated|Date):\*\*\s*(\d{4}-\d{2}-\d{2})',  # Bold with YYYY-MM-DD
+                r'(?:Created|Last Updated|Updated|Date):\s*(\d{4}-\d{2}-\d{2})',  # No bold
                 r'## .*\((\d{4}-\d{2}-\d{2})\)',
             ]
 
@@ -358,9 +360,15 @@ class GovernanceDocValidator:
                 if link_path.startswith('http'):
                     continue
 
-                # Skip anchors
-                if link_path.startswith('#'):
-                    continue
+                # Handle anchors in links (e.g., file.md#section)
+                # Strip anchor part for file validation, but don't validate anchor itself
+                original_link_path = link_path
+                anchor = None
+                if '#' in link_path:
+                    link_path, anchor = link_path.split('#', 1)
+                    # Skip pure anchor links (only #section with no file)
+                    if not link_path:
+                        continue
 
                 # Resolve relative path
                 if link_path.startswith('/'):
@@ -375,12 +383,12 @@ class GovernanceDocValidator:
                         severity="major",
                         category="broken_link",
                         file=doc_file,
-                        description=f"Broken link: [{link_text}]({link_path})",
+                        description=f"Broken link: [{link_text}]({original_link_path})",
                         fix_hint=f"Update link or create missing file: {target}"
                     )
                 else:
                     self.checks_passed += 1
-                    self.log(f"✓ Link valid: {link_path}")
+                    self.log(f"✓ Link valid: {original_link_path}")
 
     def validate_readme_current(self):
         """Check README.md reflects current system state."""

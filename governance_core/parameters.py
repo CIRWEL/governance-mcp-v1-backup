@@ -26,7 +26,7 @@ class DynamicsParams:
     # E dynamics
     alpha: float = 0.4           # I → E coupling strength
     beta_E: float = 0.1          # S damping on E
-    gamma_E: float = 0.0         # Drift feedback to E
+    gamma_E: float = 0.05        # Drift feedback to E (enabled with conservative value)
 
     # I dynamics
     k: float = 0.1               # S → I coupling
@@ -37,6 +37,7 @@ class DynamicsParams:
     mu: float = 0.8              # S decay rate
     lambda1_base: float = 0.3    # Drift → S coupling base
     lambda2_base: float = 0.05   # Coherence → S reduction base
+    beta_complexity: float = 0.15  # Complexity → S coupling (task difficulty increases uncertainty)
 
     # V dynamics
     kappa: float = 0.3           # (E-I) → V coupling

@@ -60,12 +60,22 @@ def bump_version(part: str) -> str:
 VERSION_REFERENCES = [
     # README.md
     ("README.md", [
+        (r'# UNITARES Governance Framework v([\d.]+)', r'# UNITARES Governance Framework v{version}'),
         (r'\*\*Status: ✅ PRODUCTION READY v([\d.]+)\*\*', r'**Status: ✅ PRODUCTION READY v{version}**'),
         (r'## \[(\d+\.\d+\.\d+)\]', r'## [{version}]'),  # CHANGELOG sections
     ]),
     # CHANGELOG.md
     ("CHANGELOG.md", [
         (r'## \[(\d+\.\d+\.\d+)\] - Unreleased', r'## [{version}] - Unreleased'),
+    ]),
+    # Server code - SERVER_VERSION constant
+    ("src/mcp_server_std.py", [
+        (r'SERVER_VERSION = "([\d.]+)"', r'SERVER_VERSION = "{version}"'),
+        (r'# UNITARES v([\d.]+):', r'# UNITARES v{version}:'),
+    ]),
+    # Admin handler - hardcoded version in health_check
+    ("src/mcp_handlers/admin.py", [
+        (r'"version": "([\d.]+)"', r'"version": "{version}"'),
     ]),
     # Python package files (if you create them later)
     ("setup.py", [

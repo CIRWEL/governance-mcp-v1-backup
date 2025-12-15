@@ -28,6 +28,22 @@ import fcntl
 import secrets
 import base64
 
+# -----------------------------------------------------------------------------
+# BOOTSTRAP IMPORT PATH (critical for Claude Desktop / script execution)
+#
+# When this file is executed as `python src/mcp_server_std.py`, Python puts the
+# `src/` directory on sys.path. That *does not* allow `import src.*` because
+# the package root is one directory above. Ensure project root is on sys.path
+# before importing anything from `src`.
+# -----------------------------------------------------------------------------
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+# Import structured logging early (used by optional dependency warnings below)
+from src.logging_utils import get_logger
+logger = get_logger(__name__)
+
 try:
     import aiofiles
     AIOFILES_AVAILABLE = True
@@ -42,13 +58,8 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     logger.warning("psutil not available. Process cleanup disabled. Install with: pip install psutil")
 
-# Add project root to path
-from src._imports import ensure_project_root
-project_root = ensure_project_root()
-
-# Import structured logging (must be before try blocks that use logger)
-from src.logging_utils import get_logger
-logger = get_logger(__name__)
+# Project root (single source of truth for file locations)
+project_root = _PROJECT_ROOT
 
 try:
     from mcp.server import Server
@@ -71,6 +82,8 @@ from src.pattern_analysis import analyze_agent_patterns
 from src.runtime_config import get_thresholds
 from src.lock_cleanup import cleanup_stale_state_locks
 from src.tool_schemas import get_tool_definitions
+# Agent metadata SQLite backend (optional; JSON snapshot still supported)
+from src.metadata_db import AgentMetadataDB
 # Tool mode filtering removed - all tools always available
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
@@ -107,6 +120,147 @@ server = Server("governance-monitor-v1")
 
 # Current process PID
 CURRENT_PID = os.getpid()
+
+# -----------------------------------------------------------------------------
+# Optional: STDIO -> SSE Proxy Mode
+#
+# Motivation:
+# - Claude Desktop is stdio-only, but we want it to participate in the shared SSE
+#   server "world" (shared monitors, dialectic sessions, shared state).
+# - When enabled, stdio server becomes a thin proxy that forwards list_tools and
+#   call_tool to an already-running SSE server.
+#
+# Enable by setting:
+#   UNITARES_STDIO_PROXY_SSE_URL=http://127.0.0.1:8765/sse
+# OR (preferred standardization path):
+#   UNITARES_STDIO_PROXY_HTTP_URL=http://127.0.0.1:8765
+#   (also accepts full endpoints ending in /v1/tools or /v1/tools/call)
+# Optional:
+#   UNITARES_STDIO_PROXY_STRICT=1  (default) -> fail if SSE unavailable
+# -----------------------------------------------------------------------------
+STDIO_PROXY_HTTP_URL = os.getenv("UNITARES_STDIO_PROXY_HTTP_URL")
+STDIO_PROXY_SSE_URL = os.getenv("UNITARES_STDIO_PROXY_SSE_URL")
+STDIO_PROXY_STRICT = os.getenv("UNITARES_STDIO_PROXY_STRICT", "1").strip().lower() not in ("0", "false", "no")
+STDIO_PROXY_HTTP_BEARER_TOKEN = os.getenv("UNITARES_STDIO_PROXY_HTTP_BEARER_TOKEN")  # optional
+
+
+def _normalize_http_proxy_base(url: str) -> str:
+    """Normalize HTTP proxy base URL to a plain base (no trailing /v1/tools(/call))."""
+    u = (url or "").strip()
+    if not u:
+        return u
+    u = u.rstrip("/")
+    if u.endswith("/v1/tools/call"):
+        return u[: -len("/v1/tools/call")]
+    if u.endswith("/v1/tools"):
+        return u[: -len("/v1/tools")]
+    return u
+
+
+async def _proxy_http_list_tools() -> list[Tool]:
+    """Proxy list_tools to HTTP (/v1/tools) and convert to MCP Tool objects."""
+    import urllib.request
+    import urllib.error
+
+    base = _normalize_http_proxy_base(STDIO_PROXY_HTTP_URL)
+    url = f"{base}/v1/tools"
+
+    headers = {"Accept": "application/json", "X-Session-ID": f"stdio:{os.getpid()}"}
+    if STDIO_PROXY_HTTP_BEARER_TOKEN:
+        headers["Authorization"] = f"Bearer {STDIO_PROXY_HTTP_BEARER_TOKEN}"
+
+    def _fetch_sync() -> dict[str, Any]:
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = r.read().decode("utf-8")
+        return json.loads(data)
+
+    loop = asyncio.get_running_loop()
+    payload = await loop.run_in_executor(None, _fetch_sync)
+
+    tools = []
+    for entry in payload.get("tools", []) or []:
+        # OpenAI-style: {"type":"function","function":{"name","description","parameters"}}
+        fn = entry.get("function") if isinstance(entry, dict) else None
+        if not isinstance(fn, dict):
+            continue
+        name = fn.get("name")
+        if not name:
+            continue
+        tools.append(Tool(
+            name=name,
+            description=fn.get("description") or "",
+            inputSchema=fn.get("parameters") or {"type": "object", "properties": {}},
+        ))
+    # Optional: tool mode filtering (reduces cognitive load in Claude Desktop / local models)
+    try:
+        from src.tool_modes import TOOL_MODE, should_include_tool
+        return [t for t in tools if should_include_tool(t.name, mode=TOOL_MODE)]
+    except Exception:
+        return tools
+
+
+async def _proxy_http_call_tool(name: str, arguments: dict[str, Any]) -> Sequence[TextContent]:
+    """Proxy call_tool to HTTP (/v1/tools/call)."""
+    import urllib.request
+    import urllib.error
+
+    base = _normalize_http_proxy_base(STDIO_PROXY_HTTP_URL)
+    url = f"{base}/v1/tools/call"
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Session-ID": f"stdio:{os.getpid()}",
+    }
+    if STDIO_PROXY_HTTP_BEARER_TOKEN:
+        headers["Authorization"] = f"Bearer {STDIO_PROXY_HTTP_BEARER_TOKEN}"
+
+    body = json.dumps({"name": name, "arguments": arguments or {}}).encode("utf-8")
+
+    def _post_sync() -> dict[str, Any]:
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = r.read().decode("utf-8")
+        return json.loads(data)
+
+    loop = asyncio.get_running_loop()
+    payload = await loop.run_in_executor(None, _post_sync)
+
+    # Normalize to TextContent payload (what MCP clients expect from stdio server)
+    if isinstance(payload, dict) and payload.get("success") is True and "result" in payload:
+        out = payload["result"]
+    else:
+        out = payload
+    return [TextContent(type="text", text=json.dumps(out, indent=2))]
+
+async def _proxy_list_tools() -> list[Tool]:
+    """
+    Proxy list_tools to SSE.
+
+    NOTE: We intentionally use per-request connections to avoid anyio cancel-scope
+    edge cases on stdio client disconnect/teardown.
+    """
+    from mcp.client.sse import sse_client
+    from mcp.client.session import ClientSession
+    async with sse_client(STDIO_PROXY_SSE_URL, timeout=15) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            res = await session.list_tools()
+            return res.tools
+
+
+async def _proxy_call_tool(name: str, arguments: dict[str, Any]) -> Sequence[TextContent]:
+    """
+    Proxy call_tool to SSE (per-request connection for teardown safety).
+    """
+    from mcp.client.sse import sse_client
+    from mcp.client.session import ClientSession
+    async with sse_client(STDIO_PROXY_SSE_URL, timeout=15) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            res = await session.call_tool(name, arguments)
+            return res.content
 
 
 # Initialize managers for state locking, health thresholds, and process management
@@ -165,6 +319,13 @@ class AgentMetadata:
     response_completed: bool = False  # Flag for completion detection
     # Cached health status (updated on each process_agent_update)
     health_status: str = "unknown"  # "healthy", "moderate", "critical", "unknown"
+    # Dialectic recovery / resumption conditions (persisted)
+    # Examples: {"type": "complexity_limit", "value": 0.3, "applied_at": "..."}
+    # Stored as structured dicts so handlers can enforce constraints consistently.
+    dialectic_conditions: list[dict] = None
+    # Session binding persistence (for identity recovery across session key changes)
+    active_session_key: str = None
+    session_bound_at: str = None
 
     def __post_init__(self):
         if self.tags is None:
@@ -175,6 +336,8 @@ class AgentMetadata:
             self.recent_update_timestamps = []
         if self.recent_decisions is None:
             self.recent_decisions = []
+        if self.dialectic_conditions is None:
+            self.dialectic_conditions = []
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization"""
@@ -276,7 +439,158 @@ _metadata_batch_state = {
 # Path to metadata file
 METADATA_FILE = Path(project_root) / "data" / "agent_metadata.json"
 
-# State file path template (per-agent)
+# SQLite backend for metadata (source of truth).
+# JSON snapshot writing is disabled by default since SQLite is now canonical.
+# To enable JSON snapshots for debugging: UNITARES_METADATA_WRITE_JSON_SNAPSHOT=1
+UNITARES_METADATA_BACKEND = os.getenv("UNITARES_METADATA_BACKEND", "sqlite").strip().lower()  # json|sqlite|auto
+# Metadata DB path - uses consolidated governance.db
+UNITARES_METADATA_DB_PATH = Path(
+    os.getenv("UNITARES_METADATA_DB_PATH", str(Path(project_root) / "data" / "governance.db"))
+)
+# JSON snapshots disabled by default (SQLite is canonical). Set to "1" to enable for debugging.
+UNITARES_METADATA_WRITE_JSON_SNAPSHOT = os.getenv("UNITARES_METADATA_WRITE_JSON_SNAPSHOT", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+_metadata_db: AgentMetadataDB | None = None
+_metadata_backend_resolved: str | None = None
+
+
+def _resolve_metadata_backend() -> str:
+    """
+    Resolve metadata backend.
+
+    - json: always use METADATA_FILE
+    - sqlite: always use SQLite (with optional JSON snapshot)
+    - auto: prefer SQLite if DB exists; otherwise JSON until first migration
+    """
+    global _metadata_backend_resolved
+    if _metadata_backend_resolved:
+        return _metadata_backend_resolved
+
+    backend = UNITARES_METADATA_BACKEND
+    if backend in ("json", "sqlite"):
+        _metadata_backend_resolved = backend
+        return backend
+
+    # auto mode
+    if UNITARES_METADATA_DB_PATH.exists():
+        _metadata_backend_resolved = "sqlite"
+    else:
+        _metadata_backend_resolved = "json"
+    return _metadata_backend_resolved
+
+
+def _get_metadata_db() -> AgentMetadataDB:
+    global _metadata_db
+    if _metadata_db is None:
+        _metadata_db = AgentMetadataDB(UNITARES_METADATA_DB_PATH)
+    return _metadata_db
+
+
+def _write_metadata_snapshot_json_sync() -> None:
+    """Write JSON snapshot of in-memory agent_metadata for backward compatibility."""
+    if not UNITARES_METADATA_WRITE_JSON_SNAPSHOT:
+        return
+    METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    metadata_lock_file = METADATA_FILE.parent / ".metadata.lock"
+    lock_fd = os.open(str(metadata_lock_file), os.O_CREAT | os.O_RDWR)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        snapshot = {aid: meta.to_dict() for aid, meta in agent_metadata.items() if isinstance(meta, AgentMetadata)}
+        with open(METADATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(snapshot, f, indent=2, ensure_ascii=False)
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        except Exception:
+            pass
+        os.close(lock_fd)
+
+
+def _migrate_metadata_json_to_sqlite_sync() -> int:
+    """One-time migration: JSON metadata -> SQLite. Returns number of agents migrated."""
+    if not METADATA_FILE.exists():
+        return 0
+    try:
+        with open(METADATA_FILE, "r", encoding="utf-8") as f:
+            existing_data = json.load(f)
+    except Exception:
+        return 0
+
+    # Only accept dict-shaped records
+    migrated: dict[str, dict] = {}
+    for aid, meta_dict in (existing_data or {}).items():
+        if isinstance(meta_dict, dict):
+            migrated[aid] = meta_dict
+
+    if not migrated:
+        return 0
+
+    db = _get_metadata_db()
+    db.upsert_many(migrated)
+    return len(migrated)
+
+
+def _load_metadata_from_sqlite() -> None:
+    """Load metadata from SQLite into in-memory agent_metadata dict."""
+    global agent_metadata
+    db = _get_metadata_db()
+    raw = db.load_all()
+    parsed = _parse_metadata_dict(raw)
+    agent_metadata = parsed
+
+# Agent state backend configuration
+# SQLite backend eliminates 199+ JSON files, provides better concurrency
+UNITARES_STATE_BACKEND = os.getenv("UNITARES_STATE_BACKEND", "sqlite").strip().lower()  # json|sqlite|auto
+_state_db_instance = None
+_state_migration_done = False
+
+def _get_state_db():
+    """Get or create the state database instance."""
+    global _state_db_instance
+    if _state_db_instance is None:
+        from src.state_db import AgentStateDB
+        _state_db_instance = AgentStateDB()
+    return _state_db_instance
+
+def _should_use_sqlite_state() -> bool:
+    """Determine if SQLite backend should be used for state."""
+    if UNITARES_STATE_BACKEND == "json":
+        return False
+    if UNITARES_STATE_BACKEND == "sqlite":
+        return True
+    # auto: use SQLite if DB exists, otherwise JSON (will migrate on first save)
+    db_path = Path(project_root) / "data" / "agent_state.db"
+    return db_path.exists()
+
+def _ensure_state_migration() -> None:
+    """One-time migration from JSON files to SQLite (if needed)."""
+    global _state_migration_done
+    if _state_migration_done:
+        return
+    _state_migration_done = True
+    
+    if UNITARES_STATE_BACKEND == "json":
+        return  # No migration needed
+    
+    db_path = Path(project_root) / "data" / "agent_state.db"
+    agents_dir = Path(project_root) / "data" / "agents"
+    
+    # Only migrate if SQLite doesn't exist but JSON files do
+    if not db_path.exists() and agents_dir.exists():
+        json_files = list(agents_dir.glob("*_state.json"))
+        if json_files:
+            logger.info(f"Migrating {len(json_files)} agent state files to SQLite...")
+            db = _get_state_db()
+            stats = db.migrate_from_json(agents_dir)
+            logger.info(f"State migration complete: {stats['migrated']} migrated, {stats['skipped']} skipped")
+            if stats['errors']:
+                logger.warning(f"Migration errors: {stats['errors'][:5]}")  # Show first 5
+
+# State file path template (per-agent) - used for JSON backend
 def get_state_file(agent_id: str) -> Path:
     """
     Get path to state file for an agent.
@@ -316,6 +630,9 @@ def _parse_metadata_dict(data: dict) -> dict:
     Returns:
         Dictionary mapping agent_id -> AgentMetadata objects
     """
+    from dataclasses import fields as dataclass_fields
+    allowed_fields = {f.name for f in dataclass_fields(AgentMetadata)}
+
     parsed_metadata = {}
     for agent_id, meta in data.items():
         # Validate meta is a dict before processing
@@ -323,17 +640,22 @@ def _parse_metadata_dict(data: dict) -> dict:
             logger.warning(f"Metadata for {agent_id} is not a dict (type: {type(meta).__name__}), skipping")
             continue
         
-        # Set defaults for missing fields
+        # Drop unknown keys (forward/backward compatibility across versions).
+        # This prevents crashes when metadata contains fields not present on AgentMetadata.
+        meta = {k: v for k, v in meta.items() if k in allowed_fields}
+
+        # Set defaults for missing fields (only for fields that exist on AgentMetadata).
         defaults = {
-            'parent_agent_id': None,
-            'spawn_reason': None,
-            'recent_update_timestamps': None,
-            'recent_decisions': None,
-            'loop_detected_at': None,
-            'loop_cooldown_until': None,
-            'last_response_at': None,
-            'response_completed': False,
-            'health_status': 'unknown'  # Cached health status for list_agents
+            "parent_agent_id": None,
+            "spawn_reason": None,
+            "recent_update_timestamps": None,
+            "recent_decisions": None,
+            "loop_detected_at": None,
+            "loop_cooldown_until": None,
+            "last_response_at": None,
+            "response_completed": False,
+            "health_status": "unknown",  # Cached health status for list_agents
+            "dialectic_conditions": None,
         }
         for key, default_value in defaults.items():
             if key not in meta:
@@ -396,6 +718,33 @@ def load_metadata() -> None:
     - Otherwise: reload from disk with locking
     """
     global agent_metadata
+    backend = _resolve_metadata_backend()
+
+    # AUTO-MIGRATION: if sqlite is requested (or auto prefers sqlite) but DB doesn't exist yet,
+    # migrate JSON into SQLite once.
+    if backend == "sqlite":
+        if not UNITARES_METADATA_DB_PATH.exists() and METADATA_FILE.exists():
+            migrated_count = _migrate_metadata_json_to_sqlite_sync()
+            if migrated_count > 0:
+                logger.info(f"Migrated {migrated_count} agent(s) from JSON metadata to SQLite")
+        # Load from SQLite (source of truth)
+        try:
+            _load_metadata_from_sqlite()
+            _metadata_cache_state["last_load_time"] = time.time()
+            try:
+                _metadata_cache_state["last_file_mtime"] = UNITARES_METADATA_DB_PATH.stat().st_mtime
+            except Exception:
+                pass
+            _metadata_cache_state["dirty"] = False
+            # Keep JSON snapshot updated for backward compatibility
+            try:
+                _write_metadata_snapshot_json_sync()
+            except Exception:
+                pass
+            return
+        except Exception as e:
+            logger.warning(f"Could not load metadata from SQLite, falling back to JSON: {e}", exc_info=True)
+            # fall back to JSON behavior below
     if not METADATA_FILE.exists():
         return
 
@@ -642,6 +991,21 @@ def save_metadata() -> None:
     Use schedule_metadata_save() for batched async updates instead.
     This function is kept for internal use by flush_metadata_save() only.
     """
+    backend = _resolve_metadata_backend()
+    if backend == "sqlite":
+        # Source of truth: SQLite
+        db = _get_metadata_db()
+        db.upsert_many(agent_metadata)
+        # Optional: write JSON snapshot for compatibility/transparency
+        _write_metadata_snapshot_json_sync()
+        _metadata_cache_state["last_load_time"] = time.time()
+        try:
+            _metadata_cache_state["last_file_mtime"] = UNITARES_METADATA_DB_PATH.stat().st_mtime
+        except Exception:
+            pass
+        _metadata_cache_state["dirty"] = False
+        return
+
     METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     
     # Use a global metadata lock to prevent concurrent writes
@@ -650,7 +1014,23 @@ def save_metadata() -> None:
     
     try:
         # Acquire exclusive lock on metadata file with timeout (prevents hangs)
-        lock_fd = os.open(str(metadata_lock_file), os.O_CREAT | os.O_RDWR)
+        lock_fd = None
+        try:
+            lock_fd = os.open(str(metadata_lock_file), os.O_CREAT | os.O_RDWR)
+        except (OSError, IOError) as open_error:
+            logger.warning(f"Could not open metadata lock file: {open_error}", exc_info=True)
+            # Fallback: try without lock (not ideal but better than failing silently)
+            with open(METADATA_FILE, 'w') as f:
+                data = {
+                    agent_id: meta.to_dict()
+                    for agent_id, meta in sorted(agent_metadata.items())
+                    if isinstance(meta, AgentMetadata)
+                }
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            return
+        
         lock_acquired = False
         start_time = time.time()
         timeout = 5.0  # 5 second timeout (same as agent lock)
@@ -752,8 +1132,15 @@ def save_metadata() -> None:
             _metadata_cache_state["dirty"] = False
 
         finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            os.close(lock_fd)
+            if lock_fd is not None:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                except (IOError, OSError):
+                    pass
+                try:
+                    os.close(lock_fd)
+                except (OSError, ValueError):
+                    pass
     except Exception as e:
         logger.warning(f"Could not acquire metadata lock: {e}", exc_info=True)
         # Fallback: try without lock (not ideal but better than failing silently)
@@ -825,17 +1212,29 @@ def _write_state_file(state_file: Path, state_data: dict) -> None:
 
 async def save_monitor_state_async(agent_id: str, monitor: UNITARESMonitor) -> None:
     """
-    Async version of save_monitor_state - uses async locks for better performance.
+    Async version of save_monitor_state - uses SQLite or file-based storage.
     
-    Uses async file locking to avoid blocking the event loop during lock acquisition.
-    This is called from async handlers, so we use async locks instead of blocking time.sleep().
+    SQLite backend (default): No file locking needed, SQLite handles concurrency.
+    JSON backend: Uses async file locking to avoid blocking the event loop.
     """
+    state_data = monitor.state.to_dict_with_history()
+    
+    # SQLite backend (preferred)
+    if _should_use_sqlite_state():
+        _ensure_state_migration()
+        loop = asyncio.get_running_loop()
+        db = _get_state_db()
+        await loop.run_in_executor(None, db.save_state, agent_id, state_data)
+        return
+    
+    # JSON backend (legacy)
     state_file = get_state_file(agent_id)
     state_file.parent.mkdir(parents=True, exist_ok=True)
     
     # Use a per-agent state lock to prevent concurrent writes
     state_lock_file = state_file.parent / f".{agent_id}_state.lock"
     
+    lock_fd = None
     try:
         # Acquire exclusive lock on state file with timeout (async, non-blocking)
         lock_fd = os.open(str(state_lock_file), os.O_CREAT | os.O_RDWR)
@@ -860,18 +1259,23 @@ async def save_monitor_state_async(agent_id: str, monitor: UNITARESMonitor) -> N
                 raise TimeoutError("State lock timeout")
 
             # Write state (run in executor to avoid blocking event loop)
-            state_data = monitor.state.to_dict_with_history()
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, _write_state_file, state_file, state_data)
             
         finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            os.close(lock_fd)
+            if lock_fd is not None:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                except (IOError, OSError):
+                    pass
+                try:
+                    os.close(lock_fd)
+                except (OSError, ValueError):
+                    pass
     except Exception as e:
         logger.warning(f"Could not acquire state lock for {agent_id}: {e}", exc_info=True)
         # Fallback: try without lock (not ideal but better than failing silently)
         try:
-            state_data = monitor.state.to_dict_with_history()
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, _write_state_file, state_file, state_data)
         except Exception as fallback_error:
@@ -879,13 +1283,24 @@ async def save_monitor_state_async(agent_id: str, monitor: UNITARESMonitor) -> N
 
 
 def save_monitor_state(agent_id: str, monitor: UNITARESMonitor) -> None:
-    """Save monitor state to file with locking to prevent race conditions"""
+    """Save monitor state to SQLite or file with locking to prevent race conditions."""
+    state_data = monitor.state.to_dict_with_history()
+    
+    # SQLite backend (preferred)
+    if _should_use_sqlite_state():
+        _ensure_state_migration()
+        db = _get_state_db()
+        db.save_state(agent_id, state_data)
+        return
+    
+    # JSON backend (legacy)
     state_file = get_state_file(agent_id)
     state_file.parent.mkdir(parents=True, exist_ok=True)
     
     # Use a per-agent state lock to prevent concurrent writes
     state_lock_file = state_file.parent / f".{agent_id}_state.lock"
     
+    lock_fd = None
     try:
         # Acquire exclusive lock on state file with timeout
         lock_fd = os.open(str(state_lock_file), os.O_CREAT | os.O_RDWR)
@@ -910,24 +1325,41 @@ def save_monitor_state(agent_id: str, monitor: UNITARESMonitor) -> None:
                 raise TimeoutError("State lock timeout")
 
             # Write state (use shared helper function)
-            state_data = monitor.state.to_dict_with_history()
             _write_state_file(state_file, state_data)
             
         finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            os.close(lock_fd)
+            if lock_fd is not None:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                except (IOError, OSError):
+                    pass
+                try:
+                    os.close(lock_fd)
+                except (OSError, ValueError):
+                    pass
     except Exception as e:
         logger.warning(f"Could not acquire state lock for {agent_id}: {e}", exc_info=True)
         # Fallback: try without lock (not ideal but better than failing silently)
         try:
-            state_data = monitor.state.to_dict_with_history()
             _write_state_file(state_file, state_data)
         except Exception as e2:
             logger.error(f"Could not save state for {agent_id}: {e2}", exc_info=True)
 
 
 def load_monitor_state(agent_id: str) -> 'GovernanceState | None':
-    """Load monitor state from file if it exists"""
+    """Load monitor state from SQLite or file if it exists."""
+    from src.governance_state import GovernanceState
+    
+    # SQLite backend (preferred)
+    if _should_use_sqlite_state():
+        _ensure_state_migration()
+        db = _get_state_db()
+        data = db.load_state(agent_id)
+        if data:
+            return GovernanceState.from_dict(data)
+        # Fall through to check JSON file (for agents not yet migrated)
+    
+    # JSON backend (legacy) or fallback
     state_file = get_state_file(agent_id)
     
     if not state_file.exists():
@@ -937,8 +1369,15 @@ def load_monitor_state(agent_id: str) -> 'GovernanceState | None':
         # Read-only access, no lock needed
         with open(state_file, 'r') as f:
             data = json.load(f)
-            from src.governance_monitor import GovernanceState
-            return GovernanceState.from_dict(data)
+            state = GovernanceState.from_dict(data)
+            
+            # If using SQLite, migrate this agent's state
+            if _should_use_sqlite_state():
+                db = _get_state_db()
+                db.save_state(agent_id, data)
+                logger.debug(f"Migrated state for {agent_id} from JSON to SQLite")
+            
+            return state
     except Exception as e:
         logger.warning(f"Could not load state for {agent_id}: {e}", exc_info=True)
         return None
@@ -1776,7 +2215,9 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
     # Other patterns (2-6) still apply as they catch different types of loops
     skip_pattern1 = in_server_grace_period or in_agent_grace_period
     
-    # Pattern 1: Multiple updates within same second (RELAXED: Even less strict)
+    # Pattern 1: Multiple updates within same second (HISTORICAL PATTERN ANALYSIS)
+    # CRITICAL FIX: Check ALL pairs in history, not just last 2 timestamps
+    # This catches loops that happened earlier but are no longer "recent"
     # Changed from 2+ updates/0.5s to 3+ updates/0.3s OR 4+ updates/1s
     # Rationale: 2 updates in 0.5 seconds can be legitimate (admin + logging, tool calls)
     #            3+ updates in 0.3 seconds is almost certainly a loop
@@ -1784,40 +2225,55 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
     # Only check recent timestamps (last 30 seconds) to avoid false positives from old rapid updates
     # SKIP if in grace period (server restart or new agent) to prevent false positives
     if not skip_pattern1 and len(recent_timestamps_for_pattern1) >= 2:
-        last_two = recent_timestamps_for_pattern1[-2:]
+        # HISTORICAL ANALYSIS: Check all pairs, not just last 2
+        # This catches loops that happened earlier in the window
+        rapid_pairs = []
         try:
-            t1 = datetime.fromisoformat(last_two[0])
-            t2 = datetime.fromisoformat(last_two[1])
-            time_diff = (t2 - t1).total_seconds()
-            # More relaxed: Only trigger if 2 updates within 0.3 seconds (very rapid)
-            if time_diff < 0.3:
-                return True, "Rapid-fire updates detected (2+ updates within 0.3 seconds)"
+            timestamps = [datetime.fromisoformat(ts) for ts in recent_timestamps_for_pattern1]
+            
+            # Check all consecutive pairs for rapid-fire pattern
+            for i in range(len(timestamps) - 1):
+                time_diff = (timestamps[i + 1] - timestamps[i]).total_seconds()
+                if time_diff < 0.3:
+                    rapid_pairs.append((i, i + 1, time_diff))
+            
+            # If found any rapid pairs, trigger detection
+            if rapid_pairs:
+                pair_count = len(rapid_pairs)
+                fastest_pair = min(rapid_pairs, key=lambda x: x[2])
+                return True, f"Rapid-fire updates detected ({pair_count} pair(s) within 0.3s, fastest: {fastest_pair[2]*1000:.1f}ms apart)"
         except (ValueError, TypeError):
             pass
     
-    # Check for 3+ updates within 0.5 seconds (more lenient than before)
+    # Check for 3+ updates within 0.5 seconds (HISTORICAL ANALYSIS)
     # Use recent timestamps for Pattern 1 variants
     # SKIP if in grace period (server restart or new agent) to prevent false positives
     if not skip_pattern1 and len(recent_timestamps_for_pattern1) >= 3:
-        last_three = recent_timestamps_for_pattern1[-3:]
         try:
-            t1 = datetime.fromisoformat(last_three[0])
-            t3 = datetime.fromisoformat(last_three[2])
-            if (t3 - t1).total_seconds() < 0.5:
-                return True, "Rapid-fire updates detected (3+ updates within 0.5 seconds)"
+            timestamps = [datetime.fromisoformat(ts) for ts in recent_timestamps_for_pattern1]
+            
+            # Check all possible 3-update windows in history
+            for i in range(len(timestamps) - 2):
+                t1 = timestamps[i]
+                t3 = timestamps[i + 2]
+                if (t3 - t1).total_seconds() < 0.5:
+                    return True, f"Rapid-fire updates detected (3+ updates within 0.5 seconds, detected at positions {i}-{i+2})"
         except (ValueError, TypeError):
             pass
     
-    # Check for 4+ updates within 1 second (catches extended rapid patterns)
+    # Check for 4+ updates within 1 second (HISTORICAL ANALYSIS)
     # Use recent timestamps for Pattern 1 variants
     # SKIP if in grace period (server restart or new agent) to prevent false positives
     if not skip_pattern1 and len(recent_timestamps_for_pattern1) >= 4:
-        last_four = recent_timestamps_for_pattern1[-4:]
         try:
-            t1 = datetime.fromisoformat(last_four[0])
-            t4 = datetime.fromisoformat(last_four[3])
-            if (t4 - t1).total_seconds() < 1.0:
-                return True, "Rapid-fire updates detected (4+ updates within 1 second)"
+            timestamps = [datetime.fromisoformat(ts) for ts in recent_timestamps_for_pattern1]
+            
+            # Check all possible 4-update windows in history
+            for i in range(len(timestamps) - 3):
+                t1 = timestamps[i]
+                t4 = timestamps[i + 3]
+                if (t4 - t1).total_seconds() < 1.0:
+                    return True, f"Rapid-fire updates detected (4+ updates within 1 second, detected at positions {i}-{i+3})"
         except (ValueError, TypeError):
             pass
     
@@ -1994,10 +2450,32 @@ async def process_update_authenticated_async(
         
         cooldown_until = datetime.now() + timedelta(seconds=cooldown_seconds)
         meta.loop_cooldown_until = cooldown_until.isoformat()
+        
+        # Track loop incidents for historical analysis
+        if not hasattr(meta, 'loop_incidents') or meta.loop_incidents is None:
+            meta.loop_incidents = []
+        
+        # Record this loop incident
+        incident = {
+            'detected_at': datetime.now().isoformat(),
+            'reason': loop_reason,
+            'cooldown_seconds': cooldown_seconds,
+            'timestamp_history': meta.recent_update_timestamps.copy() if meta.recent_update_timestamps else []
+        }
+        meta.loop_incidents.append(incident)
+        
+        # Keep only last 20 incidents (prevent unbounded growth)
+        if len(meta.loop_incidents) > 20:
+            meta.loop_incidents = meta.loop_incidents[-20:]
+        
         if not meta.loop_detected_at:
             meta.loop_detected_at = datetime.now().isoformat()
             meta.add_lifecycle_event("loop_detected", loop_reason)
             logger.warning(f"⚠️  Loop detected for agent '{agent_id}': {loop_reason} (cooldown: {cooldown_seconds}s)")
+        else:
+            # Log repeat incidents
+            incident_count = len(meta.loop_incidents)
+            logger.warning(f"⚠️  Loop incident #{incident_count} for agent '{agent_id}': {loop_reason} (cooldown: {cooldown_seconds}s)")
         
         # Save metadata using async batched save (critical for identity/lifecycle data)
         await schedule_metadata_save(force=True)  # Force immediate save for critical operation
@@ -2067,12 +2545,26 @@ async def process_update_authenticated_async(
             meta.recent_decisions = meta.recent_decisions[-10:]
         
         # Enforce pause decisions (circuit breaker)
+        # SELF-GOVERNANCE: When paused, automatically initiate dialectic recovery
+        # instead of waiting for human intervention
         if decision_action == 'pause':
             meta.status = "paused"
             meta.paused_at = now
             decision_reason = result.get('decision', {}).get('reason', 'Circuit breaker triggered')
             meta.add_lifecycle_event("paused", decision_reason)
             logger.warning(f"⚠️  Circuit breaker triggered for agent '{agent_id}': {decision_reason}")
+            
+            # SELF-GOVERNANCE: Auto-initiate dialectic recovery (non-blocking)
+            # This removes the human bottleneck - agents self-recover via peer review
+            try:
+                auto_recovery = os.getenv("UNITARES_AUTO_DIALECTIC_RECOVERY", "1").strip().lower() not in ("0", "false", "no")
+                if auto_recovery:
+                    # Use loop from outer scope (already imported at module level)
+                    loop.create_task(_auto_initiate_dialectic_recovery(agent_id, decision_reason))
+                    result["auto_recovery_initiated"] = True
+                    result["auto_recovery_note"] = "Dialectic recovery auto-initiated (self-governance mode)"
+            except Exception as e:
+                logger.warning(f"Could not auto-initiate dialectic recovery: {e}")
         
         # Clear cooldown if it has passed
         if meta.loop_cooldown_until:
@@ -2084,6 +2576,49 @@ async def process_update_authenticated_async(
         await loop.run_in_executor(None, save_metadata)
 
     return result
+
+
+async def _auto_initiate_dialectic_recovery(agent_id: str, reason: str) -> None:
+    """
+    SELF-GOVERNANCE: Auto-initiate dialectic recovery for paused agents.
+    
+    Instead of waiting for human intervention, automatically start peer review
+    with auto_progress=True and reviewer_mode='auto' (try peer, fallback to self).
+    
+    This embodies the self-governance principle: agents recover autonomously
+    via peer review, human intervention is optional enhancement not requirement.
+    """
+    import asyncio
+    await asyncio.sleep(2)  # Brief delay to let state settle
+    
+    try:
+        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        
+        logger.info(f"🔄 Auto-initiating dialectic recovery for paused agent '{agent_id}'")
+        
+        # Get API key for the agent (needed for authentication)
+        meta = agent_metadata.get(agent_id)
+        api_key = meta.api_key if meta else None
+        
+        if not api_key:
+            logger.warning(f"Cannot auto-initiate dialectic for '{agent_id}': no API key")
+            return
+        
+        # Auto-initiate with:
+        # - auto_progress=True: progress through phases automatically
+        # - reviewer_mode='auto': try peer first, fall back to self-recovery
+        result = await handle_request_dialectic_review({
+            "agent_id": agent_id,
+            "reason": f"Auto-recovery: {reason}",
+            "api_key": api_key,
+            "auto_progress": True,
+            "reviewer_mode": "auto"
+        })
+        
+        logger.info(f"✅ Dialectic recovery auto-initiated for '{agent_id}': {result}")
+        
+    except Exception as e:
+        logger.error(f"Failed to auto-initiate dialectic recovery for '{agent_id}': {e}")
 
 
 def get_agent_or_error(agent_id: str) -> tuple[UNITARESMonitor | None, str | None]:
@@ -2172,12 +2707,10 @@ def build_standardized_agent_info(
             
             # Get metrics to include phi/verdict
             monitor_metrics = monitor.get_metrics() if hasattr(monitor, 'get_metrics') else {}
-            risk_score_value = monitor_metrics.get("risk_score") or monitor_metrics.get("attention_score") or risk_score
-            attention_score = risk_score_value  # DEPRECATED alias
+            risk_score_value = monitor_metrics.get("risk_score") or risk_score
             
             metrics = {
                 "risk_score": float(risk_score_value) if risk_score_value is not None else None,  # Governance/operational risk
-                "attention_score": float(risk_score_value) if risk_score_value is not None else None,  # DEPRECATED: Use risk_score instead
                 "phi": monitor_metrics.get("phi"),  # Primary physics signal
                 "verdict": monitor_metrics.get("verdict"),  # Primary governance signal
                 "coherence": float(monitor_state.coherence),
@@ -2232,10 +2765,34 @@ def build_standardized_agent_info(
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """List all available MCP tools"""
-    all_tools = get_tool_definitions()
+    def _filtered_local_tools() -> list[Tool]:
+        tools = get_tool_definitions()
+        try:
+            from src.tool_modes import TOOL_MODE, should_include_tool
+            return [t for t in tools if should_include_tool(t.name, mode=TOOL_MODE)]
+        except Exception:
+            return tools
 
-    # Return all tools (tool mode filtering removed - all tools always available)
-    return all_tools
+    if STDIO_PROXY_HTTP_URL:
+        try:
+            return await _proxy_http_list_tools()
+        except Exception as e:
+            logger.error(f"STDIO proxy list_tools failed (HTTP {STDIO_PROXY_HTTP_URL}): {e}", exc_info=True)
+            if STDIO_PROXY_STRICT:
+                raise
+            return _filtered_local_tools()
+    if STDIO_PROXY_SSE_URL:
+        try:
+            return await _proxy_list_tools()
+        except Exception as e:
+            logger.error(f"STDIO proxy list_tools failed ({STDIO_PROXY_SSE_URL}): {e}", exc_info=True)
+            if STDIO_PROXY_STRICT:
+                raise
+            # Non-strict fallback: expose local tools (creates transport silo again; use only for debugging).
+            return _filtered_local_tools()
+
+    # Default: local tool definitions
+    return _filtered_local_tools()
 
 
 async def inject_lightweight_heartbeat(
@@ -2305,8 +2862,52 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> Sequence[Tex
     if arguments is None:
         arguments = {}
 
-    # Tool mode filtering removed - all tools always available
+    # Optional stdio->HTTP proxy mode (preferred standardization path)
+    if STDIO_PROXY_HTTP_URL:
+        try:
+            return await _proxy_http_call_tool(name, arguments)
+        except Exception as e:
+            logger.error(f"STDIO proxy call_tool failed (HTTP {STDIO_PROXY_HTTP_URL}) name={name}: {e}", exc_info=True)
+            if STDIO_PROXY_STRICT:
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "success": False,
+                        "error": f"STDIO proxy mode enabled but HTTP server unavailable or errored for tool '{name}'.",
+                        "details": {
+                            "proxy_url": STDIO_PROXY_HTTP_URL,
+                            "tool": name,
+                            "exception": str(e),
+                            "note": "Start the HTTP/SSE server or unset UNITARES_STDIO_PROXY_HTTP_URL to run locally (local mode is transport-siloed)."
+                        }
+                    }, indent=2)
+                )]
+            # Non-strict fallback: allow local execution (debug only).
 
+    # Optional stdio->SSE proxy mode (forward to shared SSE server)
+    if STDIO_PROXY_SSE_URL:
+        try:
+            return await _proxy_call_tool(name, arguments)
+        except Exception as e:
+            logger.error(f"STDIO proxy call_tool failed ({STDIO_PROXY_SSE_URL}) name={name}: {e}", exc_info=True)
+            # In strict mode, return a clear JSON error instead of falling back to local execution.
+            if STDIO_PROXY_STRICT:
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "success": False,
+                        "error": f"STDIO proxy mode enabled but SSE server unavailable or errored for tool '{name}'.",
+                        "details": {
+                            "proxy_url": STDIO_PROXY_SSE_URL,
+                            "tool": name,
+                            "exception": str(e),
+                            "note": "Start the SSE server or unset UNITARES_STDIO_PROXY_SSE_URL to run locally (local mode is transport-siloed)."
+                        }
+                    }, indent=2)
+                )]
+            # Non-strict fallback: allow local execution (debug only).
+
+    # Tool mode filtering removed - all tools always available
     # Track activity for agent and auto-inject lightweight heartbeats
     agent_id = arguments.get('agent_id')
     if agent_id and HEARTBEAT_CONFIG.enabled:
@@ -2329,8 +2930,6 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> Sequence[Tex
             "submit_antithesis",
             "submit_synthesis",
             "get_dialectic_session",
-            "smart_dialectic_review",
-            "self_recovery",
         }
         if should_trigger and name not in lightweight_tools:
             try:
@@ -2520,9 +3119,12 @@ async def main():
                     import traceback
                     logger.debug(f"Traceback:\n{traceback.format_exc()}")
             
-            # Create background task with error handling
-            bg_task = asyncio.create_task(safe_startup_background_tasks())
-            # Don't await - let it run in background
+            # In stdio proxy mode we intentionally do NOT start local background tasks.
+            # Rationale: This process is a thin transport shim; the upstream server owns shared state.
+            if not (STDIO_PROXY_SSE_URL or STDIO_PROXY_HTTP_URL):
+                # Create background task with error handling
+                bg_task = asyncio.create_task(safe_startup_background_tasks())
+                # Don't await - let it run in background
             
             await server.run(
                 read_stream,
@@ -2533,7 +3135,17 @@ async def main():
         # Handle ExceptionGroup from stdio_server TaskGroup (Python 3.11+)
         # Claude Desktop disconnects faster than Cursor, causing TaskGroup errors
         # When client disconnects, stdout_writer task gets BrokenPipeError
-        if any(isinstance(e, BrokenPipeError) for e in eg.exceptions):
+        def _flatten(ex):
+            if isinstance(ex, ExceptionGroup):
+                for sub in ex.exceptions:
+                    yield from _flatten(sub)
+            else:
+                yield ex
+
+        flat = list(_flatten(eg))
+        # Treat common disconnect/teardown exceptions as normal (not errors).
+        normal_disconnect_types = (BrokenPipeError, ConnectionResetError, asyncio.CancelledError)
+        if any(isinstance(e, normal_disconnect_types) for e in flat):
             # Normal disconnection - Claude Desktop is stricter than Cursor
             # Cursor tolerates slower operations, Claude Desktop disconnects faster
             pass
@@ -2542,8 +3154,8 @@ async def main():
             logger.error(f"TaskGroup error: {eg}")
             import traceback
             # Log each exception in the group with full traceback
-            for i, exc in enumerate(eg.exceptions):
-                logger.error(f"Exception {i+1}/{len(eg.exceptions)}: {type(exc).__name__}: {exc}")
+            for i, exc in enumerate(flat):
+                logger.error(f"Exception {i+1}/{len(flat)}: {type(exc).__name__}: {exc}")
                 try:
                     # Try to get traceback from exception
                     if hasattr(exc, '__traceback__') and exc.__traceback__:
