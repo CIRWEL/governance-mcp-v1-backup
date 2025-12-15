@@ -19,6 +19,7 @@ import time
 from .utils import success_response, error_response, require_argument, require_agent_id, require_registered_agent
 from .decorators import mcp_tool
 from .validators import validate_discovery_type, validate_severity, validate_discovery_status, validate_response_type, validate_discovery_id
+from .shared import get_mcp_server
 from src.knowledge_graph import get_knowledge_graph, DiscoveryNode, ResponseTo
 from config.governance_config import config
 from src.logging_utils import get_logger
@@ -67,8 +68,10 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
         graph = await get_knowledge_graph()
         
         # Truncate fields to prevent context overflow
+        # Summary: brief identifier, keep short
+        # Details: substantive content, allow more space (2000 chars ≈ 400 words)
         MAX_SUMMARY_LEN = 300
-        MAX_DETAILS_LEN = 500
+        MAX_DETAILS_LEN = 2000
         
         raw_summary = summary
         raw_details = arguments.get("details", "")
@@ -224,7 +227,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
                 )]
             
             # Verify API key matches agent_id
-            import src.mcp_server_std as mcp_server
+            mcp_server = get_mcp_server()
             agent_meta = mcp_server.agent_metadata.get(agent_id)
             if not agent_meta or agent_meta.api_key != api_key:
                 return [error_response(
@@ -509,7 +512,7 @@ async def handle_update_discovery_status_graph(arguments: Dict[str, Any]) -> Seq
                 )]
             
             # Verify API key matches agent_id
-            import src.mcp_server_std as mcp_server
+            mcp_server = get_mcp_server()
             agent_meta = mcp_server.agent_metadata.get(agent_id)
             if not agent_meta or agent_meta.api_key != api_key:
                 return [error_response(
@@ -857,7 +860,7 @@ async def handle_reply_to_question(arguments: Dict[str, Any]) -> Sequence[TextCo
                     )]
                 
                 # Verify API key matches agent_id
-                import src.mcp_server_std as mcp_server
+                mcp_server = get_mcp_server()
                 agent_meta = mcp_server.agent_metadata.get(agent_id)
                 if not agent_meta or agent_meta.api_key != api_key:
                     return [error_response(
@@ -950,9 +953,9 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
                     errors.append(f"Discovery {idx}: summary is required")
                     continue
                 
-                # Truncate fields
+                # Truncate fields (match single-discovery limits)
                 MAX_SUMMARY_LEN = 300
-                MAX_DETAILS_LEN = 500
+                MAX_DETAILS_LEN = 2000
                 
                 if len(summary) > MAX_SUMMARY_LEN:
                     summary = summary[:MAX_SUMMARY_LEN] + "..."
