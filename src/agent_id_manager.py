@@ -9,10 +9,21 @@ Prevents state corruption from agent ID collisions.
 """
 
 import os
+import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Set
 import json
+
+
+def is_interactive() -> bool:
+    """
+    Auto-detect if running in interactive mode (terminal with stdin).
+
+    Returns:
+        True if stdin is a TTY (interactive terminal), False otherwise
+    """
+    return sys.stdin.isatty()
 
 
 # Common generic agent IDs that should trigger warnings
@@ -280,25 +291,32 @@ class AgentIDManager:
         return False
     
     @staticmethod
-    def warn_about_collision(agent_id: str, metadata_file: Path) -> bool:
+    def warn_about_collision(agent_id: str, metadata_file: Path, interactive: bool = True) -> bool:
         """
         Warn about agent ID collision and return True if should proceed
-        
+
         Args:
             agent_id: Agent ID to check
             metadata_file: Path to agent_metadata.json
-        
+            interactive: If True, prompt user. If False, auto-resume (option 1)
+
         Returns:
             True if should proceed, False if should abort
         """
         if AgentIDManager.check_active_agents(agent_id, metadata_file):
             print(f"\n🚨 WARNING: '{agent_id}' is already active!")
             print("This will mix states and cause corruption.")
+
+            if not interactive:
+                # Non-interactive mode: auto-resume (safest default)
+                print(f"✅ Non-interactive mode: Auto-resuming session '{agent_id}'")
+                return True
+
             print("\nOptions:")
             print("1. Resume existing session (recommended)")
             print("2. Create new session with different ID")
             print("3. Force continue (NOT recommended)")
-            
+
             choice = input("Select [1-3]: ").strip()
             if choice == "1":
                 print(f"✅ Resuming session '{agent_id}'")
@@ -310,7 +328,7 @@ class AgentIDManager:
                 print("⚠️  Proceeding with collision risk - state corruption possible!")
                 confirm = input("Are you sure? [yes/N]: ").strip()
                 return confirm.lower() == 'yes'
-        
+
         return True
 
 

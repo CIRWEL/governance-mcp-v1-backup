@@ -1,0 +1,16 @@
+# Core (minimal) dependencies for UNITARES Governance MCP
+#
+# Use this for:
+# - stdio MCP server (`src/mcp_server_std.py`)
+# - most local development where you don't need SSE/HTTP
+#
+# Install:
+#   pip install -r requirements-core.txt
+
+# Core MCP SDK
+mcp>=0.1.0
+
+# Governance system core math
+numpy>=1.24.0
+
+

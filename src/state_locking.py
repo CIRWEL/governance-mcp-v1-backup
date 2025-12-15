@@ -83,7 +83,7 @@ class StateLockManager:
                 if test_fd is not None:
                     try:
                         fcntl.flock(test_fd, fcntl.LOCK_UN)
-                    except:
+                    except (IOError, OSError):
                         pass
                     os.close(test_fd)
         except (IOError, OSError):
@@ -205,7 +205,7 @@ class StateLockManager:
                             # Always release lock when exiting context
                             try:
                                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                            except:
+                            except (IOError, OSError):
                                 pass
                             try:
                                 os.close(lock_fd)
@@ -222,7 +222,7 @@ class StateLockManager:
                 if lock_fd:
                     try:
                         fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                    except:
+                    except (IOError, OSError):
                         pass
                     try:
                         os.close(lock_fd)
@@ -251,7 +251,7 @@ class StateLockManager:
             if lock_fd is not None:
                 try:
                     fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                except:
+                except (IOError, OSError):
                     pass
                 try:
                     os.close(lock_fd)
@@ -266,11 +266,11 @@ class StateLockManager:
             if lock_fd is not None:
                 try:
                     fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                except:
+                except (IOError, OSError):
                     pass
                 try:
                     os.close(lock_fd)
-                except:
+                except (IOError, OSError):
                     pass
         
         # All retries exhausted - raise appropriate error
@@ -342,7 +342,7 @@ class StateLockManager:
                             # Always release lock when exiting context
                             try:
                                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                            except:
+                            except (IOError, OSError):
                                 pass
                             try:
                                 os.close(lock_fd)
@@ -359,7 +359,7 @@ class StateLockManager:
                 if lock_fd:
                     try:
                         fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                    except:
+                    except (IOError, OSError):
                         pass
                     try:
                         os.close(lock_fd)
@@ -391,7 +391,7 @@ class StateLockManager:
             if lock_fd is not None:
                 try:
                     fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                except:
+                except (IOError, OSError):
                     pass
                 try:
                     os.close(lock_fd)
@@ -406,11 +406,11 @@ class StateLockManager:
             if lock_fd is not None:
                 try:
                     fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                except:
+                except (IOError, OSError):
                     pass
                 try:
                     os.close(lock_fd)
-                except:
+                except (IOError, OSError):
                     pass
         
         # All retries exhausted - raise appropriate error

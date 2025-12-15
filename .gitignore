@@ -94,6 +94,14 @@ data/.metadata.lock
 data/agent_metadata.json
 data/agent_metadata.json.bak
 
+# SQLite databases (runtime data with API keys - DO NOT COMMIT!)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+data/.last_active_agent
+data/.mcp_server_sse.pid
+
 # Activity tracking (runtime data)
 data/activity/*.json
 data/archives/*.json

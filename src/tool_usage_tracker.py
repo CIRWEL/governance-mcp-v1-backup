@@ -16,6 +16,10 @@ import fcntl
 import os
 import sys
 
+# Import structured logging
+from src.logging_utils import get_logger
+logger = get_logger(__name__)
+
 
 @dataclass
 class ToolUsageEntry:
@@ -77,7 +81,7 @@ class ToolUsageTracker:
                     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except Exception as e:
             # Don't fail tool execution if logging fails
-            print(f"[TOOL_USAGE] Warning: Could not log tool usage: {e}", file=sys.stderr)
+            logger.warning(f"Could not log tool usage: {e}", exc_info=True)
     
     def get_usage_stats(self, window_hours: int = 24 * 7,  # Default: 7 days
                        tool_name: Optional[str] = None,

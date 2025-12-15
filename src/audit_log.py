@@ -12,6 +12,12 @@ from dataclasses import dataclass, asdict
 import fcntl
 import os
 
+# Import structured logging
+from src.logging_utils import get_logger
+logger = get_logger(__name__)
+
+from src.audit_db import AuditDB
+
 
 @dataclass
 class AuditEntry:
@@ -34,6 +40,43 @@ class AuditLogger:
         
         self.log_file = log_file
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # SQLite query/index layer (optional; JSONL remains raw truth)
+        self._sqlite_enabled = os.getenv("UNITARES_AUDIT_WRITE_SQLITE", "1").strip().lower() not in ("0", "false", "no")
+        self._jsonl_enabled = os.getenv("UNITARES_AUDIT_WRITE_JSONL", "1").strip().lower() not in ("0", "false", "no")
+        self._query_backend = os.getenv("UNITARES_AUDIT_QUERY_BACKEND", "auto").strip().lower()  # auto|sqlite|jsonl
+        # Uses consolidated governance.db by default
+        self._db_path = Path(
+            os.getenv("UNITARES_AUDIT_DB_PATH", str(self.log_file.parent / "governance.db"))
+        )
+        self._db: Optional[AuditDB] = None
+
+        # Optional bounded backfill (agents can enable; avoids manual log scanning).
+        # Defaults OFF to keep startup fast.
+        self._auto_backfill = os.getenv("UNITARES_AUDIT_AUTO_BACKFILL", "0").strip().lower() in ("1", "true", "yes")
+        self._backfill_max_lines = int(os.getenv("UNITARES_AUDIT_BACKFILL_MAX_LINES", "50000"))
+        if self._auto_backfill and self._sqlite_enabled and self._should_query_sqlite():
+            try:
+                # Backfill only if DB is empty and JSONL exists.
+                db = self._get_db()
+                info = db.health_check()
+                if info.get("event_count", 0) == 0 and self.log_file.exists():
+                    db.backfill_from_jsonl(self.log_file, max_lines=self._backfill_max_lines)
+            except Exception as e:
+                logger.warning(f"Audit auto-backfill failed (continuing): {e}", exc_info=True)
+
+    def _get_db(self) -> AuditDB:
+        if self._db is None:
+            self._db = AuditDB(self._db_path)
+        return self._db
+
+    def _should_query_sqlite(self) -> bool:
+        if self._query_backend == "sqlite":
+            return True
+        if self._query_backend == "jsonl":
+            return False
+        # auto: prefer sqlite if DB exists OR sqlite writes are enabled
+        return self._db_path.exists() or self._sqlite_enabled
     
     def log_lambda1_skip(self, agent_id: str, confidence: float, threshold: float, 
                          update_count: int, reason: str = None):
@@ -113,24 +156,91 @@ class AuditLogger:
         )
         self._write_entry(entry)
     
+    def log_auto_resume(self, agent_id: str, previous_status: str, 
+                       trigger: str, archived_at: Optional[str] = None,
+                       details: Optional[Dict] = None):
+        """
+        Log an auto-resume event when an archived agent engages with the system.
+        
+        Args:
+            agent_id: Agent identifier
+            previous_status: Previous lifecycle status (should be "archived")
+            trigger: What triggered the auto-resume (e.g., "process_agent_update")
+            archived_at: ISO timestamp when agent was archived (if available)
+            details: Additional context (e.g., days_since_archive)
+        """
+        entry = AuditEntry(
+            timestamp=datetime.now().isoformat(),
+            agent_id=agent_id,
+            event_type="auto_resume",
+            confidence=1.0,  # Not a confidence event, but required field
+            details={
+                "previous_status": previous_status,
+                "trigger": trigger,
+                "archived_at": archived_at,
+                **(details or {})
+            }
+        )
+        self._write_entry(entry)
+
+    def log_dialectic_nudge(self, agent_id: str, session_id: str, phase: str,
+                            next_actor: Optional[str] = None,
+                            idle_seconds: Optional[float] = None,
+                            details: Optional[Dict] = None):
+        """
+        Log a lightweight dialectic/exploration 'nudge' event.
+
+        This is intentionally low-ceremony and does NOT mutate session transcripts
+        (so it won't interfere with timeout/auto-resolve logic).
+        """
+        entry = AuditEntry(
+            timestamp=datetime.now().isoformat(),
+            agent_id=agent_id or "system",
+            event_type="dialectic_nudge",
+            confidence=1.0,
+            details={
+                "session_id": session_id,
+                "phase": phase,
+                "next_actor": next_actor,
+                "idle_seconds": idle_seconds,
+                **(details or {})
+            }
+        )
+        self._write_entry(entry)
+    
     # NOTE: log_knowledge_visibility_warning removed (knowledge layer archived November 28, 2025)
     
     def _write_entry(self, entry: AuditEntry):
         """Write audit entry to log file with locking"""
         try:
-            with open(self.log_file, 'a') as f:
-                # Acquire exclusive lock
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            entry_dict = asdict(entry)
+
+            # 1) Raw truth: JSONL append (optional)
+            if self._jsonl_enabled:
+                with open(self.log_file, 'a') as f:
+                    # Acquire exclusive lock
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                    try:
+                        json.dump(entry_dict, f)
+                        f.write('\n')
+                        f.flush()
+                        os.fsync(f.fileno())
+                    finally:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+            # 2) Query index: SQLite insert (best effort)
+            if self._sqlite_enabled:
                 try:
-                    json.dump(asdict(entry), f)
-                    f.write('\n')
-                    f.flush()
-                    os.fsync(f.fileno())
-                finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    # Use a stable raw hash for idempotency when backfilling or replays occur.
+                    raw = json.dumps(entry_dict, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+                    import hashlib
+                    raw_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+                    self._get_db().append_event(entry_dict, raw_hash=raw_hash)
+                except Exception as e:
+                    logger.warning(f"Could not write audit sqlite index: {e}", exc_info=True)
         except Exception as e:
             # Don't crash on audit log failures
-            print(f"[AUDIT] Warning: Could not write audit log: {e}", file=sys.stderr)
+            logger.warning(f"Could not write audit log: {e}", exc_info=True)
     
     def rotate_log(self, max_age_days: int = 30):
         """
@@ -176,7 +286,7 @@ class AuditLogger:
             
             return len(recent_entries), archived_file
         except Exception as e:
-            print(f"[AUDIT] Warning: Could not rotate log: {e}", file=sys.stderr)
+            logger.warning(f"Could not rotate log: {e}", exc_info=True)
             return None, None
     
     def query_audit_log(self, agent_id: Optional[str] = None,
@@ -194,6 +304,20 @@ class AuditLogger:
             end_time: ISO format timestamp (inclusive)
             limit: Maximum number of entries to return
         """
+        # Prefer SQLite for agents (fast, indexed). Fall back to JSONL for compatibility.
+        if self._should_query_sqlite():
+            try:
+                return self._get_db().query(
+                    agent_id=agent_id,
+                    event_type=event_type,
+                    start_time=start_time,
+                    end_time=end_time,
+                    limit=limit,
+                    order="asc",
+                )
+            except Exception as e:
+                logger.warning(f"Could not query audit sqlite index, falling back to JSONL: {e}", exc_info=True)
+
         if not self.log_file.exists():
             return []
         
@@ -229,7 +353,7 @@ class AuditLogger:
                     except (json.JSONDecodeError, KeyError):
                         continue
         except Exception as e:
-            print(f"[AUDIT] Warning: Could not query audit log: {e}", file=sys.stderr)
+            logger.warning(f"Could not query audit log: {e}", exc_info=True)
             return []
         
         return results
@@ -237,6 +361,35 @@ class AuditLogger:
     def get_skip_rate_metrics(self, agent_id: Optional[str] = None, 
                              window_hours: int = 24) -> Dict:
         """Calculate skip rate metrics from audit log"""
+        # Prefer SQLite aggregation when available.
+        from datetime import timedelta
+        cutoff_time = datetime.now() - timedelta(hours=window_hours)
+        cutoff_iso = cutoff_time.isoformat()
+        if self._should_query_sqlite():
+            try:
+                stats = self._get_db().skip_rate_metrics(agent_id=agent_id, cutoff_iso=cutoff_iso)
+                total_skips = stats["total_skips"]
+                total_updates = stats["total_updates"]
+                avg_confidence = stats["avg_confidence"]
+                skip_rate = stats["skip_rate"]
+                from config.governance_config import config
+                suspicious = (
+                    skip_rate < config.SUSPICIOUS_LOW_SKIP_RATE and
+                    avg_confidence < config.SUSPICIOUS_LOW_CONFIDENCE and
+                    (total_skips + total_updates) > 10
+                )
+                return {
+                    "total_skips": total_skips,
+                    "total_updates": total_updates,
+                    "skip_rate": skip_rate,
+                    "avg_confidence": avg_confidence,
+                    "suspicious": suspicious,
+                    "window_hours": window_hours,
+                    "backend": "sqlite",
+                }
+            except Exception as e:
+                logger.warning(f"Could not compute skip rate via sqlite, falling back to JSONL: {e}", exc_info=True)
+
         if not self.log_file.exists():
             return {
                 "total_skips": 0,
@@ -245,9 +398,6 @@ class AuditLogger:
                 "avg_confidence": 0.0,
                 "suspicious": False
             }
-        
-        from datetime import timedelta
-        cutoff_time = datetime.now() - timedelta(hours=window_hours)
         
         total_skips = 0
         total_updates = 0
@@ -276,7 +426,7 @@ class AuditLogger:
                     except (json.JSONDecodeError, KeyError):
                         continue
         except Exception as e:
-            print(f"[AUDIT] Warning: Could not read audit log: {e}", file=sys.stderr)
+            logger.warning(f"Could not read audit log: {e}", exc_info=True)
             return {"error": str(e)}
         
         avg_confidence = confidence_sum / confidence_count if confidence_count > 0 else 0.0

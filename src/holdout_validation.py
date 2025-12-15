@@ -3,9 +3,14 @@ Hold-out Validation Framework
 Reserves some agents as blind test sets (never tune on them).
 """
 
-from typing import Set, Dict, List
+from typing import Dict, List
 from pathlib import Path
 import json
+import sys
+
+# Import structured logging
+from src.logging_utils import get_logger
+logger = get_logger(__name__)
 
 
 class HoldoutValidator:
@@ -44,7 +49,7 @@ class HoldoutValidator:
                     'enabled': self.enabled
                 }, f, indent=2)
         except Exception as e:
-            print(f"[HOLDOUT] Warning: Could not save config: {e}", file=sys.stderr)
+            logger.warning(f"Could not save config: {e}", exc_info=True)
     
     def is_holdout_agent(self, agent_id: str) -> bool:
         """Check if agent is in hold-out set"""
@@ -80,6 +85,5 @@ class HoldoutValidator:
 
 
 # Global hold-out validator instance
-import sys
 holdout_validator = HoldoutValidator()
 

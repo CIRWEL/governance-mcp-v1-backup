@@ -119,15 +119,14 @@ def analyze_agent_patterns(
     state = monitor.state
     
     # Current state
-    attention_score = float(state.risk_history[-1]) if state.risk_history else 0.0
+    risk_score = float(state.risk_history[-1]) if state.risk_history else 0.0
     current_state = {
         "E": float(state.E),
         "I": float(state.I),
         "S": float(state.S),
         "V": float(state.V),
         "coherence": float(state.coherence),
-        "attention_score": attention_score,  # Renamed from risk_score - complexity/attention blend
-        "risk_score": attention_score,  # DEPRECATED: Use attention_score instead. Kept for backward compatibility.
+        "risk_score": risk_score,  # Governance/operational risk
         "lambda1": float(state.lambda1),
         "update_count": state.update_count
     }

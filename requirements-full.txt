@@ -1,0 +1,27 @@
+# Full dependencies for UNITARES Governance MCP
+#
+# Use this for:
+# - SSE + HTTP server (`src/mcp_server_sse.py`)
+# - multi-client deployments (Cursor + Claude Desktop sharing state)
+# - tests / diagnostics scripts
+#
+# Install:
+#   pip install -r requirements-full.txt
+
+-r requirements-core.txt
+
+# SSE/HTTP server support (multi-client mode)
+uvicorn>=0.30.0
+starlette>=0.37.0
+
+# Operational dependencies (optional but recommended)
+psutil>=5.9.0
+aiofiles>=23.2.1
+orjson>=3.9.0
+
+# Testing and coverage (optional but included for convenience)
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+
+

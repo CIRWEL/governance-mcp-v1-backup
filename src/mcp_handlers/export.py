@@ -15,14 +15,12 @@ from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
-# Import from mcp_server_std module
-if 'src.mcp_server_std' in sys.modules:
-    mcp_server = sys.modules['src.mcp_server_std']
-else:
-    import src.mcp_server_std as mcp_server
+# Import from mcp_server_std module (using shared utility)
+from .shared import get_mcp_server
+mcp_server = get_mcp_server()
 
 
-@mcp_tool("get_system_history", timeout=30.0)
+@mcp_tool("get_system_history", timeout=20.0)
 async def handle_get_system_history(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Export complete governance history for an agent"""
     # PROACTIVE GATE: Require agent to be registered
@@ -43,7 +41,7 @@ async def handle_get_system_history(arguments: Dict[str, Any]) -> Sequence[TextC
     })
 
 
-@mcp_tool("export_to_file", timeout=60.0)
+@mcp_tool("export_to_file", timeout=45.0)
 async def handle_export_to_file(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Export governance history to a file in the server's data directory"""
     # PROACTIVE GATE: Require agent to be registered
@@ -81,13 +79,21 @@ async def handle_export_to_file(arguments: Dict[str, Any]) -> Sequence[TextConte
             persisted_state is not None
         )
         
+        # Validate metadata consistency
+        metadata_consistency_valid = True
+        metadata_consistency_errors = []
+        if meta:
+            metadata_consistency_valid, metadata_consistency_errors = meta.validate_consistency()
+        
         validation_checks = {
             "metadata_exists": meta is not None,
             "history_exists": state_exists,
             "metadata_history_sync": (
                 meta.total_updates == len(history_dict.get("E_history", [])) 
                 if meta and history_dict else False
-            )
+            ),
+            "metadata_consistency": metadata_consistency_valid,
+            "metadata_consistency_errors": metadata_consistency_errors if metadata_consistency_errors else None
         }
         
         # Package everything
@@ -139,8 +145,6 @@ async def handle_export_to_file(arguments: Dict[str, Any]) -> Sequence[TextConte
         # Use data/history/ for history-only exports
         export_dir = os.path.join(mcp_server.project_root, "data", "history")
     
-    os.makedirs(export_dir, exist_ok=True)
-    
     # Write file (non-blocking - run in executor)
     file_path = os.path.join(export_dir, filename)
     try:
@@ -149,6 +153,10 @@ async def handle_export_to_file(arguments: Dict[str, Any]) -> Sequence[TextConte
         
         def _write_file_sync():
             """Synchronous file write function - runs in executor to avoid blocking event loop"""
+            # Create directory if needed (inside executor to avoid blocking)
+            os.makedirs(export_dir, exist_ok=True)
+            
+            # Write file
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(export_data)
                 f.flush()  # Ensure buffered data written

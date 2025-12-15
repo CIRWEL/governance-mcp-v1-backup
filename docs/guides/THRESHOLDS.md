@@ -28,9 +28,9 @@ These serve different purposes and are intentionally different.
 
 **Logic:**
 ```python
-if risk_score < 0.35:
+if attention_score < 0.35:
     return APPROVE      # Agent proceeds autonomously
-elif risk_score < 0.50:
+elif attention_score < 0.50:
     return REVISE       # Agent should self-correct
 else:
     return REJECT       # Agent halts or escalates
@@ -59,9 +59,9 @@ else:
 
 **Logic:**
 ```python
-if risk_score < 0.30:
+if attention_score < 0.30:
     return HEALTHY     # Agent is operating normally
-elif risk_score < 0.60:
+elif attention_score < 0.60:
     return DEGRADED    # Agent needs monitoring
 else:
     return CRITICAL    # Agent needs intervention
@@ -109,7 +109,7 @@ else:
 
 ## Threshold Comparison
 
-| Risk Score | Decision | Health Status | Notes |
+| Attention Score | Decision | Health Status | Notes |
 |------------|----------|---------------|-------|
 | < 0.35 | ✅ APPROVE | ✅ HEALTHY | Both agree - low risk |
 | 0.35-0.50 | ⚠️ REVISE | ⚠️ DEGRADED | Decision stricter - requires correction |

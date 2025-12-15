@@ -150,7 +150,7 @@ def test_complexity_derivation():
         failed += 1
     
     print(f"\nResults: {passed} passed, {failed} failed")
-    return failed == 0
+    assert failed == 0, f"{failed} test(s) failed"
 
 
 def test_threshold_alignment():
@@ -301,7 +301,7 @@ def test_threshold_alignment():
         passed += 1  # Not a failure, just note
     
     print(f"\nResults: {passed} passed, {failed} failed")
-    return failed == 0
+    assert failed == 0, f"{failed} test(s) failed"
 
 
 def test_loop_detector_patterns():
@@ -416,7 +416,7 @@ def test_loop_detector_patterns():
         failed += 1
     
     print(f"\nResults: {passed} passed, {failed} failed")
-    return failed == 0
+    assert failed == 0, f"{failed} test(s) failed"
 
 
 def test_authority_score_smoothness():
@@ -472,7 +472,7 @@ def test_authority_score_smoothness():
         failed += 1
     
     print(f"\nResults: {passed} passed, {failed} failed")
-    return failed == 0
+    assert failed == 0, f"{failed} test(s) failed"
 
 
 if __name__ == "__main__":

@@ -13,11 +13,9 @@ from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
-# Import from mcp_server_std module
-if 'src.mcp_server_std' in sys.modules:
-    mcp_server = sys.modules['src.mcp_server_std']
-else:
-    import src.mcp_server_std as mcp_server
+# Import from mcp_server_std module (using shared utility)
+from .shared import get_mcp_server
+mcp_server = get_mcp_server()
 
 
 @mcp_tool("get_thresholds", timeout=10.0, rate_limit_exempt=True)

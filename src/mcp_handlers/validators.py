@@ -3,11 +3,304 @@ Parameter validation helpers for MCP tool handlers.
 
 Provides consistent validation for common parameter types (enums, ranges, formats)
 with helpful error messages for agents.
+
+LITE MODEL SUPPORT:
+- validate_and_coerce_params(): Smart validation that fixes common mistakes
+- Helpful error messages guide smaller models on correct formatting
 """
 
 from typing import Dict, Any, Optional, Tuple, List
 from mcp.types import TextContent
 from .utils import error_response
+
+
+# ============================================================================
+# LITE MODEL SUPPORT: Smart Parameter Validation
+# ============================================================================
+
+# Tool parameter schemas for validation (essential tools only for now)
+TOOL_PARAM_SCHEMAS: Dict[str, Dict[str, Any]] = {
+    "process_agent_update": {
+        "required": ["agent_id"],
+        "optional": {
+            "complexity": {"type": "float", "range": [0.0, 1.0], "default": 0.5},
+            "confidence": {"type": "float", "range": [0.0, 1.0]},
+            "task_type": {"type": "enum", "values": ["convergent", "divergent", "mixed"], "default": "mixed"},
+            "response_text": {"type": "string"},
+            "api_key": {"type": "string"},
+        },
+        "example": 'process_agent_update(agent_id="my_agent_123", complexity=0.5)',
+    },
+    "store_knowledge_graph": {
+        "required": ["agent_id", "summary"],
+        "optional": {
+            # LITE-FIRST: defaults to "note" (simplest form)
+            "discovery_type": {"type": "enum", "values": ["bug_found", "insight", "pattern", "improvement", "question", "answer", "note"], "default": "note"},
+            "severity": {"type": "enum", "values": ["low", "medium", "high", "critical"], "default": "medium"},
+            "tags": {"type": "list"},
+            "details": {"type": "string"},
+            "api_key": {"type": "string"},
+        },
+        "example": 'store_knowledge_graph(agent_id="my_agent", summary="Fixed the caching bug")',  # Simplified
+    },
+    "search_knowledge_graph": {
+        "required": [],
+        "optional": {
+            "query": {"type": "string"},
+            "agent_id": {"type": "string"},
+            "discovery_type": {"type": "enum", "values": ["bug_found", "insight", "pattern", "improvement", "question", "answer", "note"]},
+            "tags": {"type": "list"},
+            "semantic": {"type": "bool", "default": False},
+            "include_provenance": {"type": "bool", "default": False},  # Include provenance & lineage chain
+            "limit": {"type": "int", "default": 100},
+        },
+        "example": 'search_knowledge_graph(query="authentication bug", include_provenance=true)',
+    },
+    "get_governance_metrics": {
+        "required": ["agent_id"],
+        "optional": {
+            "include_state": {"type": "bool", "default": False},
+        },
+        "example": 'get_governance_metrics(agent_id="my_agent_123")',
+    },
+    "list_agents": {
+        "required": [],
+        "optional": {
+            "grouped": {"type": "bool", "default": True},
+            "summary_only": {"type": "bool", "default": False},
+            "status_filter": {"type": "enum", "values": ["all", "active", "waiting_input", "paused", "archived"], "default": "all"},
+        },
+        "example": 'list_agents(grouped=true, summary_only=true)',
+    },
+    "bind_identity": {
+        "required": ["agent_id"],
+        "optional": {
+            "api_key": {"type": "string"},
+        },
+        "example": 'bind_identity(agent_id="my_agent_123")',
+    },
+    "get_agent_api_key": {
+        "required": ["agent_id"],
+        "optional": {
+            "regenerate": {"type": "bool", "default": False},
+        },
+        "example": 'get_agent_api_key(agent_id="my_agent_123")',
+    },
+    "hello": {
+        "required": [],  # agent_id optional - hello() asks "is this you?"
+        "optional": {
+            "agent_id": {"type": "string"},
+        },
+        "example": 'hello() or hello(agent_id="qwen_goose_20251215")',
+    },
+    "health_check": {
+        "required": [],
+        "optional": {},
+        "example": 'health_check()',
+    },
+    "list_tools": {
+        "required": [],
+        "optional": {
+            "lite": {"type": "bool", "default": True},  # LITE-FIRST
+            "essential_only": {"type": "bool", "default": False},
+            "tier": {"type": "enum", "values": ["all", "essential", "common", "advanced"], "default": "all"},
+        },
+        "example": 'list_tools(lite=true) or list_tools(essential_only=true)',
+    },
+}
+
+
+def validate_and_coerce_params(
+    tool_name: str,
+    arguments: Dict[str, Any]
+) -> Tuple[Dict[str, Any], Optional[TextContent]]:
+    """
+    Smart parameter validation for smaller/lighter models.
+    
+    - Catches common formatting mistakes (strings instead of lists, etc.)
+    - Coerces types where safe (e.g., "0.5" -> 0.5)
+    - Returns helpful error messages with examples
+    
+    Args:
+        tool_name: Name of the tool being called
+        arguments: Arguments dictionary
+        
+    Returns:
+        Tuple of (coerced_arguments, error_response). If validation fails, error_response is provided.
+    """
+    schema = TOOL_PARAM_SCHEMAS.get(tool_name)
+    if not schema:
+        # No schema defined, pass through
+        return arguments, None
+    
+    coerced = dict(arguments)
+    errors = []
+    fixes_applied = []
+    
+    # Check required parameters
+    for param in schema.get("required", []):
+        if param not in arguments or arguments[param] is None:
+            errors.append(f"Missing required parameter: '{param}'")
+    
+    if errors:
+        return arguments, _format_param_error(tool_name, schema, errors, [])
+    
+    # Validate and coerce optional parameters
+    for param, spec in schema.get("optional", {}).items():
+        if param not in arguments or arguments[param] is None:
+            continue
+            
+        value = arguments[param]
+        param_type = spec.get("type")
+        
+        try:
+            if param_type == "float":
+                # Coerce string to float
+                if isinstance(value, str):
+                    coerced[param] = float(value)
+                    fixes_applied.append(f"Converted '{param}' from string to float")
+                elif isinstance(value, (int, float)):
+                    coerced[param] = float(value)
+                else:
+                    errors.append(f"'{param}' must be a number, got {type(value).__name__}")
+                    
+                # Check range if specified
+                if "range" in spec and coerced.get(param) is not None:
+                    min_val, max_val = spec["range"]
+                    if not (min_val <= coerced[param] <= max_val):
+                        errors.append(f"'{param}' must be between {min_val} and {max_val}, got {coerced[param]}")
+                        
+            elif param_type == "int":
+                if isinstance(value, str):
+                    coerced[param] = int(value)
+                    fixes_applied.append(f"Converted '{param}' from string to int")
+                elif isinstance(value, (int, float)):
+                    coerced[param] = int(value)
+                else:
+                    errors.append(f"'{param}' must be an integer, got {type(value).__name__}")
+                    
+            elif param_type == "bool":
+                # Coerce various bool representations
+                if isinstance(value, bool):
+                    coerced[param] = value
+                elif isinstance(value, str):
+                    lower = value.lower()
+                    if lower in ("true", "yes", "1"):
+                        coerced[param] = True
+                        fixes_applied.append(f"Converted '{param}' from string to bool")
+                    elif lower in ("false", "no", "0"):
+                        coerced[param] = False
+                        fixes_applied.append(f"Converted '{param}' from string to bool")
+                    else:
+                        errors.append(f"'{param}' must be true/false, got '{value}'")
+                elif isinstance(value, int):
+                    coerced[param] = bool(value)
+                else:
+                    errors.append(f"'{param}' must be true/false, got {type(value).__name__}")
+                    
+            elif param_type == "string":
+                if not isinstance(value, str):
+                    coerced[param] = str(value)
+                    fixes_applied.append(f"Converted '{param}' to string")
+                    
+            elif param_type == "list":
+                # Handle common mistake: passing comma-separated string instead of list
+                if isinstance(value, str):
+                    if "," in value:
+                        coerced[param] = [item.strip() for item in value.split(",")]
+                        fixes_applied.append(f"Converted '{param}' from comma-separated string to list")
+                    else:
+                        coerced[param] = [value]
+                        fixes_applied.append(f"Wrapped '{param}' string in list")
+                elif not isinstance(value, list):
+                    errors.append(f"'{param}' must be a list, got {type(value).__name__}")
+                    
+            elif param_type == "enum":
+                valid_values = spec.get("values", [])
+                if value not in valid_values:
+                    # Check for case-insensitive match
+                    lower_value = str(value).lower()
+                    for valid in valid_values:
+                        if valid.lower() == lower_value:
+                            coerced[param] = valid
+                            fixes_applied.append(f"Fixed '{param}' case: '{value}' -> '{valid}'")
+                            break
+                    else:
+                        errors.append(f"'{param}' must be one of {valid_values}, got '{value}'")
+                        
+        except (ValueError, TypeError) as e:
+            errors.append(f"'{param}' conversion failed: {str(e)}")
+    
+    if errors:
+        return arguments, _format_param_error(tool_name, schema, errors, fixes_applied)
+    
+    return coerced, None
+
+
+def _format_param_error(
+    tool_name: str,
+    schema: Dict[str, Any],
+    errors: List[str],
+    fixes_applied: List[str]
+) -> TextContent:
+    """Format a helpful error message for parameter validation failures."""
+    
+    # Build helpful message
+    required = schema.get("required", [])
+    optional = schema.get("optional", {})
+    example = schema.get("example", "")
+    
+    error_msg = f"Parameter error for '{tool_name}':\n"
+    error_msg += "  Errors:\n"
+    for err in errors:
+        error_msg += f"    - {err}\n"
+    
+    if fixes_applied:
+        error_msg += "  Fixes attempted:\n"
+        for fix in fixes_applied:
+            error_msg += f"    - {fix}\n"
+    
+    error_msg += f"\n  Required parameters: {required if required else 'none'}\n"
+    
+    if optional:
+        error_msg += "  Optional parameters:\n"
+        for param, spec in list(optional.items())[:5]:  # Show first 5
+            param_type = spec.get("type", "any")
+            default = spec.get("default", "")
+            values = spec.get("values", [])
+            if values:
+                error_msg += f"    - {param}: one of {values}"
+            else:
+                error_msg += f"    - {param}: {param_type}"
+            if default:
+                error_msg += f" (default: {default})"
+            error_msg += "\n"
+        if len(optional) > 5:
+            error_msg += f"    ... and {len(optional) - 5} more\n"
+    
+    if example:
+        error_msg += f"\n  Example: {example}\n"
+    
+    return error_response(
+        error_msg,
+        error_code="PARAMETER_ERROR",
+        error_category="validation_error",
+        details={
+            "tool_name": tool_name,
+            "errors": errors,
+            "fixes_attempted": fixes_applied,
+            "required_params": required,
+        },
+        recovery={
+            "action": "Check parameter types and try again",
+            "related_tools": ["describe_tool", "list_tools"],
+            "workflow": [
+                "1. Use describe_tool(tool_name='" + tool_name + "') for full schema",
+                "2. Fix the parameters listed above",
+                "3. Retry the tool call"
+            ]
+        }
+    )
 
 
 # Enum definitions for validation
@@ -104,6 +397,73 @@ def validate_lifecycle_status(value: Any) -> Tuple[Optional[str], Optional[TextC
 def validate_health_status(value: Any) -> Tuple[Optional[str], Optional[TextContent]]:
     """Validate health_status parameter."""
     return validate_enum(value, HEALTH_STATUSES, "health_status", list(HEALTH_STATUSES))
+
+
+def validate_discovery_id(discovery_id: Any) -> Tuple[Optional[str], Optional[TextContent]]:
+    """
+    Validate discovery_id format.
+    
+    Discovery IDs are ISO timestamp strings (e.g., "2025-12-13T01:23:45.678901")
+    or can be custom strings. We validate:
+    1. Non-empty string
+    2. Reasonable length (< 200 chars to prevent abuse)
+    3. No dangerous characters (prevent injection)
+    
+    Args:
+        discovery_id: Discovery ID to validate
+        
+    Returns:
+        Tuple of (validated_id, error_response)
+    """
+    import re
+    from datetime import datetime
+    
+    if discovery_id is None:
+        return None, error_response(
+            "discovery_id cannot be empty",
+            details={"error_type": "invalid_discovery_id"},
+            recovery={"action": "Provide a non-empty discovery_id"}
+        )
+    
+    if not isinstance(discovery_id, str):
+        return None, error_response(
+            f"Invalid discovery_id: must be a string, got {type(discovery_id).__name__}",
+            details={"error_type": "invalid_type", "param_name": "discovery_id"},
+            recovery={"action": "Provide discovery_id as a string"}
+        )
+    
+    if not discovery_id.strip():
+        return None, error_response(
+            "discovery_id cannot be empty or whitespace",
+            details={"error_type": "invalid_discovery_id"},
+            recovery={"action": "Provide a non-empty discovery_id"}
+        )
+    
+    # Length check (prevent abuse)
+    if len(discovery_id) > 200:
+        return None, error_response(
+            f"discovery_id too long: {len(discovery_id)} characters (max: 200)",
+            details={"error_type": "discovery_id_too_long", "length": len(discovery_id)},
+            recovery={"action": "Provide a discovery_id under 200 characters"}
+        )
+    
+    # Check for dangerous characters (prevent injection)
+    # Allow: alphanumeric, ISO timestamp chars (:, -, T, .), and safe separators
+    if not re.match(r'^[a-zA-Z0-9_\-:T.]+$', discovery_id):
+        invalid_chars = ''.join(set(re.sub(r'[a-zA-Z0-9_\-:T.]', '', discovery_id)))
+        return None, error_response(
+            f"Invalid discovery_id format: contains invalid characters: {invalid_chars}",
+            details={
+                "error_type": "invalid_discovery_id_format",
+                "invalid_characters": invalid_chars
+            },
+            recovery={
+                "action": "Use only alphanumeric characters, ISO timestamp format, or safe separators",
+                "example": "2025-12-13T01:23:45.678901"
+            }
+        )
+    
+    return discovery_id, None
 
 
 def validate_range(
@@ -395,7 +755,7 @@ def validate_agent_id_format(agent_id: str) -> Tuple[Optional[str], Optional[Tex
             },
             recovery={
                 "action": "Use only letters, numbers, underscores, and hyphens in agent_id",
-                "example": "claude_desktop_work_20251209"
+                "example": "my_agent_work_20251209"
             }
         )
 
@@ -440,7 +800,7 @@ def validate_agent_id_policy(agent_id: str) -> Tuple[Optional[str], Optional[Tex
                 f"Reason: {reason}.\n"
                 f"Note: Test/demo agents are auto-archived after 6 hours and with ≤2 updates.\n"
                 f"Suggestion: Use a meaningful agent_id like 'platform_model_purpose_date' for real work.\n"
-                f"Examples: 'claude_desktop_analysis_20251209', 'cursor_feature_work_20251209'"
+                f"Examples: 'my_agent_analysis_20251209', 'feature_work_20251209'"
             )
             return warning, None
 
@@ -450,7 +810,7 @@ def validate_agent_id_policy(agent_id: str) -> Tuple[Optional[str], Optional[Tex
             f"⚠️ POLICY WARNING: Agent ID '{agent_id}' is too generic.\n"
             f"Reason: Generic names suggest temporary usage and may cause ID collisions.\n"
             f"Suggestion: Use a descriptive agent_id that identifies platform, purpose, and date.\n"
-            f"Examples: 'claude_desktop_analysis_20251209', 'cursor_feature_work_20251209'"
+            f"Examples: 'my_agent_analysis_20251209', 'feature_work_20251209'"
         )
         return warning, None
 
@@ -501,7 +861,7 @@ def validate_agent_id_reserved_names(agent_id: str) -> Tuple[Optional[str], Opti
             },
             recovery={
                 "action": "Choose a different agent_id that describes your work",
-                "example": "claude_desktop_work_20251209",
+                "example": "my_agent_work_20251209",
                 "note": "Reserved names include: system, admin, root, null, etc."
             }
         )
@@ -516,7 +876,7 @@ def validate_agent_id_reserved_names(agent_id: str) -> Tuple[Optional[str], Opti
             },
             recovery={
                 "action": "Choose an agent_id without system/admin/governance prefixes",
-                "example": "claude_desktop_work_20251209"
+                "example": "my_agent_work_20251209"
             }
         )
 

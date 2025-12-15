@@ -15,7 +15,7 @@
 
 **Purpose:** Utility scripts for CLI-only interfaces and system maintenance
 
-**Total Scripts:** 6 active scripts (down from 39, 85% reduction)
+**Total Scripts:** 12 active scripts (6 automation + 6 utilities), 31 archived
 
 ---
 
@@ -135,8 +135,8 @@
 
 ---
 
-**Last Updated:** November 29, 2025  
-**Status:** Aggressively cleaned - 6 active scripts (85% reduction), 31 archived, 5 moved to tests/
+**Last Updated:** December 8, 2025  
+**Status:** 12 active scripts (6 automation + 6 utilities), 31 archived, 5 moved to tests/
 
 **Key Change:** Most scripts replaced by MCP tools. Only essential CLI bridge and maintenance scripts remain.
 

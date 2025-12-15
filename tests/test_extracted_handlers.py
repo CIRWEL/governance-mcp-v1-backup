@@ -1,3 +1,4 @@
+import pytest
 """
 Test extracted handlers individually.
 
@@ -14,6 +15,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 
+@pytest.mark.asyncio
 async def test_get_governance_metrics():
     """Test get_governance_metrics handler"""
     print("\nTesting get_governance_metrics...")
@@ -41,8 +43,13 @@ async def test_get_governance_metrics():
     print("✅ get_governance_metrics handler tests passed")
 
 
+@pytest.mark.asyncio
 async def test_simulate_update():
-    """Test simulate_update handler"""
+    """Test simulate_update handler
+    
+    Note: simulate_update requires a registered agent (security fix 2025-12).
+    We first register via process_agent_update, then test simulation.
+    """
     print("\nTesting simulate_update...")
     
     from src.mcp_handlers import dispatch_tool
@@ -55,9 +62,21 @@ async def test_simulate_update():
     assert response_data.get("success") == False, "Should fail without agent_id"
     print("✅ Validates required arguments")
     
-    # Test with valid agent_id (will create monitor if needed)
+    # First register the agent (required after security fix)
+    agent_id = "test_simulate_agent_registered"
+    result = await dispatch_tool("process_agent_update", {
+        "agent_id": agent_id,
+        "complexity": 0.3,
+        "confidence": 0.8
+    })
+    response_data = json.loads(result[0].text)
+    api_key = response_data.get("api_key")
+    assert api_key is not None, "Should get API key on registration"
+    print("✅ Agent registered")
+    
+    # Now test simulation with registered agent
     result = await dispatch_tool("simulate_update", {
-        "agent_id": "test_simulate_agent",
+        "agent_id": agent_id,
         "parameters": [0.7, 0.8, 0.15, 0.0],
         "ethical_drift": [0.0, 0.0, 0.0],
         "complexity": 0.3,
@@ -66,53 +85,75 @@ async def test_simulate_update():
     
     assert result is not None, "Should return result"
     response_data = json.loads(result[0].text)
-    assert response_data.get("success") == True, "Should succeed with valid args"
+    assert response_data.get("success") == True, "Should succeed with registered agent"
     assert response_data.get("simulation") == True, "Should mark as simulation"
     assert "metrics" in response_data, "Should have metrics"
     print("✅ Simulates update correctly")
     
+    # Test that unregistered agent fails
+    result = await dispatch_tool("simulate_update", {
+        "agent_id": "unregistered_agent_xyz123",
+        "complexity": 0.3
+    })
+    response_data = json.loads(result[0].text)
+    assert response_data.get("success") == False, "Should fail for unregistered agent"
+    print("✅ Rejects unregistered agents")
+    
     print("✅ simulate_update handler tests passed")
 
 
+@pytest.mark.asyncio
 async def test_set_thresholds():
-    """Test set_thresholds handler"""
+    """Test set_thresholds handler
+    
+    Note: set_thresholds requires admin privileges (security fix 2025-12).
+    Admin status requires 'admin' tag or 100+ updates.
+    For testing, we verify the auth rejection and get_thresholds (read-only).
+    """
     print("\nTesting set_thresholds...")
     
     from src.mcp_handlers import dispatch_tool
     
-    # Get current thresholds first
-    result = await dispatch_tool("get_thresholds", {})
-    current_data = json.loads(result[0].text)
-    original_risk_approve = current_data["thresholds"]["risk_approve_threshold"]
-    
-    # Test setting a threshold
-    new_value = 0.32
+    # Test that unauthenticated request fails
     result = await dispatch_tool("set_thresholds", {
-        "thresholds": {"risk_approve_threshold": new_value},
+        "thresholds": {"risk_approve_threshold": 0.32},
         "validate": True
     })
-    
-    assert result is not None, "Should return result"
     response_data = json.loads(result[0].text)
-    assert response_data.get("success") == True, "Should succeed"
-    assert "risk_approve_threshold" in response_data.get("updated", []), "Should update threshold"
+    assert response_data.get("success") == False, "Should fail without auth"
+    print("✅ Rejects unauthenticated requests")
     
-    # Verify it was updated
-    result = await dispatch_tool("get_thresholds", {})
-    updated_data = json.loads(result[0].text)
-    assert updated_data["thresholds"]["risk_approve_threshold"] == new_value, "Threshold should be updated"
-    print("✅ Sets threshold correctly")
+    # Test that non-admin agent fails
+    agent_id = "test_threshold_nonadmin"
+    result = await dispatch_tool("process_agent_update", {
+        "agent_id": agent_id,
+        "complexity": 0.3
+    })
+    response_data = json.loads(result[0].text)
+    api_key = response_data.get("api_key")
     
-    # Reset to original value
-    await dispatch_tool("set_thresholds", {
-        "thresholds": {"risk_approve_threshold": original_risk_approve},
+    result = await dispatch_tool("set_thresholds", {
+        "agent_id": agent_id,
+        "api_key": api_key,
+        "thresholds": {"risk_approve_threshold": 0.32},
         "validate": True
     })
-    print("✅ Reset threshold to original value")
+    response_data = json.loads(result[0].text)
+    assert response_data.get("success") == False, "Should fail for non-admin agent"
+    assert "admin" in response_data.get("error", "").lower(), "Should mention admin requirement"
+    print("✅ Rejects non-admin agents")
+    
+    # Verify get_thresholds works (read-only, no auth needed)
+    result = await dispatch_tool("get_thresholds", {})
+    response_data = json.loads(result[0].text)
+    assert response_data.get("success") == True, "Should succeed for read-only"
+    assert "thresholds" in response_data, "Should have thresholds"
+    print("✅ get_thresholds works (read-only)")
     
     print("✅ set_thresholds handler tests passed")
 
 
+@pytest.mark.asyncio
 async def test_error_handling():
     """Test error handling in handlers"""
     print("\nTesting error handling...")

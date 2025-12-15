@@ -22,19 +22,24 @@ from .types import (
 from src.logging_utils import get_logger
 logger = get_logger(__name__)
 
+# Rate-limiting cache for calibration messages
+# Only show calibration message if error changed significantly or hasn't been shown recently
+_calibration_message_cache = {
+    'last_error': None,           # Last calibration error value shown
+    'last_shown_update': 0,       # Update count when last shown
+    'significance_threshold': 0.05,  # Only show if error changed by >5%
+    'min_updates_between': 10     # Minimum updates between showing message
+}
+
 
 def error_response(
     message: str, 
     details: Optional[Dict[str, Any]] = None, 
     recovery: Optional[Dict[str, Any]] = None, 
     context: Optional[Dict[str, Any]] = None,
-    error_code: Optional[str] = None
+    error_code: Optional[str] = None,
+    error_category: Optional[str] = None
 ) -> TextContent:
-    """
-    Create an error response with optional recovery guidance and system context.
-    
-    Returns TextContent containing ErrorResponseDict.
-    """
     """
     Create an error response with optional recovery guidance and system context.
     
@@ -46,6 +51,8 @@ def error_response(
         recovery: Optional recovery suggestions for AGI agents
         context: Optional system context (what was happening, system state, etc.)
         error_code: Optional machine-readable error code (e.g., "AGENT_NOT_FOUND")
+        error_category: Optional error category: "validation_error", "auth_error", "system_error"
+                      Helps categorize errors for consistent handling
         
     Returns:
         TextContent with error response
@@ -54,6 +61,7 @@ def error_response(
         >>> error_response(
         ...     "Agent not found",
         ...     error_code="AGENT_NOT_FOUND",
+        ...     error_category="validation_error",
         ...     recovery={"action": "Call get_agent_api_key"}
         ... )
     """
@@ -68,6 +76,12 @@ def error_response(
     # Add machine-readable error code if provided
     if error_code:
         response["error_code"] = error_code
+    
+    # Add error category if provided (standardized: validation_error, auth_error, system_error)
+    if error_category:
+        if error_category not in ["validation_error", "auth_error", "system_error"]:
+            logger.warning(f"Unknown error_category '{error_category}', using as-is")
+        response["error_category"] = error_category
     
     # Sanitize details if provided
     if details:
@@ -301,15 +315,17 @@ def _make_json_serializable(obj: Any) -> Any:
     
     # Handle lists and tuples (recursive)
     if isinstance(obj, (list, tuple)):
-        # Limit list size to prevent huge arrays from slowing down
-        if len(obj) > 1000:
-            return [_make_json_serializable(item) for item in obj[:1000]] + [f"... ({len(obj) - 1000} more items)"]
+        # Limit list size to prevent huge arrays from slowing down and filling context
+        # Reduced from 1000 to 100 to prevent context bloat
+        if len(obj) > 100:
+            return [_make_json_serializable(item) for item in obj[:100]] + [f"... ({len(obj) - 100} more items)"]
         return [_make_json_serializable(item) for item in obj]
     
     # Handle sets (convert to list)
     if isinstance(obj, set):
-        if len(obj) > 1000:
-            return [_make_json_serializable(item) for item in list(obj)[:1000]] + [f"... ({len(obj) - 1000} more items)"]
+        # Reduced from 1000 to 100 to prevent context bloat
+        if len(obj) > 100:
+            return [_make_json_serializable(item) for item in list(obj)[:100]] + [f"... ({len(obj) - 100} more items)"]
         return [_make_json_serializable(item) for item in obj]
     
     # Handle basic types that are already JSON-serializable
@@ -365,18 +381,36 @@ def get_calibration_feedback(include_complexity: bool = True) -> Dict[str, Any]:
                 if confidence_values:
                     import numpy as np
                     mean_confidence = float(np.mean(confidence_values))
+                    calibration_error = mean_confidence - overall_accuracy
+                    
+                    # Rate-limit calibration messages to reduce noise
+                    # Only show if: first time, error changed significantly, or enough updates passed
+                    show_message = False
+                    cache = _calibration_message_cache
+                    
+                    if cache['last_error'] is None:
+                        # First time showing
+                        show_message = True
+                    elif abs(calibration_error - cache['last_error']) > cache['significance_threshold']:
+                        # Error changed significantly (>5%)
+                        show_message = True
+                    # Note: We don't track update count globally, so skip that check for now
                     
                     calibration_feedback['confidence'] = {
                         'system_accuracy': overall_accuracy,
                         'mean_confidence': mean_confidence,
-                        'calibration_error': mean_confidence - overall_accuracy,
-                        'message': (
+                        'calibration_error': calibration_error
+                    }
+                    
+                    if show_message:
+                        calibration_feedback['confidence']['message'] = (
                             f"System-wide calibration: Agents report {mean_confidence:.1%} confidence "
                             f"but achieve {overall_accuracy:.1%} accuracy. "
                             f"{'Consider being more conservative with confidence estimates' if mean_confidence > overall_accuracy + 0.2 else 'Calibration is improving'}."
-                        ),
-                        'note': 'This is system-wide data - your individual calibration may vary'
-                    }
+                        )
+                        calibration_feedback['confidence']['note'] = 'This is system-wide data - your individual calibration may vary'
+                        # Update cache
+                        cache['last_error'] = calibration_error
         
         # Add complexity calibration if requested
         if include_complexity:
@@ -504,8 +538,8 @@ def require_agent_id(arguments: Dict[str, Any]) -> Tuple[str, Optional[TextConte
     if not agent_id:
         try:
             from .identity import get_bound_agent_id
-            session_id = arguments.get("session_id")
-            bound_id = get_bound_agent_id(session_id=session_id)
+            # Use arguments-based lookup for consistent session resolution
+            bound_id = get_bound_agent_id(arguments=arguments)
             if bound_id:
                 agent_id = bound_id
                 # Inject into arguments so downstream code sees it
@@ -513,6 +547,9 @@ def require_agent_id(arguments: Dict[str, Any]) -> Tuple[str, Optional[TextConte
                 logger.debug(f"Using session-bound identity: {agent_id}")
         except ImportError:
             pass  # Identity module not available, continue with normal flow
+        except Exception as e:
+            logger.debug(f"Could not retrieve session-bound identity: {e}")
+            pass  # Don't fail if identity retrieval fails
     
     if not agent_id:
         return None, error_response(
@@ -692,5 +729,77 @@ def print_metrics(agent_id: str, metrics: Dict[str, Any], title: str = "Metrics"
     print(text_output)
     if title:
         print("-" * 60)
+
+
+def get_api_key_with_fallback(agent_id: str, arguments: Dict[str, Any]) -> Optional[str]:
+    """
+    Get API key for an agent using the full fallback chain.
+    
+    Fallback order:
+    1. arguments["api_key"] - explicit parameter
+    2. Session-bound identity (in-memory, with arguments)
+    3. Session-bound identity (in-memory, fallback without arguments)
+    4. Metadata's active_session_key (in-memory cache)
+    5. Metadata's active_session_key (SQLite persistence)
+    
+    This centralizes the auth fallback logic used across multiple handlers.
+    
+    Args:
+        agent_id: The agent to get API key for
+        arguments: Tool arguments dict (may contain api_key or client_session_id)
+        
+    Returns:
+        API key string if found, None otherwise
+    """
+    # 1. Check explicit parameter
+    api_key = arguments.get("api_key")
+    if api_key:
+        return api_key
+    
+    try:
+        from .identity import get_bound_agent_id, get_bound_api_key, _load_identity, _session_identities
+        from .shared import get_mcp_server
+        mcp_server = get_mcp_server()
+        
+        # 2. Session-bound identity (with arguments - for SSE mode)
+        bound_id = get_bound_agent_id(arguments=arguments)
+        if bound_id == agent_id:
+            bound_key = get_bound_api_key(arguments=arguments)
+            if bound_key:
+                logger.debug(f"API key retrieved via session binding (with args) for '{agent_id}'")
+                return bound_key
+        
+        # 3. Session-bound identity (without arguments - for stdio mode)
+        bound_id_fallback = get_bound_agent_id()
+        if bound_id_fallback == agent_id:
+            bound_key_fallback = get_bound_api_key()
+            if bound_key_fallback:
+                logger.debug(f"API key retrieved via session binding (fallback) for '{agent_id}'")
+                return bound_key_fallback
+        
+        # 4 & 5. Metadata's active_session_key (in-memory then SQLite)
+        agent_meta = mcp_server.agent_metadata.get(agent_id)
+        if agent_meta and getattr(agent_meta, 'active_session_key', None):
+            session_key = agent_meta.active_session_key
+            
+            # 4. Check in-memory cache
+            if session_key in _session_identities:
+                identity_rec = _session_identities[session_key]
+                if identity_rec.get("bound_agent_id") == agent_id and identity_rec.get("api_key"):
+                    logger.debug(f"API key retrieved via metadata session key (in-memory) for '{agent_id}'")
+                    return identity_rec["api_key"]
+            
+            # 5. Load from SQLite
+            persisted = _load_identity(session_key)
+            if persisted and persisted.get("bound_agent_id") == agent_id and persisted.get("api_key"):
+                # Re-cache for future calls
+                _session_identities[session_key] = persisted
+                logger.debug(f"API key retrieved via metadata session key (SQLite) for '{agent_id}'")
+                return persisted["api_key"]
+                
+    except Exception as e:
+        logger.debug(f"API key fallback chain failed: {e}")
+    
+    return None
 
 

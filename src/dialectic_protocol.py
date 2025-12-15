@@ -1,19 +1,158 @@
 """
-Circuit Breaker Recovery via Dialectic Synthesis
+Dialectic Protocol for Circuit Breaker Recovery
 
 Implements peer-review dialectic protocol for autonomous circuit breaker recovery.
 Enables agents to collaboratively resolve critical states without human intervention.
 
-Protocol Flow:
-1. Circuit breaker triggers → Agent A paused
-2. System selects healthy reviewer Agent B
-3. Dialectic process: Thesis → Antithesis → Synthesis
-4. Hard limits check on agreed resolution
-5. Execute (resume with conditions) or escalate to quorum
+## Overview
 
-Author: funk (governance agent)
-Created: 2025-11-25
+When an agent triggers the circuit breaker (risk_score ≥ 0.60, coherence < 0.40, or void_active),
+the system initiates a dialectic recovery process. A healthy reviewer agent is selected to engage
+in a structured dialogue (thesis → antithesis → synthesis) to reach a consensus on recovery conditions.
+
+## Protocol Flow
+
+```
+1. Circuit Breaker Triggers
+   └─> Agent A paused (high risk, low coherence, or void active)
+
+2. Reviewer Selection
+   └─> System selects healthy Agent B (authority_score calculation)
+       - Health score (40%): risk < 0.35 preferred
+       - Track record (30%): successful reviews / total reviews
+       - Domain expertise (20%): tag overlap with paused agent
+       - Freshness (10%): recent updates (< 24h)
+
+3. Dialectic Process
+   ├─> Phase 1: THESIS
+   │   └─> Agent A: "What I did, what I think happened"
+   │       - root_cause: Agent's understanding
+   │       - proposed_conditions: Suggested recovery conditions
+   │       - reasoning: Explanation
+   │
+   ├─> Phase 2: ANTITHESIS
+   │   └─> Agent B: "What I observe, my concerns"
+   │       - observed_metrics: Current state metrics
+   │       - concerns: Reviewer's concerns
+   │       - reasoning: Counter-perspective
+   │
+   └─> Phase 3: SYNTHESIS (negotiation, up to max_rounds)
+       └─> Both agents: Propose merged resolution
+           - proposed_conditions: Merged conditions
+           - root_cause: Agreed understanding
+           - agrees: True when both agree
+           - Convergence: Both agents agree on same proposal
+
+4. Resolution Finalization
+   ├─> Check hard limits (safety violations)
+   ├─> Merge proposals intelligently
+   └─> Create signed Resolution object
+
+5. Execution
+   └─> Resume Agent A with agreed conditions OR escalate to quorum
+```
+
+## Timeouts
+
+- **Antithesis wait**: 2 hours (reviewer has 2 hours to respond)
+- **Synthesis wait**: 1 hour per round (each synthesis round)
+- **Total session**: 6 hours maximum
+
+## Safety Checks
+
+The `check_hard_limits()` function prevents resolutions that would:
+- Disable governance system
+- Bypass safety checks
+- Remove monitoring
+- Set risk thresholds > 0.90
+- Set coherence thresholds < 0.1
+- Include vague or meaningless conditions
+
+## Convergence Detection
+
+The `_check_both_agree()` function uses semantic matching to detect convergence:
+- Both agents must explicitly agree (`agrees=True`)
+- Conditions must match semantically (≥60% word overlap)
+- Root cause must have word overlap (≥20% or optional if conditions match well)
+- Normalizes conditions by removing filler words and parenthetical notes
+
+## Usage Example
+
+```python
+from src.dialectic_protocol import DialecticSession, DialecticMessage, DialecticPhase
+
+# Create session
+session = DialecticSession(
+    paused_agent_id="agent_a",
+    reviewer_agent_id="agent_b",
+    paused_agent_state={"risk_score": 0.75, "coherence": 0.35}
+)
+
+# Agent A submits thesis
+thesis = DialecticMessage(
+    phase="thesis",
+    agent_id="agent_a",
+    timestamp=datetime.now().isoformat(),
+    root_cause="Risk threshold exceeded due to high complexity",
+    proposed_conditions=["Reduce complexity to 0.3", "Monitor for 24h"],
+    reasoning="I believe the issue was..."
+)
+result = session.submit_thesis(thesis, api_key_a)
+
+# Agent B submits antithesis
+antithesis = DialecticMessage(
+    phase="antithesis",
+    agent_id="agent_b",
+    timestamp=datetime.now().isoformat(),
+    observed_metrics={"risk_score": 0.75, "coherence": 0.35},
+    concerns=["High risk score", "Low coherence"],
+    reasoning="I observe that..."
+)
+result = session.submit_antithesis(antithesis, api_key_b)
+
+# Both agents negotiate synthesis
+synthesis = DialecticMessage(
+    phase="synthesis",
+    agent_id="agent_a",
+    timestamp=datetime.now().isoformat(),
+    proposed_conditions=["Reduce complexity to 0.3", "Monitor for 24h"],
+    root_cause="Agreed: Risk threshold exceeded",
+    reasoning="We agree that...",
+    agrees=True
+)
+result = session.submit_synthesis(synthesis, api_key_a)
+
+# If converged, finalize resolution
+if result.get("converged"):
+    resolution = session.finalize_resolution(signature_a, signature_b)
+    is_safe, violation = session.check_hard_limits(resolution)
+    if is_safe:
+        # Execute resolution (resume agent with conditions)
+        pass
+```
+
+## Classes
+
+- **DialecticPhase**: Enum for session phases (THESIS, ANTITHESIS, SYNTHESIS, RESOLVED, etc.)
+- **ResolutionAction**: Enum for resolution actions (RESUME, BLOCK, ESCALATE, COOLDOWN)
+- **DialecticMessage**: Individual message in the dialectic conversation
+- **Resolution**: Final signed resolution with merged conditions
+- **DialecticSession**: Main session manager implementing the protocol
+
+## Functions
+
+- **calculate_authority_score()**: Calculate reviewer authority score for selection
+
+## Author
+
+funk (governance agent)  
+Created: 2025-11-25  
 Origin: Ticket from opus_hikewa_web_20251125 × hikewa
+
+## Related Files
+
+- `src/mcp_handlers/dialectic.py`: MCP tool handlers that use this protocol
+- `src/governance_monitor.py`: Circuit breaker logic that triggers dialectic
 """
 
 from dataclasses import dataclass, asdict
@@ -27,7 +166,18 @@ import numpy as np
 
 
 class DialecticPhase(Enum):
-    """Phases of the dialectic process"""
+    """
+    Phases of the dialectic process.
+    
+    The dialectic follows a structured progression:
+    
+    - **THESIS**: Initial phase where paused agent submits their understanding
+    - **ANTITHESIS**: Reviewer responds with observations and concerns
+    - **SYNTHESIS**: Negotiation phase where both agents propose merged resolutions
+    - **RESOLVED**: Both agents have agreed and resolution is finalized
+    - **ESCALATED**: Max rounds exceeded or timeout, escalate to quorum
+    - **FAILED**: Session failed (timeout, error, etc.)
+    """
     THESIS = "thesis"
     ANTITHESIS = "antithesis"
     SYNTHESIS = "synthesis"
@@ -37,7 +187,14 @@ class DialecticPhase(Enum):
 
 
 class ResolutionAction(Enum):
-    """Possible resolution actions"""
+    """
+    Possible resolution actions for a dialectic session.
+    
+    - **RESUME**: Resume agent with agreed conditions (most common)
+    - **BLOCK**: Block permanently due to safety violation
+    - **ESCALATE**: Escalate to quorum (multiple reviewers) if consensus not reached
+    - **COOLDOWN**: Pause and retry later (temporary delay)
+    """
     RESUME = "resume"          # Resume agent with conditions
     BLOCK = "block"            # Block permanently (safety violation)
     ESCALATE = "escalate"      # Escalate to quorum
@@ -46,7 +203,35 @@ class ResolutionAction(Enum):
 
 @dataclass
 class DialecticMessage:
-    """A message in the dialectic conversation"""
+    """
+    A message in the dialectic conversation.
+    
+    Represents a single contribution from either the paused agent or reviewer
+    during the dialectic process.
+    
+    Attributes:
+        phase: Message phase ("thesis", "antithesis", or "synthesis")
+        agent_id: ID of the agent submitting this message
+        timestamp: ISO timestamp of message submission
+        root_cause: Agent's understanding of what caused the issue (thesis/synthesis)
+        observed_metrics: Current state metrics observed by reviewer (antithesis)
+        proposed_conditions: List of conditions for resumption (thesis/synthesis)
+        reasoning: Natural language explanation of the message
+        agrees: Whether agent agrees with current proposal (synthesis only)
+        concerns: List of concerns raised by reviewer (antithesis)
+    
+    Example:
+        ```python
+        message = DialecticMessage(
+            phase="thesis",
+            agent_id="agent_a",
+            timestamp=datetime.now().isoformat(),
+            root_cause="Risk threshold exceeded due to high complexity",
+            proposed_conditions=["Reduce complexity to 0.3", "Monitor for 24h"],
+            reasoning="I believe the issue was caused by..."
+        )
+        ```
+    """
     phase: str  # thesis, antithesis, synthesis
     agent_id: str
     timestamp: str
@@ -58,10 +243,27 @@ class DialecticMessage:
     concerns: Optional[List[str]] = None
 
     def to_dict(self) -> Dict:
+        """
+        Convert message to dictionary for serialization.
+        
+        Returns:
+            Dictionary representation of the message
+        """
         return asdict(self)
 
     def sign(self, api_key: str) -> str:
-        """Generate signature for this message"""
+        """
+        Generate cryptographic signature for this message.
+        
+        Uses SHA-256 hash of message JSON + API key to ensure authenticity.
+        Prevents message tampering and verifies agent identity.
+        
+        Args:
+            api_key: Agent's API key for signing
+            
+        Returns:
+            Hexadecimal signature string
+        """
         message_json = json.dumps(self.to_dict(), sort_keys=True)
         signature_input = f"{message_json}:{api_key}"
         return hashlib.sha256(signature_input.encode()).hexdigest()
@@ -69,7 +271,25 @@ class DialecticMessage:
 
 @dataclass
 class Resolution:
-    """Final resolution of a dialectic session"""
+    """
+    Final resolution of a dialectic session.
+    
+    Represents the agreed-upon outcome after both agents have converged
+    on a synthesis. Includes merged conditions, root cause, and signatures
+    from both agents for verification.
+    
+    Attributes:
+        action: Resolution action (typically "resume")
+        conditions: List of merged conditions for resumption
+        root_cause: Agreed understanding of the root cause
+        reasoning: Combined reasoning from both agents
+        signature_a: Agent A's cryptographic signature (API key hash)
+        signature_b: Agent B's cryptographic signature (API key hash)
+        timestamp: ISO timestamp of resolution creation
+    
+    The resolution is cryptographically signed by both agents to ensure
+    authenticity and prevent tampering.
+    """
     action: str  # ResolutionAction
     conditions: List[str]
     root_cause: str
@@ -79,10 +299,24 @@ class Resolution:
     timestamp: str
 
     def to_dict(self) -> Dict:
+        """
+        Convert resolution to dictionary for serialization.
+        
+        Returns:
+            Dictionary representation of the resolution
+        """
         return asdict(self)
 
     def hash(self) -> str:
-        """Generate hash of resolution for verification"""
+        """
+        Generate hash of resolution for verification.
+        
+        Creates a deterministic hash of the resolution content (excluding signatures)
+        for integrity verification and deduplication.
+        
+        Returns:
+            Hexadecimal hash string
+        """
         resolution_json = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(resolution_json.encode()).hexdigest()
 
@@ -91,27 +325,71 @@ class DialecticSession:
     """
     Manages a dialectic session between paused agent (A) and reviewer (B).
 
-    Implements the full protocol: thesis → antithesis → synthesis → resolution
+    Implements the full protocol: thesis → antithesis → synthesis → resolution.
+    
+    The session coordinates a structured dialogue where:
+    1. Paused agent (A) submits thesis explaining their understanding
+    2. Reviewer (B) submits antithesis with observations and concerns
+    3. Both agents negotiate synthesis proposals until convergence
+    4. Final resolution is created with merged conditions and signatures
+    
+    The session enforces timeouts, validates signatures, checks hard limits,
+    and uses semantic matching to detect convergence.
+    
+    Session Types:
+    - **recovery**: For paused/stuck agents (default)
+    - **dispute**: For discovery disputes/corrections
+    - **exploration**: For collaborative exploration between active agents (no resolution required)
+    
+    Attributes:
+        paused_agent_id: ID of the agent that triggered circuit breaker (or initiating agent for exploration)
+        reviewer_agent_id: ID of the healthy reviewer agent (or exploring partner)
+        paused_agent_state: State snapshot of paused agent at session creation (optional for exploration)
+        discovery_id: Optional ID of discovery being disputed (for discovery disputes)
+        dispute_type: Optional type of dispute ("dispute", "correction", "verification")
+        session_type: Type of session ("recovery", "dispute", "exploration")
+        topic: Optional topic/theme for exploration sessions
+        max_synthesis_rounds: Maximum number of synthesis negotiation rounds (default: 5, higher for exploration)
+        transcript: List of DialecticMessage objects in the conversation
+        phase: Current phase of the dialectic (DialecticPhase enum)
+        synthesis_round: Current synthesis round number (0 = not started)
+        resolution: Final Resolution object if session resolved (optional for exploration)
+        created_at: Timestamp of session creation
+        session_id: Unique 16-character session identifier
     """
 
     # Timeout constants
-    MAX_ANTITHESIS_WAIT = timedelta(hours=2)  # Reviewer has 2 hours
-    MAX_SYNTHESIS_WAIT = timedelta(hours=1)   # Each synthesis round: 1 hour
-    MAX_TOTAL_TIME = timedelta(hours=6)        # Total session: 6 hours
+    # Rationale: Balance between giving agents time to think and preventing indefinite hangs.
+    # MAX_ANTITHESIS_WAIT: Reviewer needs time to analyze paused agent's state and formulate response.
+    #   2 hours allows for complex analysis while preventing reviewer from going AWOL.
+    MAX_ANTITHESIS_WAIT = timedelta(hours=2)
+    
+    # MAX_SYNTHESIS_WAIT: Each negotiation round needs time for both agents to propose and agree.
+    #   1 hour per round allows for thoughtful negotiation without dragging on.
+    MAX_SYNTHESIS_WAIT = timedelta(hours=1)
+    
+    # MAX_TOTAL_TIME: Total session timeout prevents sessions from hanging indefinitely.
+    #   6 hours = 2h antithesis + up to 4 rounds of synthesis (1h each) = reasonable upper bound.
+    MAX_TOTAL_TIME = timedelta(hours=6)
 
     def __init__(self,
                  paused_agent_id: str,
                  reviewer_agent_id: str,
-                 paused_agent_state: Dict[str, Any],
+                 paused_agent_state: Optional[Dict[str, Any]] = None,
                  discovery_id: Optional[str] = None,
                  dispute_type: Optional[str] = None,
-                 max_synthesis_rounds: int = 5):
+                 session_type: str = "recovery",
+                 topic: Optional[str] = None,
+                 max_synthesis_rounds: int = 5):  # Default 5 rounds: allows negotiation while preventing infinite loops
         self.paused_agent_id = paused_agent_id
         self.reviewer_agent_id = reviewer_agent_id
-        self.paused_agent_state = paused_agent_state
+        self.paused_agent_state = paused_agent_state or {}  # Optional for exploration sessions
         self.discovery_id = discovery_id  # Optional: Link to discovery being disputed/corrected
         self.dispute_type = dispute_type  # Optional: "dispute", "correction", "verification", None (recovery)
-        self.max_synthesis_rounds = max_synthesis_rounds
+        self.session_type = session_type  # "recovery", "dispute", or "exploration"
+        self.topic = topic  # Optional topic/theme for exploration sessions
+        # Exploration sessions can have more rounds (default: 10 for exploration, 5 for recovery)
+        self.max_synthesis_rounds = max_synthesis_rounds if session_type != "exploration" else max(max_synthesis_rounds, 10)
 
         self.transcript: List[DialecticMessage] = []
         self.phase = DialecticPhase.THESIS
@@ -120,9 +398,29 @@ class DialecticSession:
 
         self.created_at = datetime.now()
         self.session_id = self._generate_session_id()
+        
+        # Set instance-level timeouts based on session type
+        if self.session_type == "exploration":
+            # Exploration sessions get longer timeouts
+            self._max_antithesis_wait = timedelta(hours=24)
+            self._max_synthesis_wait = timedelta(hours=6)
+            self._max_total_time = timedelta(hours=72)
+        else:
+            # Use class-level constants for recovery/dispute sessions
+            self._max_antithesis_wait = self.MAX_ANTITHESIS_WAIT
+            self._max_synthesis_wait = self.MAX_SYNTHESIS_WAIT
+            self._max_total_time = self.MAX_TOTAL_TIME
 
     def _generate_session_id(self) -> str:
-        """Generate unique session ID"""
+        """
+        Generate unique session ID.
+        
+        Creates a deterministic 16-character hash from agent IDs and creation timestamp.
+        Ensures uniqueness while being human-readable.
+        
+        Returns:
+            16-character hexadecimal session ID
+        """
         session_data = f"{self.paused_agent_id}:{self.reviewer_agent_id}:{self.created_at.isoformat()}"
         return hashlib.sha256(session_data.encode()).hexdigest()[:16]
 
@@ -631,16 +929,22 @@ class DialecticSession:
         """
         elapsed = datetime.now() - self.created_at
         
+        # Use instance-level timeouts (set in __init__ based on session_type)
+        max_total = getattr(self, '_max_total_time', self.MAX_TOTAL_TIME)
+        max_antithesis = getattr(self, '_max_antithesis_wait', self.MAX_ANTITHESIS_WAIT)
+        max_synthesis = getattr(self, '_max_synthesis_wait', self.MAX_SYNTHESIS_WAIT)
+        
         # Check total time limit
-        if elapsed > self.MAX_TOTAL_TIME:
-            return "Session timeout - total time exceeded 6 hours"
+        if elapsed > max_total:
+            hours = max_total.total_seconds() / 3600
+            return f"Session timeout - total time exceeded {hours:.0f} hours"
         
         # Check antithesis phase timeout
         if self.phase == DialecticPhase.ANTITHESIS:
             thesis_time = self.get_thesis_timestamp()
             if thesis_time:
                 wait_time = datetime.now() - thesis_time
-                if wait_time > self.MAX_ANTITHESIS_WAIT:
+                if wait_time > max_antithesis:
                     return f"Reviewer timeout - waited {wait_time.total_seconds()/3600:.1f} hours for antithesis"
         
         # Check synthesis phase timeout
@@ -648,7 +952,7 @@ class DialecticSession:
             last_update = self.get_last_update_timestamp()
             if last_update:
                 wait_time = datetime.now() - last_update
-                if wait_time > self.MAX_SYNTHESIS_WAIT:
+                if wait_time > max_synthesis:
                     return f"Synthesis timeout - waited {wait_time.total_seconds()/3600:.1f} hours for next synthesis"
         
         return None
@@ -687,6 +991,8 @@ class DialecticSession:
             "created_at": self.created_at.isoformat(),
             "discovery_id": self.discovery_id,  # Optional: Link to discovery
             "dispute_type": self.dispute_type,  # Optional: Type of dispute
+            "session_type": getattr(self, 'session_type', 'recovery'),  # New: session type
+            "topic": getattr(self, 'topic', None),  # New: exploration topic
             "paused_agent_state": self.paused_agent_state  # Include state for reconstruction
         }
 
@@ -760,7 +1066,7 @@ def calculate_authority_score(agent_metadata: Dict[str, Any],
             last_update_dt = datetime.fromisoformat(last_update)
             hours_since = (datetime.now() - last_update_dt).total_seconds() / 3600
             freshness = 1.0 if hours_since < 24 else 0.5
-        except:
+        except (ValueError, TypeError, AttributeError):
             freshness = 0.5
     else:
         freshness = 0.5

@@ -9,9 +9,7 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from datetime import datetime
-import subprocess
-import sys
+from datetime import datetime, timezone
 
 
 def get_project_root() -> Path:
@@ -281,7 +279,7 @@ def get_workspace_health() -> Dict[str, Any]:
             "documentation_coherence": doc_coherence,
             "security": security,
             "workspace_status": workspace_status,
-            "last_validated": datetime.utcnow().isoformat() + "Z",
+            "last_validated": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "health": health,
             "recommendation": recommendation
         }
@@ -292,7 +290,7 @@ def get_workspace_health() -> Dict[str, Any]:
             "documentation_coherence": {"error": str(e)},
             "security": {"error": str(e)},
             "workspace_status": {"error": str(e)},
-            "last_validated": datetime.utcnow().isoformat() + "Z",
+            "last_validated": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "health": "error",
             "recommendation": f"Health check encountered an error: {str(e)}"
         }

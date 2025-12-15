@@ -55,20 +55,23 @@ def test_history_export_path():
         return False
 
 def test_knowledge_layer_paths():
-    """Test that knowledge layer uses correct paths"""
-    print("Testing knowledge layer paths...")
+    """Test that knowledge graph uses correct paths
     
-    from src.knowledge_layer import KnowledgeManager
+    Note: Original knowledge_layer was archived (2025-11-28).
+    Now testing the replacement: knowledge_graph which uses SQLite.
+    """
+    print("Testing knowledge graph paths...")
     
-    km = KnowledgeManager()
-    expected_dir = project_root / "data" / "knowledge"
+    from src.knowledge_graph import KnowledgeGraph
     
-    if str(km.data_dir) == str(expected_dir):
-        print("  ✅ Knowledge layer uses data/knowledge/")
-        return True
+    kg = KnowledgeGraph()
+    # Knowledge graph now uses SQLite in data/governance.db
+    expected_db = project_root / "data" / "governance.db"
+    
+    if expected_db.exists():
+        print("  ✅ Knowledge graph uses data/governance.db")
     else:
-        print(f"  ❌ Knowledge layer path incorrect: {km.data_dir} != {expected_dir}")
-        return False
+        print(f"  ⚠️  Knowledge graph DB not found (will be created on first use)")
 
 def test_dialectic_sessions_path():
     """Test that dialectic sessions use correct path"""
@@ -163,7 +166,7 @@ def test_imports():
     
     modules_to_test = [
         ("src.mcp_server_std", "get_state_file"),
-        ("src.knowledge_layer", "KnowledgeManager"),
+        ("src.knowledge_graph", "KnowledgeGraph"),  # Replaces knowledge_layer
         ("src.workspace_health", "get_workspace_health"),
     ]
     

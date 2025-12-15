@@ -4,6 +4,8 @@ Shared context and utilities for MCP handlers.
 This module provides access to shared state and functions that handlers need.
 """
 
+import sys
+
 # Import shared state from mcp_server_std
 # These will be set when handlers are imported
 monitors = None
@@ -64,4 +66,25 @@ def initialize_context(context_dict: dict):
     check_agent_id_default = context_dict.get('check_agent_id_default')
     build_standardized_agent_info = context_dict.get('build_standardized_agent_info')
     analyze_agent_patterns = context_dict.get('analyze_agent_patterns')
+
+
+def get_mcp_server():
+    """
+    Get mcp_server_std module singleton.
+    
+    This utility function eliminates the repeated import pattern found across
+    multiple handler files. Use this instead of:
+    
+        if 'src.mcp_server_std' in sys.modules:
+            mcp_server = sys.modules['src.mcp_server_std']
+        else:
+            import src.mcp_server_std as mcp_server
+    
+    Returns:
+        The mcp_server_std module instance
+    """
+    if 'src.mcp_server_std' in sys.modules:
+        return sys.modules['src.mcp_server_std']
+    import src.mcp_server_std as mcp_server
+    return mcp_server
 

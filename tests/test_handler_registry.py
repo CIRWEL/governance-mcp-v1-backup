@@ -7,6 +7,7 @@ Tests that extracted handlers work correctly and fallback mechanism functions.
 import sys
 import asyncio
 from pathlib import Path
+import pytest
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -16,6 +17,7 @@ import json
 from mcp.types import TextContent
 
 
+@pytest.mark.asyncio
 async def test_handler_registry():
     """Test that handler registry works correctly"""
     print("Testing handler registry...")
@@ -82,6 +84,7 @@ async def test_handler_registry():
     print("\n✅ All handler registry tests passed!")
 
 
+@pytest.mark.asyncio
 async def test_call_tool_integration():
     """Test that call_tool function works with registry"""
     print("\nTesting call_tool integration...")

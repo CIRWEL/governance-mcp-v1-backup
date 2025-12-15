@@ -134,14 +134,15 @@ def test_turn_inference():
     assert activity.infer_conversation_turn(turn_gap_seconds=30)
 
 
-def test_activity_tracker_integration():
+def test_activity_tracker_integration(tmp_path):
     """Test full ActivityTracker workflow"""
     config = HeartbeatConfig(
         conversation_turn_threshold=3,
         tool_call_threshold=5,
         turn_gap_seconds=30
     )
-    tracker = ActivityTracker(config=config)
+    # Use temp directory for test isolation
+    tracker = ActivityTracker(config=config, data_dir=tmp_path)
 
     agent_id = "integration_test_agent"
 
@@ -169,13 +170,14 @@ def test_activity_tracker_integration():
     assert summary['tool_calls'] == 0
 
 
-def test_prompted_vs_autonomous_patterns():
+def test_prompted_vs_autonomous_patterns(tmp_path):
     """Test different agent autonomy patterns"""
     config = HeartbeatConfig(
         conversation_turn_threshold=5,
         tool_call_threshold=10
     )
-    tracker = ActivityTracker(config=config)
+    # Use temp directory for test isolation
+    tracker = ActivityTracker(config=config, data_dir=tmp_path)
 
     # Pattern 1: Prompted agent (low autonomy, high turn/tool ratio)
     prompted_id = "prompted_agent"

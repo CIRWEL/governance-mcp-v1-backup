@@ -1,3 +1,4 @@
+import pytest
 #!/usr/bin/env python3
 """
 End-to-end test for calibration system with dialectic sessions.
@@ -22,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.calibration import CalibrationChecker, get_calibration_checker
 from src.audit_log import AuditLogger
 from src.dialectic_protocol import DialecticSession, DialecticMessage, DialecticPhase, Resolution
-from src.mcp_handlers.dialectic import (
+from src.mcp_handlers.dialectic_calibration import (
     update_calibration_from_dialectic,
     update_calibration_from_dialectic_disagreement
 )
@@ -39,6 +40,7 @@ def create_isolated_checker():
     return CalibrationChecker(state_file=TEMP_CALIBRATION_FILE)
 
 
+@pytest.mark.asyncio
 async def test_agreement_calibration():
     """Test calibration update from dialectic agreement"""
     print("\n" + "="*70)
@@ -51,7 +53,7 @@ async def test_agreement_calibration():
     
     # Patch the singleton to use our isolated checker
     with unittest.mock.patch('src.calibration._calibration_checker_instance', isolated_checker):
-        with unittest.mock.patch('src.mcp_handlers.dialectic.calibration_checker', isolated_checker):
+        with unittest.mock.patch('src.mcp_handlers.dialectic_calibration.calibration_checker', isolated_checker):
             # Create a mock converged verification session
             session = DialecticSession(
                 paused_agent_id="test_agent_agree",
@@ -134,6 +136,7 @@ async def test_agreement_calibration():
                 return False
 
 
+@pytest.mark.asyncio
 async def test_disagreement_calibration():
     """Test calibration update from dialectic disagreement"""
     print("\n" + "="*70)
@@ -151,7 +154,7 @@ async def test_disagreement_calibration():
     
     # Patch the singleton to use our isolated checker
     with unittest.mock.patch('src.calibration._calibration_checker_instance', isolated_checker):
-        with unittest.mock.patch('src.mcp_handlers.dialectic.calibration_checker', isolated_checker):
+        with unittest.mock.patch('src.mcp_handlers.dialectic_calibration.calibration_checker', isolated_checker):
             # Create a mock escalated verification session (disagreement)
             session = DialecticSession(
                 paused_agent_id="test_agent_disagree",
@@ -192,7 +195,7 @@ async def test_disagreement_calibration():
             )
             
             # Update calibration from disagreement
-            updated = await update_calibration_from_dialectic_disagreement(session, disagreement_severity=1.0)
+            updated = await update_calibration_from_dialectic_disagreement(session)
             
             if updated:
                 print("✅ Disagreement calibration updated successfully")
@@ -232,6 +235,7 @@ async def test_disagreement_calibration():
                 return False
 
 
+@pytest.mark.asyncio
 async def test_both_paths_together():
     """Test both agreement and disagreement calibration paths"""
     print("\n" + "="*70)
@@ -243,7 +247,7 @@ async def test_both_paths_together():
     
     # Patch the singleton to use our isolated checker
     with unittest.mock.patch('src.calibration._calibration_checker_instance', isolated_checker):
-        with unittest.mock.patch('src.mcp_handlers.dialectic.calibration_checker', isolated_checker):
+        with unittest.mock.patch('src.mcp_handlers.dialectic_calibration.calibration_checker', isolated_checker):
             # Test agreement path
             session1 = DialecticSession(
         paused_agent_id="test_agent_both_1",
@@ -299,7 +303,7 @@ async def test_both_paths_together():
                 decision="proceed"
             )
             
-            updated2 = await update_calibration_from_dialectic_disagreement(session2, disagreement_severity=0.8)
+            updated2 = await update_calibration_from_dialectic_disagreement(session2)
             
             if updated1 and updated2:
                 print("✅ Both calibration paths updated successfully")

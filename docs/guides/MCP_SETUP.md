@@ -23,12 +23,17 @@ You can call governance tools directly from your AI assistant!
 
 ```bash
 cd ~/projects/governance-mcp-v1
-pip install -r requirements-mcp.txt
+pip install -r requirements-core.txt
 ```
 
 Or install manually:
 ```bash
 pip install mcp numpy
+```
+
+For SSE/HTTP (multi-client) mode:
+```bash
+pip install -r requirements-full.txt
 ```
 
 ### Step 2: Verify Installation
@@ -50,18 +55,12 @@ You should see the server start (it will wait for stdio input).
    - Linux: `~/.config/Cursor/User/globalStorage/mcp.json`
    - Windows: `%APPDATA%\Cursor\User\globalStorage\mcp.json`
 
-2. **Add to config:**
+2. **Add to config (recommended: SSE):**
    ```json
    {
      "mcpServers": {
        "governance-monitor": {
-         "command": "python3",
-         "args": [
-           "/Users/cirwel/projects/governance-mcp-v1/src/mcp_server_std.py"
-         ],
-         "env": {
-           "PYTHONPATH": "/Users/cirwel/projects/governance-mcp-v1"
-         }
+         "url": "http://127.0.0.1:8765/sse"
        }
      }
    }
@@ -73,14 +72,18 @@ You should see the server start (it will wait for stdio input).
 
 4. **Restart Cursor**
 
-### Option B: Claude Desktop
+### Option B: Claude Desktop (recommended: stdio → SSE proxy)
 
 1. **Find Claude Desktop MCP config:**
    - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
    - Linux: `~/.config/Claude/claude_desktop_config.json`
    - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
-2. **Add to config** (same as Cursor above)
+2. **Generate your config JSON** (prints JSON you can paste):
+   ```bash
+   cd /path/to/governance-mcp-v1
+   ./scripts/mcp config claude-desktop http://127.0.0.1:8765/sse
+   ```
 
 3. **Restart Claude Desktop**
 
@@ -337,7 +340,7 @@ Use get_system_history with:
 
 - **Documentation**: See `README.md` for governance framework details
 - **Examples**: See `demo_complete_system.py` for usage examples
-- **Bridges**: See `scripts/claude_code_bridge.py` and `scripts/cursor_bridge.py`
+- **Python API**: Use `from src.governance_monitor import UNITARESMonitor` for direct integration
 
 ---
 

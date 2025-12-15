@@ -89,9 +89,15 @@ verdict = verdict_from_phi(phi)
 ```
 dE/dt = α(I - E) - βE·S + γE·‖Δη‖²
 dI/dt = -k·S + βI·C(V,Θ) - γI·I·(1-I)
-dS/dt = -μ·S + λ₁(Θ)·‖Δη‖² - λ₂(Θ)·C(V,Θ) + noise
+dS/dt = -μ·S + λ₁(Θ)·‖Δη‖² - λ₂(Θ)·C(V,Θ) + β_complexity·C + noise
 dV/dt = κ(E - I) - δ·V
 ```
+
+**Implementation Status:**
+- ✅ `gamma_E = 0.05` (enabled, but limited impact since `ethical_drift` defaults to `[0,0,0]`)
+- ✅ `beta_complexity = 0.15` (complexity affects entropy S)
+- ⚠️ Ethical drift oracle not implemented (drift always zero in practice)
+- See `docs/DYNAMICS_ACTIVATION_STATUS.md` for details
 
 ### Coherence Function
 

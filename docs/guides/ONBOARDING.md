@@ -2,6 +2,10 @@
 
 **Last Updated:** 2025-12-01
 
+**For Humans - Detailed Onboarding Guide**
+
+> **AI Agents:** Start with [START_HERE.md](../../START_HERE.md) → [AI_ASSISTANT_GUIDE.md](../reference/AI_ASSISTANT_GUIDE.md) instead. This guide is for humans who want more detail.
+
 **Autonomous governance system for agents.** This guide covers registration, integration, and participation in the governance network.
 
 ---
@@ -67,25 +71,32 @@ process_agent_update(
 
 ### CLI-Only Interfaces
 
-**Integration via bridge script:**
+**Integration via Python:**
 ```bash
-# Test integration
-python3 ~/scripts/claude_code_bridge.py \
-  --agent-id "<agent_identifier>" \
-  --log "Initial integration test" \
-  --complexity 0.5
+cd /path/to/governance-mcp-v1
+python3 -c "
+from src.governance_monitor import UNITARESMonitor
+m = UNITARESMonitor(agent_id='your_agent_id')
+r = m.process_update({'response_text': 'Initial integration test', 'complexity': 0.5})
+print(f'Decision: {r[\"decision\"][\"action\"]}')
+print(f'Metrics: E={r[\"metrics\"][\"E\"]:.3f}, I={r[\"metrics\"][\"I\"]:.3f}')
+"
 ```
 
 **4. Check Status**
 ```bash
-python3 ~/scripts/claude_code_bridge.py --status
+python3 -c "
+from src.governance_monitor import UNITARESMonitor
+m = UNITARESMonitor(agent_id='your_agent_id')
+print(m.get_metrics())
+"
 ```
 
 ### For System Administrators
 
 **1. Install Dependencies**
 ```bash
-pip3 install -r requirements-mcp.txt
+pip3 install -r requirements-core.txt
 ```
 
 **2. Configure MCP**
@@ -155,9 +166,9 @@ Select integration scenario:
 - Multi-process coordination
 
 **Integration tools:**
-- `claude_code_bridge.py` - CLI bridge reference implementation
-- `get_agent_api_key` - Agent registration endpoint
-- `get_server_info` - System diagnostics
+- `UNITARESMonitor` - Python class for direct integration
+- `get_agent_api_key` - Agent registration endpoint (MCP)
+- `get_server_info` - System diagnostics (MCP)
 
 ### ⚙️ Infrastructure Setup
 **Documentation path:** [MCP Setup](docs/guides/MCP_SETUP.md) → [Troubleshooting](docs/guides/TROUBLESHOOTING.md) → [Quick Reference](docs/QUICK_REFERENCE.md)
@@ -202,7 +213,7 @@ Select integration scenario:
          complexity=0.5  # Honest self-assessment, see complexity guide
      )
      ```
-   - **Developer:** Use `claude_code_bridge.py --log`
+   - **Developer:** Use `UNITARESMonitor.process_update()`
    - **Admin:** Verify server is running
 4. **Check the result:**
    - Status (healthy/moderate/critical)
@@ -227,7 +238,7 @@ Select integration scenario:
    - **S (Entropy):** Uncertainty decay (decay-dominated, NOT drift accumulation) [0, 1]
    - **V (Void Integral):** E-I imbalance [(-inf, +inf)]
    - **Coherence:** Pure thermodynamic C(V) signal from E-I balance [0, 1]
-   - **Risk Score:** Two metrics:
+   - **Attention Score:** Two metrics:
      - **`current_risk`**: Recent trend (last 10) - used for health status
      - **`mean_risk`**: Overall average - used for display/analysis
 3. **⚠️ Critical Understanding:**
@@ -315,11 +326,14 @@ Select integration scenario:
 
 **Quick Start:**
 ```bash
-# Option 1: Via claude_code_bridge.py (CLI)
-python3 ~/scripts/claude_code_bridge.py --agent-id your_agent_id \
-  --log "Work summary"
+# Option 1: Via Python directly
+python3 -c "
+from src.governance_monitor import UNITARESMonitor
+m = UNITARESMonitor('your_agent_id')
+m.process_update({'response_text': 'Work summary', 'complexity': 0.5})
+"
 
-# Option 2: Via MCP tools directly (from Claude Code, etc.)
+# Option 2: Via MCP tools (from Claude Desktop, Cursor, etc.)
 # Call get_agent_api_key to register and get your key
 # Then call process_agent_update with your agent_id and api_key
 ```

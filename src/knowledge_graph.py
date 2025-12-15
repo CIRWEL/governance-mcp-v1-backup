@@ -16,20 +16,25 @@ Architecture:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Set, Optional, Literal
+from typing import Dict, List, Set, Optional, Literal, Any
 from datetime import datetime
 import os
 from pathlib import Path
 import json
 import asyncio
 import sys
+import subprocess
+
+# Import structured logging
+from src.logging_utils import get_logger
+logger = get_logger(__name__)
 
 try:
     import aiofiles
     AIOFILES_AVAILABLE = True
 except ImportError:
     AIOFILES_AVAILABLE = False
-    print("[KNOWLEDGE_GRAPH] Warning: aiofiles not available. Using sync I/O. Install with: pip install aiofiles", file=sys.stderr)
+    logger.warning("aiofiles not available. Using sync I/O. Install with: pip install aiofiles")
 
 
 @dataclass
@@ -56,6 +61,13 @@ class DiscoveryNode:
     references_files: List[str] = field(default_factory=list)
     resolved_at: Optional[str] = None
     updated_at: Optional[str] = None
+    # Optional confidence value (used by SQLite knowledge backend and future calibration integration)
+    confidence: Optional[float] = None
+    # ENHANCED PROVENANCE: Agent state at time of creation (2025-12-15)
+    # Answers: "What was the agent's context when they made this discovery?"
+    provenance: Optional[Dict[str, Any]] = None
+    # PROVENANCE CHAIN: Full lineage context for multi-agent collaboration
+    provenance_chain: Optional[List[Dict[str, Any]]] = None
     
     def to_dict(self, include_details: bool = True) -> dict:
         """Convert to dictionary for JSON serialization"""
@@ -84,6 +96,17 @@ class DiscoveryNode:
         # Add backlinks (responses_from)
         if self.responses_from:
             result["responses_from"] = self.responses_from
+
+        if self.confidence is not None:
+            result["confidence"] = self.confidence
+        
+        # Include provenance if present (agent state at creation)
+        if self.provenance:
+            result["provenance"] = self.provenance
+
+        # Include provenance chain if present (lineage context)
+        if self.provenance_chain:
+            result["provenance_chain"] = self.provenance_chain
         
         if include_details:
             result["details"] = self.details
@@ -122,7 +145,8 @@ class DiscoveryNode:
             responses_from=data.get("responses_from", []),
             references_files=data.get("references_files", []),
             resolved_at=data.get("resolved_at"),
-            updated_at=data.get("updated_at")
+            updated_at=data.get("updated_at"),
+            confidence=data.get("confidence")
         )
 
 
@@ -157,7 +181,7 @@ class KnowledgeGraph:
         self.by_status: Dict[str, Set[str]] = {}  # status -> {node_ids}
 
         # Rate limiting (security: prevent knowledge graph poisoning)
-        self.rate_limit_stores_per_hour = 10  # Max stores per agent per hour
+        self.rate_limit_stores_per_hour = 20  # Max stores per agent per hour
         self.agent_store_timestamps: Dict[str, List[str]] = {}  # agent_id -> [timestamps]
 
         # Persistence state
@@ -172,7 +196,7 @@ class KnowledgeGraph:
         
         Handles bidirectional linking: if discovery has response_to, adds backlink to parent.
 
-        Rate limiting: Max 10 stores/hour per agent (prevents poisoning flood attacks).
+        Rate limiting: Max 20 stores/hour per agent (prevents poisoning flood attacks).
         """
         # Rate limiting check (security measure)
         await self._check_rate_limit(discovery.agent_id)
@@ -226,7 +250,7 @@ class KnowledgeGraph:
 
     async def _check_rate_limit(self, agent_id: str) -> None:
         """
-        Check if agent has exceeded rate limit (10 stores/hour).
+        Check if agent has exceeded rate limit (20 stores/hour).
         Raises ValueError if limit exceeded.
         """
         # Get current time
@@ -246,7 +270,7 @@ class KnowledgeGraph:
                 ts = datetime.fromisoformat(ts_str).timestamp()
                 if ts > one_hour_ago:
                     recent_stores.append(ts_str)
-            except:
+            except (ValueError, TypeError, AttributeError):
                 # Skip invalid timestamps
                 continue
 
@@ -358,7 +382,7 @@ class KnowledgeGraph:
         return self.nodes.get(discovery_id)
     
     async def update_discovery(self, discovery_id: str, updates: dict) -> bool:
-        """Update discovery fields - O(1) with backlink handling"""
+        """Update discovery fields - O(1) with backlink handling and atomic index updates"""
         if discovery_id not in self.nodes:
             return False
         
@@ -367,70 +391,163 @@ class KnowledgeGraph:
         # Track old response_to for backlink cleanup
         old_response_to = discovery.response_to
         
-        # Update fields
-        for key, value in updates.items():
-            if hasattr(discovery, key):
-                old_value = getattr(discovery, key)
-                setattr(discovery, key, value)
-                
-                # Handle response_to changes (bidirectional linking)
-                if key == "response_to" and old_value != value:
-                    # Remove backlink from old parent
-                    if old_response_to:
-                        old_parent_id = old_response_to.discovery_id
-                        if old_parent_id in self.nodes:
-                            old_parent = self.nodes[old_parent_id]
-                            if discovery_id in old_parent.responses_from:
-                                old_parent.responses_from.remove(discovery_id)
-                                self.dirty = True
+        # CRITICAL FIX: Store old index states for rollback on failure
+        old_index_states = {}
+        index_updates = []  # List of (index_name, action, args) for atomic updates
+        
+        try:
+            # Update fields and prepare index updates
+            for key, value in updates.items():
+                if hasattr(discovery, key):
+                    old_value = getattr(discovery, key)
                     
-                    # Add backlink to new parent
-                    if value:  # New response_to is not None
-                        if isinstance(value, ResponseTo):
-                            new_parent_id = value.discovery_id
-                        elif isinstance(value, dict):
-                            new_parent_id = value.get("discovery_id")
-                            # Convert dict to ResponseTo if needed
-                            if new_parent_id and "response_type" in value:
-                                value = ResponseTo(
-                                    discovery_id=new_parent_id,
-                                    response_type=value["response_type"]
-                                )
-                                setattr(discovery, key, value)  # Update with ResponseTo object
-                        else:
-                            new_parent_id = None
+                    # Prepare index updates before modifying data
+                    if key == "tags" and old_value != value:
+                        old_index_states["tags"] = (old_value.copy() if isinstance(old_value, list) else list(old_value), value.copy() if isinstance(value, list) else list(value))
+                        index_updates.append(("tags", old_value, value))
+                    elif key == "status" and old_value != value:
+                        old_index_states["status"] = (old_value, value)
+                        index_updates.append(("status", old_value, value))
+                    elif key == "severity" and old_value != value:
+                        old_index_states["severity"] = (old_value, value)
+                        index_updates.append(("severity", old_value, value))
+                    elif key == "type" and old_value != value:
+                        old_index_states["type"] = (old_value, value)
+                        index_updates.append(("type", old_value, value))
+                    
+                    # Update field
+                    setattr(discovery, key, value)
+                    
+                    # Handle response_to changes (bidirectional linking)
+                    if key == "response_to" and old_value != value:
+                        # Remove backlink from old parent
+                        if old_response_to:
+                            old_parent_id = old_response_to.discovery_id
+                            if old_parent_id in self.nodes:
+                                old_parent = self.nodes[old_parent_id]
+                                if discovery_id in old_parent.responses_from:
+                                    old_parent.responses_from.remove(discovery_id)
+                                    self.dirty = True
                         
-                        if new_parent_id and new_parent_id in self.nodes:
-                            new_parent = self.nodes[new_parent_id]
-                            if discovery_id not in new_parent.responses_from:
-                                new_parent.responses_from.append(discovery_id)
-                                self.dirty = True
-                
-                # Update indexes if needed
-                elif key == "tags" and old_value != value:
+                        # Add backlink to new parent
+                        if value:  # New response_to is not None
+                            if isinstance(value, ResponseTo):
+                                new_parent_id = value.discovery_id
+                            elif isinstance(value, dict):
+                                new_parent_id = value.get("discovery_id")
+                                # Convert dict to ResponseTo if needed
+                                if new_parent_id and "response_type" in value:
+                                    value = ResponseTo(
+                                        discovery_id=new_parent_id,
+                                        response_type=value["response_type"]
+                                    )
+                                    setattr(discovery, key, value)  # Update with ResponseTo object
+                            else:
+                                new_parent_id = None
+                            
+                            if new_parent_id and new_parent_id in self.nodes:
+                                new_parent = self.nodes[new_parent_id]
+                                if discovery_id not in new_parent.responses_from:
+                                    new_parent.responses_from.append(discovery_id)
+                                    self.dirty = True
+            
+            # Apply index updates atomically (all or nothing)
+            for index_name, old_val, new_val in index_updates:
+                if index_name == "tags":
                     # Remove from old tags
-                    for tag in old_value:
+                    old_tags = old_val if isinstance(old_val, list) else list(old_val)
+                    for tag in old_tags:
                         if tag in self.by_tag:
                             self.by_tag[tag].discard(discovery_id)
                     # Add to new tags
-                    for tag in value:
+                    new_tags = new_val if isinstance(new_val, list) else list(new_val)
+                    for tag in new_tags:
                         if tag not in self.by_tag:
                             self.by_tag[tag] = set()
                         self.by_tag[tag].add(discovery_id)
-                
-                elif key == "status" and old_value != value:
+                elif index_name == "status":
                     # Update status index
-                    if old_value in self.by_status:
-                        self.by_status[old_value].discard(discovery_id)
-                    if value not in self.by_status:
-                        self.by_status[value] = set()
-                    self.by_status[value].add(discovery_id)
-        
-        discovery.updated_at = datetime.now().isoformat()
-        self.dirty = True
-        await self._persist_async()
-        
-        return True
+                    if old_val in self.by_status:
+                        self.by_status[old_val].discard(discovery_id)
+                    if new_val not in self.by_status:
+                        self.by_status[new_val] = set()
+                    self.by_status[new_val].add(discovery_id)
+                elif index_name == "severity":
+                    # Update severity index
+                    if old_val and old_val in self.by_severity:
+                        self.by_severity[old_val].discard(discovery_id)
+                    if new_val:
+                        if new_val not in self.by_severity:
+                            self.by_severity[new_val] = set()
+                        self.by_severity[new_val].add(discovery_id)
+                elif index_name == "type":
+                    # Update type index
+                    if old_val in self.by_type:
+                        self.by_type[old_val].discard(discovery_id)
+                    if new_val not in self.by_type:
+                        self.by_type[new_val] = set()
+                    self.by_type[new_val].add(discovery_id)
+            
+            discovery.updated_at = datetime.now().isoformat()
+            self.dirty = True
+            await self._persist_async()
+            
+            return True
+            
+        except Exception as e:
+            # CRITICAL FIX: Rollback index changes on failure to maintain consistency
+            logger.error(f"Error updating discovery {discovery_id}: {e}. Rolling back index changes.", exc_info=True)
+            
+            # Rollback field updates
+            for key, value in updates.items():
+                if hasattr(discovery, key) and key in old_index_states:
+                    # Restore old value
+                    if key == "tags":
+                        setattr(discovery, key, old_index_states["tags"][0])
+                    elif key == "status":
+                        setattr(discovery, key, old_index_states["status"][0])
+                    elif key == "severity":
+                        setattr(discovery, key, old_index_states["severity"][0])
+                    elif key == "type":
+                        setattr(discovery, key, old_index_states["type"][0])
+            
+            # Rollback index updates
+            for index_name, old_val, new_val in index_updates:
+                if index_name == "tags":
+                    # Restore old tags, remove new tags
+                    old_tags = old_val if isinstance(old_val, list) else list(old_val)
+                    new_tags = new_val if isinstance(new_val, list) else list(new_val)
+                    for tag in new_tags:
+                        if tag in self.by_tag:
+                            self.by_tag[tag].discard(discovery_id)
+                    for tag in old_tags:
+                        if tag not in self.by_tag:
+                            self.by_tag[tag] = set()
+                        self.by_tag[tag].add(discovery_id)
+                elif index_name == "status":
+                    # Restore old status
+                    if new_val in self.by_status:
+                        self.by_status[new_val].discard(discovery_id)
+                    if old_val not in self.by_status:
+                        self.by_status[old_val] = set()
+                    self.by_status[old_val].add(discovery_id)
+                elif index_name == "severity":
+                    # Restore old severity
+                    if new_val and new_val in self.by_severity:
+                        self.by_severity[new_val].discard(discovery_id)
+                    if old_val:
+                        if old_val not in self.by_severity:
+                            self.by_severity[old_val] = set()
+                        self.by_severity[old_val].add(discovery_id)
+                elif index_name == "type":
+                    # Restore old type
+                    if new_val in self.by_type:
+                        self.by_type[new_val].discard(discovery_id)
+                    if old_val not in self.by_type:
+                        self.by_type[old_val] = set()
+                    self.by_type[old_val].add(discovery_id)
+            
+            raise  # Re-raise exception after rollback
     
     async def delete_discovery(self, discovery_id: str) -> bool:
         """Delete discovery from graph - O(1) with index cleanup and backlink removal"""
@@ -560,7 +677,7 @@ class KnowledgeGraph:
                         f.flush()  # Ensure buffered data written
                         os.fsync(f.fileno())  # Ensure written to disk
                 except Exception as e:
-                    print(f"[KNOWLEDGE_GRAPH] Error saving file: {e}", file=sys.stderr)
+                    logger.error(f"Error saving file: {e}", exc_info=True)
                     raise
             
             try:
@@ -568,7 +685,7 @@ class KnowledgeGraph:
                 await loop.run_in_executor(None, _save_file_sync)
                 self.dirty = False
             except Exception as e:
-                print(f"[KNOWLEDGE_GRAPH] Warning: Could not save graph: {e}", file=sys.stderr)
+                logger.warning(f"Could not save graph: {e}", exc_info=True)
     
     async def load(self):
         """Load graph from disk on startup - non-blocking"""
@@ -588,7 +705,7 @@ class KnowledgeGraph:
                     with open(self.persist_file, 'r', encoding='utf-8') as f:
                         return json.load(f)
                 except Exception as e:
-                    print(f"[KNOWLEDGE_GRAPH] Error loading file: {e}", file=sys.stderr)
+                    logger.error(f"Error loading file: {e}", exc_info=True)
                     raise
             
             # Run file I/O and JSON parsing in executor to avoid blocking event loop
@@ -611,7 +728,7 @@ class KnowledgeGraph:
             self.by_status = {k: set(v) for k, v in indexes.get("by_status", {}).items()}
             
         except Exception as e:
-            print(f"[KNOWLEDGE_GRAPH] Warning: Could not load graph: {e}", file=sys.stderr)
+            logger.warning(f"Could not load graph: {e}", exc_info=True)
             # Start with empty graph if load fails
             self.nodes = {}
             self.by_agent = {}
@@ -622,12 +739,22 @@ class KnowledgeGraph:
 
 
 # Global graph instance (initialized on first use)
-_graph_instance: Optional[KnowledgeGraph] = None
+# NOTE: Depending on configuration, this singleton may be either the JSON-backed
+# `KnowledgeGraph` (this module) or the SQLite-backed `KnowledgeGraphDB`
+# (from `src.knowledge_db`). Both implement the same methods used by MCP handlers.
+_graph_instance: Optional[Any] = None
 _graph_lock: Optional[asyncio.Lock] = None  # Created lazily to avoid binding to wrong event loop
 
 
-async def get_knowledge_graph() -> KnowledgeGraph:
-    """Get global knowledge graph instance (singleton)"""
+async def get_knowledge_graph() -> Any:
+    """
+    Get global knowledge graph instance (singleton).
+
+    Backend selection:
+    - UNITARES_KNOWLEDGE_BACKEND=sqlite -> force SQLite backend
+    - UNITARES_KNOWLEDGE_BACKEND=json   -> force JSON backend
+    - UNITARES_KNOWLEDGE_BACKEND=auto   -> use SQLite if `data/knowledge.db` exists, else JSON
+    """
     global _graph_instance, _graph_lock
     
     # Create lock lazily in the current event loop (fixes import-time binding issue)
@@ -635,9 +762,59 @@ async def get_knowledge_graph() -> KnowledgeGraph:
         _graph_lock = asyncio.Lock()
     
     async with _graph_lock:
-        if _graph_instance is None:
-            _graph_instance = KnowledgeGraph()
-            await _graph_instance.load()
-        
+        if _graph_instance is not None:
+            return _graph_instance
+
+        backend = os.getenv("UNITARES_KNOWLEDGE_BACKEND", "auto").strip().lower()
+
+        # Prefer SQLite when requested (or when auto + DB exists).
+        if backend in ("sqlite", "auto"):
+            try:
+                project_root = Path(__file__).parent.parent
+                db_path = project_root / "data" / "knowledge.db"
+                json_path = project_root / "data" / "knowledge_graph.json"
+
+                # Auto-migrate once on first run:
+                # If the SQLite DB doesn't exist yet but the legacy JSON does, migrate JSON -> SQLite.
+                # We intentionally do NOT dual-write (sync) JSON+SQLite; SQLite becomes canonical.
+                if not db_path.exists() and json_path.exists():
+                    logger.info(
+                        "SQLite knowledge DB not found but legacy JSON exists; auto-migrating knowledge_graph.json -> knowledge.db"
+                    )
+
+                    cmd = [sys.executable, str(project_root / "scripts" / "migrate_knowledge_to_sqlite.py")]
+
+                    def _run_migration():
+                        return subprocess.run(
+                            cmd,
+                            cwd=str(project_root),
+                            check=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                        )
+
+                    proc = await asyncio.to_thread(_run_migration)
+                    if proc.stdout:
+                        logger.info(proc.stdout.strip()[:2000])
+                    if proc.stderr:
+                        # Some environments log to stderr even on success; keep it bounded.
+                        logger.warning(proc.stderr.strip()[:2000])
+
+                if backend == "sqlite" or db_path.exists():
+                    from src.knowledge_db import get_knowledge_graph_db  # local import to avoid cycles
+                    _graph_instance = await get_knowledge_graph_db()
+                    # SQLite backend is always persistent; `load()` is a no-op but exists for compatibility.
+                    await _graph_instance.load()
+                    return _graph_instance
+            except Exception as e:
+                logger.warning(
+                    f"SQLite knowledge graph backend unavailable; falling back to JSON backend: {e}",
+                    exc_info=True
+                )
+
+        # JSON backend (in-memory + async persistence to `data/knowledge_graph.json`)
+        _graph_instance = KnowledgeGraph()
+        await _graph_instance.load()
         return _graph_instance
 

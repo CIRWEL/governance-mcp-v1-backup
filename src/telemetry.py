@@ -5,9 +5,7 @@ Surfaces skip rates, confidence distributions, and suspicious patterns.
 
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
-from collections import defaultdict
 import json
-from pathlib import Path
 
 from src.audit_log import audit_logger
 from src.calibration import calibration_checker
@@ -66,7 +64,15 @@ class TelemetryCollector:
         
         cutoff_time = datetime.now() - timedelta(hours=window_hours)
         
-        confidences = []
+        # IMPORTANT: Only include confidence values from events where "confidence"
+        # actually represents a confidence estimate (auto_attest decisions).
+        #
+        # Some audit events include a placeholder `confidence=1.0` purely because the
+        # AuditEntry schema requires the field (e.g., complexity_derivation, auto_resume).
+        # Including those would falsely saturate distributions at 1.0 and break
+        # calibration/telemetry interpretation.
+        allowed_event_types = {"auto_attest"}
+        confidences: List[float] = []
         
         try:
             # Optimize: Read file in chunks, early exit if possible
@@ -89,6 +95,9 @@ class TelemetryCollector:
                         if agent_id and entry_dict['agent_id'] != agent_id:
                             continue
                         
+                        if entry_dict.get('event_type') not in allowed_event_types:
+                            continue
+                        
                         if 'confidence' in entry_dict:
                             confidences.append(entry_dict['confidence'])
                     except (json.JSONDecodeError, KeyError):
@@ -107,6 +116,13 @@ class TelemetryCollector:
         
         import numpy as np
         confidences_array = np.array(confidences)
+
+        # Confidence saturation visibility:
+        # Even after fixing default/placeholder sources, we want a quick indicator of whether
+        # the system is drifting back toward "always 1.0".
+        # Use an epsilon threshold to tolerate float formatting differences.
+        saturation_threshold = 0.99
+        confidence_saturation_rate = float(np.mean(confidences_array >= saturation_threshold))
         
         result = {
             "count": len(confidences),
@@ -115,6 +131,8 @@ class TelemetryCollector:
             "std": float(np.std(confidences_array)),
             "min": float(np.min(confidences_array)),
             "max": float(np.max(confidences_array)),
+            "confidence_saturation_rate": confidence_saturation_rate,
+            "confidence_saturation_threshold": saturation_threshold,
             "percentiles": {
                 "p25": float(np.percentile(confidences_array, 25)),
                 "p50": float(np.percentile(confidences_array, 50)),

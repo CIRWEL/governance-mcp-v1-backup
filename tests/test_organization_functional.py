@@ -79,43 +79,39 @@ def test_history_export_location():
         return False
 
 def test_knowledge_layer_read_write():
-    """Test knowledge layer read/write"""
-    print("Testing knowledge layer read/write...")
+    """Test knowledge graph read/write
     
-    from src.knowledge_layer import KnowledgeManager, AgentKnowledge
+    Note: Original knowledge_layer module was archived (2025-11-28).
+    Now testing the replacement: knowledge_graph which uses SQLite.
+    """
+    print("Testing knowledge graph read/write...")
     
-    km = KnowledgeManager()
+    from src.knowledge_graph import KnowledgeGraph, DiscoveryNode
+    from datetime import datetime
+    
+    kg = KnowledgeGraph()
     test_agent_id = "test_knowledge_functional"
     
-    # Create test knowledge
-    from datetime import datetime
-    now = datetime.now().isoformat()
-    knowledge = AgentKnowledge(
+    # Create a discovery node
+    discovery = DiscoveryNode(
+        id=f"test_{datetime.now().timestamp()}",
         agent_id=test_agent_id,
-        created_at=now,
-        last_updated=now,
-        discoveries=[],
-        patterns=[],
-        lessons_learned=[],
-        questions_raised=[]
+        type="insight",
+        summary="Test discovery for functional test",
+        details="This is a test",
+        severity="info",
+        tags=["test"]
     )
     
-    # Save it
-    km.save_knowledge(knowledge)
+    # Store via async - use asyncio.run for sync context
+    import asyncio
+    asyncio.run(kg.add_discovery(discovery))
     
-    # Load it back
-    loaded = km.load_knowledge(test_agent_id)
+    # Retrieve it (also async)
+    retrieved = asyncio.run(kg.get_discovery(discovery.id))
     
-    if loaded and loaded.agent_id == test_agent_id:
-        print("  ✅ Knowledge layer read/write works")
-        # Cleanup
-        knowledge_file = km._get_knowledge_file(test_agent_id)
-        if knowledge_file.exists():
-            knowledge_file.unlink()
-        return True
-    else:
-        print(f"  ❌ Knowledge layer read/write failed")
-        return False
+    if retrieved and retrieved.agent_id == test_agent_id:
+        print("  ✅ Knowledge graph store/retrieve works")
 
 def test_state_file_migration():
     """Test automatic migration from old location"""

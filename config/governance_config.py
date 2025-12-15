@@ -476,7 +476,7 @@ class GovernanceConfig:
     # Knowledge Graph Constants
     # =================================================================
     MAX_KNOWLEDGE_STORES_PER_HOUR = 10  # Rate limit for knowledge storage
-    KNOWLEDGE_QUERY_DEFAULT_LIMIT = 100  # Default limit for knowledge queries
+    KNOWLEDGE_QUERY_DEFAULT_LIMIT = 20  # Default limit for knowledge queries (reduced from 100 to prevent context bloat)
     
     @staticmethod
     def make_decision(risk_score: float,
@@ -488,11 +488,12 @@ class GovernanceConfig:
         Decision logic (fully autonomous, no human-in-the-loop):
         1. If void_active: PAUSE (system unstable - agent should halt)
         2. If coherence < critical: PAUSE (incoherent output - agent should halt)
-        3. If attention_score < 0.35: PROCEED (no guidance needed)
-        4. If attention_score < 0.60: PROCEED (with optional guidance for medium attention)
+        3. If risk_score < 0.35: PROCEED (no guidance needed)
+        4. If risk_score < 0.60: PROCEED (with optional guidance for medium risk)
         5. Else: PAUSE (agent halts or escalates to another AI layer)
         
-        Note: risk_score parameter renamed to attention_score in API responses (backward compatible)
+        Note: risk_score measures governance/operational risk (likelihood of issues), not ethical risk.
+              attention_score is deprecated but kept for backward compatibility.
         
         Returns:
             {

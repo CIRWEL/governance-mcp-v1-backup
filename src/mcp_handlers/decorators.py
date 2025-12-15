@@ -8,7 +8,14 @@ from typing import Dict, Any, Callable, Optional
 from functools import wraps
 import asyncio
 import sys
+import time
 from mcp.types import TextContent
+
+# Import structured logging
+from src.logging_utils import get_logger
+from .utils import error_response  # Fixed: Move import to top (was inside exception handlers)
+
+logger = get_logger(__name__)
 
 # Global registry (populated by decorators)
 _TOOL_REGISTRY: Dict[str, Callable] = {}
@@ -25,8 +32,14 @@ def mcp_tool(
     """
     Decorator for MCP tool handlers with auto-registration and timeout protection.
     
+    Provides:
+    - Automatic timeout protection
+    - Performance timing/observability (warns if >80% of timeout)
+    - Error handling with recovery guidance
+    - Tool registration for discovery
+    
     Usage:
-        @mcp_tool("process_agent_update", timeout=30.0)
+        @mcp_tool("process_agent_update", timeout=60.0)
         async def handle_process_agent_update(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             ...
     
@@ -37,7 +50,11 @@ def mcp_tool(
         rate_limit_exempt: If True, skip rate limiting for this tool
     
     Returns:
-        Decorated handler function
+        Decorated handler function (wrapper with timeout protection)
+    
+    Note: Future improvement could split into composable decorators:
+        @mcp_tool("name") @with_timeout(60) @with_timing @with_error_handling
+    This would allow mixing/matching features, but current monolithic approach works well.
     """
     def decorator(func: Callable) -> Callable:
         # Determine tool name
@@ -46,11 +63,6 @@ def mcp_tool(
         # Get description from docstring if not provided
         tool_description = description or (func.__doc__ and func.__doc__.split('\n')[0].strip()) or ""
         
-        # Register tool
-        _TOOL_REGISTRY[tool_name] = func
-        _TOOL_TIMEOUTS[tool_name] = timeout
-        _TOOL_DESCRIPTIONS[tool_name] = tool_description
-        
         # Add metadata to function
         func._mcp_tool_name = tool_name
         func._mcp_timeout = timeout
@@ -58,18 +70,27 @@ def mcp_tool(
         
         @wraps(func)
         async def wrapper(arguments: Dict[str, Any]):
-            """Wrapper with automatic timeout protection"""
+            """Wrapper with automatic timeout protection and timing"""
+            start_time = time.time()
             try:
                 # Apply timeout automatically
                 result = await asyncio.wait_for(
                     func(arguments),
                     timeout=timeout
                 )
+                elapsed = time.time() - start_time
+                
+                # Observability: Warn if tool took >80% of timeout
+                if elapsed > timeout * 0.8:
+                    logger.warning(
+                        f"Tool '{tool_name}' took {elapsed:.2f}s ({elapsed/timeout*100:.1f}% of {timeout}s timeout). "
+                        f"Consider optimizing or increasing timeout."
+                    )
+                
                 return result
             except asyncio.TimeoutError:
-                from .utils import error_response
-                import sys
-                print(f"[UNITARES MCP] Tool '{tool_name}' timed out after {timeout}s", file=sys.stderr)
+                elapsed = time.time() - start_time
+                logger.warning(f"Tool '{tool_name}' timed out after {timeout}s (actual: {elapsed:.2f}s)")
                 return [error_response(
                     f"Tool '{tool_name}' timed out after {timeout} seconds.",
                     recovery={
@@ -79,12 +100,9 @@ def mcp_tool(
                     }
                 )]
             except Exception as e:
-                from .utils import error_response
-                import traceback
-                import sys
+                elapsed = time.time() - start_time
                 # Log internally but sanitize for client
-                print(f"[UNITARES MCP] Tool '{tool_name}' error: {e}", file=sys.stderr)
-                print(f"[UNITARES MCP] Full traceback:\n{traceback.format_exc()}", file=sys.stderr)
+                logger.error(f"Tool '{tool_name}' error after {elapsed:.2f}s: {e}", exc_info=True)
                 
                 return [error_response(
                     f"Error executing tool '{tool_name}': {str(e)}",
@@ -94,6 +112,12 @@ def mcp_tool(
                         "workflow": "1. Verify tool parameters 2. Check system health 3. Retry with simpler parameters"
                     }
                 )]
+        
+        # Fixed: Register wrapper (not func) to ensure timeout protection is always applied
+        # This prevents bypassing timeout protection when using registry directly
+        _TOOL_REGISTRY[tool_name] = wrapper
+        _TOOL_TIMEOUTS[tool_name] = timeout
+        _TOOL_DESCRIPTIONS[tool_name] = tool_description
         
         return wrapper
     return decorator

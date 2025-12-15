@@ -1,0 +1,17 @@
+services:
+  postgres-age:
+    image: apache/age:latest
+    container_name: postgres-age
+    environment:
+      POSTGRES_PASSWORD: test
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-age-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres-age-data:
+

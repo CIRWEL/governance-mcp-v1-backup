@@ -1,0 +1,63 @@
+#!/bin/bash
+# Pre-commit hook to prevent script proliferation
+# Warns when new scripts are added to scripts/ directory
+
+echo "🔍 Checking for script proliferation..."
+
+# Get list of staged files
+STAGED_SCRIPTS=$(git diff --cached --name-only --diff-filter=A | grep "^scripts/.*\.sh$" | grep -v "scripts/archive/" | grep -v "scripts/git-hooks/")
+
+if [ -n "$STAGED_SCRIPTS" ]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "⚠️  WARNING: New script(s) detected!"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "New scripts being added:"
+    echo "$STAGED_SCRIPTS" | while read -r file; do
+        echo "  • $file"
+    done
+    echo ""
+    echo "📋 SCRIPT PROLIFERATION POLICY:"
+    echo ""
+    echo "  ❌ DO NOT create new scripts for MCP functionality"
+    echo "  ✅ Instead, extend ./scripts/mcp with new subcommands"
+    echo ""
+    echo "  The unified MCP tool prevents:"
+    echo "    - Multiple overlapping scripts"
+    echo "    - Confusion about which script to use"
+    echo "    - Maintenance burden"
+    echo ""
+    echo "If you're adding MCP functionality:"
+    echo "  1. Open scripts/mcp"
+    echo "  2. Add a new case statement"
+    echo "  3. Use the existing embedded Python pattern"
+    echo ""
+    echo "If this is a legitimate new script (non-MCP):"
+    echo "  - Document why it can't be part of scripts/mcp"
+    echo "  - Add clear comments explaining its purpose"
+    echo "  - Update scripts/README.md"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Ask for confirmation
+    read -p "Continue with commit anyway? [y/N] " -n 1 -r
+    echo ""
+
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "❌ Commit aborted."
+        echo ""
+        echo "Next steps:"
+        echo "  1. Unstage the new script: git reset HEAD <file>"
+        echo "  2. Either:"
+        echo "     - Add functionality to scripts/mcp"
+        echo "     - Document why this script is necessary"
+        exit 1
+    fi
+
+    echo "✅ Proceeding with commit (user confirmed)"
+fi
+
+echo "✅ No script proliferation detected"
+exit 0
