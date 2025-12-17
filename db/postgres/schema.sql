@@ -24,18 +24,54 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- Trigram similarity for FTS
 CREATE SCHEMA IF NOT EXISTS core;
 
 -- -----------------------------------------------------------------------------
--- Identities (migrated from agent_metadata)
+-- Agents (core agent identity - matches ticket requirements)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS core.agents (
+    id                  TEXT PRIMARY KEY,
+    api_key             TEXT NOT NULL,
+    status              TEXT DEFAULT 'active'
+                        CHECK (status IN ('active', 'paused', 'archived')),
+    purpose             TEXT,
+    notes               TEXT,
+    tags                TEXT[],
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ DEFAULT NOW(),
+    archived_at         TIMESTAMPTZ,
+    parent_agent_id     TEXT REFERENCES core.agents(id),
+    spawn_reason        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_agents_status ON core.agents(status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_agents_parent ON core.agents(parent_agent_id) WHERE parent_agent_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agents_created_at ON core.agents(created_at DESC);
+
+-- Helper function for updated_at triggers (must be defined before triggers)
+CREATE OR REPLACE FUNCTION core.update_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to update updated_at
+CREATE TRIGGER trg_agents_updated_at
+    BEFORE UPDATE ON core.agents
+    FOR EACH ROW EXECUTE FUNCTION core.update_timestamp();
+
+-- -----------------------------------------------------------------------------
+-- Identities (migrated from agent_metadata) - kept for backward compatibility
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS core.identities (
     identity_id         BIGSERIAL PRIMARY KEY,
-    agent_id            TEXT NOT NULL UNIQUE,
+    agent_id            TEXT NOT NULL UNIQUE REFERENCES core.agents(id) ON DELETE CASCADE,
     api_key_hash        TEXT NOT NULL,                    -- bcrypt hash, never raw
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     disabled_at         TIMESTAMPTZ NULL,
 
     -- Lineage (shortcut; full lineage in AGE graph)
-    parent_agent_id     TEXT NULL,
+    parent_agent_id     TEXT NULL REFERENCES core.agents(id),
     spawn_reason        TEXT NULL,
 
     -- Status
@@ -60,21 +96,25 @@ CREATE INDEX IF NOT EXISTS idx_identities_created_at ON core.identities(created_
 CREATE INDEX IF NOT EXISTS idx_identities_metadata_gin ON core.identities USING GIN (metadata jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS idx_identities_metadata_tsv ON core.identities USING GIN (metadata_tsv);
 
--- Trigger to update updated_at
-CREATE OR REPLACE FUNCTION core.update_timestamp()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
+-- Trigger to update updated_at (function already defined above)
 CREATE TRIGGER trg_identities_updated_at
     BEFORE UPDATE ON core.identities
     FOR EACH ROW EXECUTE FUNCTION core.update_timestamp();
 
 -- -----------------------------------------------------------------------------
--- Sessions (migrated from session_identities)
+-- Agent Sessions (session binding - matches ticket requirements)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS core.agent_sessions (
+    agent_id            TEXT PRIMARY KEY REFERENCES core.agents(id) ON DELETE CASCADE,
+    session_key         TEXT,
+    bound_at            TIMESTAMPTZ,
+    last_activity       TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_key ON core.agent_sessions(session_key);
+
+-- -----------------------------------------------------------------------------
+-- Sessions (migrated from session_identities) - kept for backward compatibility
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS core.sessions (
     session_id          TEXT PRIMARY KEY,
@@ -141,40 +181,26 @@ VALUES (TRUE, '{"lambda1_threshold": 0.3, "lambda2_threshold": 0.7}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 -- -----------------------------------------------------------------------------
--- Dialectic Sessions (migrated from dialectic_sessions SQLite table)
+-- Dialectic Sessions (matches ticket requirements)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS core.dialectic_sessions (
-    session_id            TEXT PRIMARY KEY,
-    paused_agent_id       TEXT NOT NULL,
-    reviewer_agent_id     TEXT NULL,
-    phase                 TEXT NOT NULL DEFAULT 'awaiting_thesis',
-    status                TEXT NOT NULL DEFAULT 'active',
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    -- Session context
-    reason                TEXT NULL,
-    discovery_id          TEXT NULL,
-    dispute_type          TEXT NULL,
-    session_type          TEXT NULL,              -- 'recovery', 'dispute', 'exploration'
-    topic                 TEXT NULL,              -- exploration topic
-    max_synthesis_rounds  INTEGER NULL,
-    synthesis_round       INTEGER NULL DEFAULT 0,
-
-    -- Paused agent state snapshot
-    paused_agent_state_json JSONB NULL,
-
-    -- Resolution (when resolved)
-    resolution_json       JSONB NULL,
+    id                  TEXT PRIMARY KEY,
+    session_type        TEXT,                           -- review, exploration
+    status              TEXT,                           -- pending, thesis, antithesis, negotiation, resolved, timeout
+    paused_agent_id     TEXT NOT NULL REFERENCES core.agents(id),
+    reviewer_agent_id   TEXT NULL REFERENCES core.agents(id),
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ DEFAULT NOW(),
+    resolved_at         TIMESTAMPTZ,
+    resolution          JSONB,
 
     -- Constraints
-    CHECK (status IN ('active', 'resolved', 'escalated', 'failed')),
-    CHECK (phase IN ('awaiting_thesis', 'thesis', 'antithesis', 'synthesis', 'resolved', 'escalated', 'failed'))
+    CHECK (status IN ('pending', 'thesis', 'antithesis', 'negotiation', 'resolved', 'timeout')),
+    CHECK (session_type IN ('review', 'exploration'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_dialectic_sessions_paused_agent ON core.dialectic_sessions(paused_agent_id);
 CREATE INDEX IF NOT EXISTS idx_dialectic_sessions_reviewer ON core.dialectic_sessions(reviewer_agent_id);
-CREATE INDEX IF NOT EXISTS idx_dialectic_sessions_phase ON core.dialectic_sessions(phase);
 CREATE INDEX IF NOT EXISTS idx_dialectic_sessions_status ON core.dialectic_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_dialectic_sessions_created_at ON core.dialectic_sessions(created_at DESC);
 
@@ -188,7 +214,7 @@ CREATE TRIGGER trg_dialectic_sessions_updated_at
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS core.dialectic_messages (
     message_id            BIGSERIAL PRIMARY KEY,
-    session_id            TEXT NOT NULL REFERENCES core.dialectic_sessions(session_id) ON DELETE CASCADE,
+    session_id            TEXT NOT NULL REFERENCES core.dialectic_sessions(id) ON DELETE CASCADE,
     agent_id              TEXT NOT NULL,
     message_type          TEXT NOT NULL,          -- 'thesis', 'antithesis', 'synthesis'
     timestamp             TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -212,6 +238,17 @@ CREATE INDEX IF NOT EXISTS idx_dialectic_messages_timestamp ON core.dialectic_me
 -- =============================================================================
 
 CREATE SCHEMA IF NOT EXISTS audit;
+
+-- -----------------------------------------------------------------------------
+-- Rate Limits (for knowledge graph rate limiting)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audit.rate_limits (
+    agent_id            TEXT NOT NULL,
+    timestamp           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (agent_id, timestamp)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_agent_timestamp ON audit.rate_limits(agent_id, timestamp);
 
 -- -----------------------------------------------------------------------------
 -- Audit Events (partitioned by month)
