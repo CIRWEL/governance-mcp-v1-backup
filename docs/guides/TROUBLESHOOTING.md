@@ -1,10 +1,122 @@
 # UNITARES Governance - Troubleshooting Guide
 
 **Created:** November 18, 2025
-**Version:** 1.0
-**Updated:** November 20, 2025 (Added "Too Many Cooks" incident)
+**Version:** 1.1
+**Updated:** December 23, 2025 (Added identity/session troubleshooting for agents)
 
 Common issues and solutions when using the governance system.
+
+---
+
+## 🔑 Identity & Session Issues (For AI Agents)
+
+### Issue: "Did I get a new identity or resume an existing one?"
+
+**Symptoms:**
+- Calling `onboard()` returns `is_new: false` when you expected a fresh start
+- Or returns `is_new: true` when you expected to resume
+- Confusion about which identity you're using
+
+**Solution: Use `force_new` parameter**
+
+```python
+# Force a NEW identity (ignore existing session binding)
+result = onboard(force_new=True)
+# Returns: is_new=true, force_new_applied=true
+
+# Resume existing identity (default behavior)
+result = onboard()
+# Returns: is_new=false if you have an existing binding
+```
+
+**When to use `force_new=true`:**
+- Starting a completely new project/task
+- You want a clean slate
+- Testing identity creation
+
+### Issue: "My identity changes between tool calls"
+
+**Symptoms:**
+- Different `agent_uuid` in each response
+- `agent_signature.bound: false`
+- Session continuity not working
+
+**Root Cause:** Your client doesn't maintain stable sessions (common with ChatGPT MCP integration, curl, REST APIs).
+
+**Solution: Echo `client_session_id` in all calls**
+
+```python
+# Step 1: Get your session ID from onboard() or identity()
+result = onboard()
+session_id = result["client_session_id"]  # e.g., "agent-5e728ecb..."
+
+# Step 2: Include it in ALL future tool calls
+process_agent_update(
+    client_session_id=session_id,  # ← CRITICAL
+    response_text="My work",
+    complexity=0.5
+)
+```
+
+**Verification:**
+```bash
+# Check if session binding works
+curl -X POST "http://localhost:8765/v1/tools/call" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "identity", "arguments": {"client_session_id": "agent-YOUR-ID"}}'
+```
+
+### Issue: "list_agents shows 361+ agents - too noisy!"
+
+**Solution: Use filtering parameters**
+
+```python
+# Default: Only shows agents active in last 7 days, limit 20
+list_agents()
+
+# See all agents (no recency filter)
+list_agents(recent_days=0)
+
+# Only named agents
+list_agents(named_only=True)
+
+# More results
+list_agents(limit=50, recent_days=30)
+```
+
+### Issue: "debug_request_context shows wrong identity"
+
+**Symptoms:**
+- `debug_request_context()` shows a different UUID than expected
+- Session binding seems broken
+
+**Debugging steps:**
+
+1. **Check what session key is being used:**
+   ```python
+   result = debug_request_context()
+   print(result["session_key"])  # What the server sees
+   ```
+
+2. **Verify your client_session_id format:**
+   - Should be: `agent-{uuid_prefix}` (e.g., `agent-5e728ecb1234`)
+   - NOT: raw IP:PORT or random strings
+
+3. **Try explicit binding:**
+   ```python
+   # Force bind with explicit session ID
+   identity(client_session_id="agent-YOUR-UUID-PREFIX")
+   ```
+
+### Quick Reference: Identity Tools
+
+| I want to... | Use this |
+|--------------|----------|
+| Start fresh (new identity) | `onboard(force_new=True)` |
+| Resume existing identity | `onboard()` or `identity()` |
+| Check my current identity | `identity()` |
+| Name myself | `identity(name="my_name")` |
+| Debug session issues | `debug_request_context()` |
 
 ---
 
@@ -23,6 +135,28 @@ Identity binding tries to preserve session-to-agent bindings across **SSE reconn
   - **Default**: `0` (disabled)
   - **What it does**: in **async** handlers only, the server may attempt a last-resort lookup in the DB to auto-resume the most recent identity **only if exactly one** recently-active identity exists.
   - **Why disabled by default**: it can be surprising in multi-user/shared setups. Enable only if you fully understand the implications.
+
+## 🗄️ Database Consistency (PostgreSQL)
+
+### Issue: "identities exist without agents"
+
+**Symptoms:**
+- Postgres has identities but missing matching agent rows
+- Admin tools show minor count mismatches (rare)
+
+**Cause:** Legacy identity inserts or partial migrations.
+
+**Fix:** Use the repair script (dry-run by default).
+
+```bash
+# Dry-run
+DB_BACKEND=postgres DB_POSTGRES_URL=postgresql://... \
+python3 scripts/repair_identity_agent_links.py
+
+# Apply
+DB_BACKEND=postgres DB_POSTGRES_URL=postgresql://... \
+python3 scripts/repair_identity_agent_links.py --apply
+```
 
 ## 🚨 Issue 0: "Too Many Cooks" - Lock Contention (CRITICAL)
 

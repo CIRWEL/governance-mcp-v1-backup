@@ -2,9 +2,9 @@
 
 **For AI Agents Using This System**
 
-**Last Updated:** 2025-12-09 (Added tiered tool visibility system)
+**Last Updated:** 2025-12-23 (Updated for onboard(), force_new, session continuity)
 
-> **New to the system?** Start with **[START_HERE.md](../../START_HERE.md)** first (3 steps, 5 minutes), then come back here for deeper understanding.
+> **New to the system?** Start with **[START_HERE.md](../guides/START_HERE.md)** first (3 steps, 5 minutes), then come back here for deeper understanding.
 
 ---
 
@@ -18,23 +18,35 @@ This is **not** a restrictive system. It's a feedback mechanism designed to help
 
 ## 🚀 Quick Start (use after **START_HERE.md**)
 
-- Minimal MCP flow (Cursor / Claude Desktop): check metrics if you want context, then log work. First call returns your `api_key`; reuse it next calls.
-```python
-# Optional: see current state
-call_tool("get_governance_metrics", {"agent_id": "your_id"})
+Most agents use the **MCP protocol for direct access** (Cursor, Claude Desktop, etc.).  
+**Claude Code CLI has no MCP** — use the CLI bridge script instead.
 
-# Log work (first call will hand back api_key)
-result = call_tool("process_agent_update", {
-    "agent_id": "your_id",
-    "response_text": "What you just accomplished",
-    "complexity": 0.7
-})
-api_key = result.get("api_key")
+### Recommended: Use `onboard()` (Dec 2025+)
+
+```python
+# Step 1: Call onboard() FIRST - it gives you everything you need
+result = onboard()
+# Returns: agent_uuid, client_session_id, next_calls templates
+
+# ⚠️ CRITICAL: Save and reuse client_session_id in ALL future calls
+session_id = result["client_session_id"]  # e.g., "agent-5e728ecb..."
+
+# Step 2: Log work with session ID
+process_agent_update(
+    client_session_id=session_id,  # ← Include this!
+    response_text="What you just accomplished",
+    complexity=0.7
+)
 ```
 
-**💡 Tool Discovery Tip:** Start with `list_tools(essential_only=True)` to see only ~10 essential tools and reduce cognitive load. All 53 tools remain available - tiers just help you focus.
+**Session Continuity:**
+- **ChatGPT/REST clients:** MUST include `client_session_id` in every call
+- **Cursor/Claude Desktop:** Sessions are stable, but including it is still recommended
+- **Want a fresh identity?** Use `onboard(force_new=True)`
 
-- No MCP? Use the CLI bridge:
+**💡 Tool Discovery Tip:** Start with `list_tools(essential_only=True)` to see only ~10 essential tools and reduce cognitive load. All 44+ tools remain available - tiers just help you focus.
+
+### No MCP? Use the CLI bridge:
 ```bash
 cd /path/to/governance-mcp-v1
 python3 -c "
@@ -320,17 +332,18 @@ list_tools(essential_only=True)
 list_tools(tier="essential")
 ```
 
-**Essential tools include:**
+**Essential tools include (Dec 2025):**
+- `onboard` - 🚀 Portal tool - call FIRST, returns identity + templates
+- `identity` - Check/set your identity, name yourself
 - `process_agent_update` - Main tool for logging work
+- `get_governance_metrics` - Check your current state
+- `list_tools` - Discover available tools
+- `describe_tool` - Get full details for a specific tool
+- `list_agents` - See all agents in system
 - `store_knowledge_graph` - Save discoveries
 - `search_knowledge_graph` - Find related knowledge
-- `get_agent_api_key` - Retrieve your API key
-- `get_governance_metrics` - Check your current state
-- `bind_identity` - Auto-retrieve API key from session
-- `list_agents` - See all agents in system
-- `get_dialectic_session` - Check dialectic status
-- `get_discovery_details` - View knowledge graph entries
-- `update_calibration_ground_truth` - Improve calibration
+- `leave_note` - Quick notes
+- `health_check` - System status
 
 ### 📚 Common Tools (Tier 2)
 

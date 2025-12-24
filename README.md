@@ -8,12 +8,16 @@ Production-ready system for monitoring AI agent behavior using EISV (Energy, Int
 
 ## Quick Start
 
-**New here?** → **[START_HERE.md](START_HERE.md)**
+**New here?** → **[START_HERE.md](docs/guides/START_HERE.md)**
+
+**Use Cases:**
+- **Multi-agent coordination:** Coordinate 10+ AI agents as a thermodynamic ensemble with shared knowledge graph and peer review
+- **Solo agent:** Get thermodynamic governance feedback on individual workflows
 
 **3 steps:**
-1. Get API key via MCP or CLI bridge
-2. Log your work
-3. Receive governance feedback
+1. Call `onboard()` or any tool (identity auto-creates)
+2. Log your work with `process_agent_update`
+3. Receive governance feedback (EISV metrics, coherence, PROCEED/PAUSE)
 
 ---
 
@@ -37,6 +41,8 @@ If you want to prototype graph-native queries (Cypher) for the **knowledge graph
 - `docs/guides/AGE_PROTOTYPE.md`
 
 ### MCP Configuration
+
+Most agents use the **MCP protocol for direct access** (Cursor, Claude Desktop, etc.).
 
 **Cursor (SSE; recommended)** - Add to MCP config:
 ```json
@@ -81,6 +87,8 @@ curl -s \
   -d '{"name":"list_tools","arguments":{"essential_only":true}}' \
   http://127.0.0.1:8765/v1/tools/call | jq
 ```
+
+**Claude Code CLI (exception): no MCP.** Use the CLI bridge script instead (see `docs/guides/CLAUDE_CODE_CLI_GUIDE.md`).
 
 ### CLI (without MCP)
 
@@ -151,7 +159,7 @@ governance-mcp-v1/
 
 | Doc | Audience |
 |-----|----------|
-| [START_HERE.md](START_HERE.md) | Everyone - entry point |
+| [START_HERE.md](docs/guides/START_HERE.md) | Everyone - entry point |
 | [AI_ASSISTANT_GUIDE.md](docs/reference/AI_ASSISTANT_GUIDE.md) | AI agents |
 | [ONBOARDING.md](docs/guides/ONBOARDING.md) | Humans - detailed |
 | [TROUBLESHOOTING.md](docs/guides/TROUBLESHOOTING.md) | Problem solving |
@@ -179,8 +187,19 @@ CI/CD runs on push via GitHub Actions (Python 3.9-3.11).
 - **Local-first** - All data stored locally, no cloud dependencies
 - **Multi-transport** - stdio (single client) and SSE (multi-client)
 - **Autonomous governance** - Peer review via dialectic protocol
-- **47 MCP tools** - Organized in handler registry pattern
+- **44+ MCP tools** - Auto-registered from `tool_schemas.py`
 - **Circuit breakers** - Automatic pause on high risk/low coherence
+
+---
+
+## Developer Guide
+
+**Adding/modifying tools?** → **[docs/dev/TOOL_REGISTRATION.md](docs/dev/TOOL_REGISTRATION.md)**
+
+Key points:
+- Tools auto-register from `tool_schemas.py` + `mcp_handlers/*.py`
+- No manual SSE decorators needed (Dec 2025 refactor)
+- Session injection list: `TOOLS_NEEDING_SESSION_INJECTION` in `mcp_server_sse.py`
 
 ---
 
@@ -192,4 +211,4 @@ Research prototype - contact for licensing.
 
 **Status: Production Ready v2.3.0**
 
-Last Updated: 2025-12-09
+Last Updated: 2025-12-23

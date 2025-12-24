@@ -261,7 +261,7 @@ See [SSE_SERVER.md](SSE_SERVER.md) for full SSE documentation.
 
 ## Next Steps
 
-1. **Read the main guide**: [START_HERE.md](../START_HERE.md)
+1. **Read the main guide**: [START_HERE.md](START_HERE.md)
 2. **Understand the system**: [AI_ASSISTANT_GUIDE.md](reference/AI_ASSISTANT_GUIDE.md)
 3. **Explore tools**: Check `src/mcp_handlers/` for all available functionality
 4. **View metrics**: Your session data is in `data/governance_history_<agent_id>.csv`
