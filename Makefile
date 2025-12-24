@@ -1,5 +1,5 @@
 # Makefile for governance-mcp-v1 automation
-.PHONY: help docs changelog install-hooks test clean
+.PHONY: help docs changelog install-hooks test test-quick clean
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -41,6 +41,10 @@ uninstall-hooks: ## Uninstall git pre-commit hooks
 test: ## Run pytest with coverage
 	@echo "🧪 Running tests with coverage..."
 	@pytest
+
+test-quick: ## Run pytest without coverage (override pytest.ini addopts)
+	@echo "🧪 Running tests without coverage..."
+	@pytest -o addopts=
 
 test-unit: ## Run unit tests only (no coverage)
 	@echo "🧪 Running unit tests..."

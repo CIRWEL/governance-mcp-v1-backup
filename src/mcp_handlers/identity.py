@@ -4,7 +4,7 @@ Identity management tool handlers.
 Provides session binding for identity continuity.
 """
 
-from typing import Dict, Any, Sequence, Optional
+from typing import Dict, Any, Sequence, Optional, Tuple
 from mcp.types import TextContent
 import json
 import asyncio
@@ -17,7 +17,6 @@ import re
 from .utils import success_response, error_response, require_agent_id
 from .decorators import mcp_tool
 from src.logging_utils import get_logger
-import sqlite3
 from pathlib import Path
 import hashlib
 
@@ -33,155 +32,22 @@ MIN_LENGTH = 8
 
 def _validate_agent_id(agent_id: str) -> dict:
     """
-    Validate agent_id naming with soft warnings (not blockers).
+    DISABLED: No more naming warnings. Use whatever you want.
     
-    Encourages descriptive names that improve knowledge graph legibility.
+    Previously encouraged descriptive names, but that was annoying.
+    Now it's a no-op - use short IDs, generic IDs, whatever. We don't care.
     
     Returns:
-        dict with "valid" (always True) and "warnings" list
+        dict with "valid" (always True) and empty "warnings" list
     """
-    warnings = []
-    
-    # Check for generic names
-    base_name = agent_id.lower().split("_")[0].split("-")[0]
-    if base_name in GENERIC_NAMES:
-        warnings.append(f"'{agent_id}' is generic. Consider: {{model}}_{{purpose}}_{{date}}")
-    
-    # Check minimum length
-    if len(agent_id) < MIN_LENGTH:
-        warnings.append(f"Short ID. Descriptive names improve knowledge graph legibility.")
-    
-    # Check for date suffix (recommended pattern)
-    if not re.search(r'\d{8}$', agent_id):
-        warnings.append("Consider adding date suffix (YYYYMMDD) for temporal context.")
-    
-    return {"valid": True, "warnings": warnings}
+    # No-op: No warnings, no suggestions, no herding cats
+    return {"valid": True, "warnings": []}
 
 # New database abstraction (for PostgreSQL migration)
 from src.db import get_db
 
-# =============================================================================
-# SQLite Persistence for Session Identities
-# =============================================================================
-
-def _get_identity_db_path() -> Path:
-    """Get path to governance.db for identity persistence."""
-    try:
-        from .shared import get_mcp_server
-        mcp = get_mcp_server()
-        return Path(mcp.project_root) / "data" / "governance.db"
-    except Exception:
-        return Path(__file__).parent.parent.parent / "data" / "governance.db"
-
-
-def _init_identity_schema(conn: sqlite3.Connection) -> None:
-    """Initialize session_identities table if not exists."""
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS session_identities (
-            session_key TEXT PRIMARY KEY,
-            agent_id TEXT NOT NULL,
-            api_key TEXT,
-            bound_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            bind_count INTEGER DEFAULT 1
-        );
-        CREATE INDEX IF NOT EXISTS idx_session_identities_agent
-            ON session_identities(agent_id);
-    """)
-
-
-def _persist_identity(session_key: str, agent_id: str, api_key: str, bound_at: str, bind_count: int) -> bool:
-    """Persist identity binding to SQLite. Returns True on success."""
-    conn = None
-    try:
-        db_path = _get_identity_db_path()
-        conn = sqlite3.connect(str(db_path), timeout=5.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        _init_identity_schema(conn)
-
-        now = datetime.now().isoformat()
-        conn.execute("""
-            INSERT OR REPLACE INTO session_identities
-            (session_key, agent_id, api_key, bound_at, updated_at, bind_count)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (session_key, agent_id, api_key, bound_at, now, bind_count))
-        conn.commit()
-        logger.debug(f"Persisted identity binding: {session_key} -> {agent_id}")
-        return True
-    except Exception as e:
-        logger.warning(f"Could not persist identity binding: {e}")
-        return False
-    finally:
-        if conn:
-            conn.close()
-
-
-def _load_identity(session_key: str) -> Optional[Dict[str, Any]]:
-    """Load identity binding from SQLite. Returns None if not found."""
-    conn = None
-    try:
-        db_path = _get_identity_db_path()
-        if not db_path.exists():
-            return None
-
-        conn = sqlite3.connect(str(db_path), timeout=5.0)
-        conn.row_factory = sqlite3.Row
-        _init_identity_schema(conn)
-
-        row = conn.execute(
-            "SELECT * FROM session_identities WHERE session_key = ?",
-            (session_key,)
-        ).fetchone()
-
-        if row:
-            return {
-                "bound_agent_id": row["agent_id"],
-                "api_key": row["api_key"],
-                "bound_at": row["bound_at"],
-                "bind_count": row["bind_count"] or 1,
-            }
-        return None
-    except Exception as e:
-        logger.warning(f"Could not load identity binding: {e}")
-        return None
-    finally:
-        if conn:
-            conn.close()
-
-
-def _cleanup_old_identities(max_age_days: int = 7) -> int:
-    """Remove identity bindings older than max_age_days. Returns count removed."""
-    conn = None
-    try:
-        from datetime import timedelta
-        db_path = _get_identity_db_path()
-        if not db_path.exists():
-            return 0
-
-        conn = sqlite3.connect(str(db_path), timeout=5.0)
-        _init_identity_schema(conn)
-
-        cutoff = (datetime.now() - timedelta(days=max_age_days)).isoformat()
-        cursor = conn.execute(
-            "DELETE FROM session_identities WHERE updated_at < ?",
-            (cutoff,)
-        )
-        count = cursor.rowcount
-        conn.commit()
-
-        if count > 0:
-            logger.info(f"Cleaned up {count} expired identity bindings")
-        return count
-    except Exception as e:
-        logger.warning(f"Could not cleanup old identities: {e}")
-        return 0
-    finally:
-        if conn:
-            conn.close()
-
-
 # ==============================================================================
-# NEW DATABASE ABSTRACTION (PostgreSQL Migration - Dual Write)
+# DATABASE ABSTRACTION (PostgreSQL)
 # ==============================================================================
 
 _db_ready_cache: Dict[int, bool] = {}
@@ -219,7 +85,19 @@ async def _persist_session_new(
         await _ensure_db_ready()
         db = get_db()
 
-        # First ensure identity exists
+        # IMPORTANT (Postgres FK): core.identities.agent_id REFERENCES core.agents(id)
+        # Ensure agent exists before inserting identity to avoid FK violations.
+        if hasattr(db, "upsert_agent"):
+            try:
+                await db.upsert_agent(
+                    agent_id=agent_id,
+                    api_key=api_key or "",
+                    status="active",
+                )
+            except Exception as e:
+                logger.debug(f"Could not upsert agent before upsert_identity (continuing): {e}")
+
+        # Then ensure identity exists
         api_key_hash = hashlib.sha256(api_key.encode()).hexdigest() if api_key else ""
         identity = await db.get_identity(agent_id)
 
@@ -293,6 +171,30 @@ mcp_server = get_mcp_server()
 
 _session_identities: Dict[str, Dict[str, Any]] = {}
 
+# O(1) lookup index: uuid_prefix (12 chars) -> full UUID
+# Populated when identity() registers a stable session binding
+# Enables fast lookup without scanning agent_metadata
+_uuid_prefix_index: Dict[str, str] = {}
+
+
+def _register_uuid_prefix(uuid_prefix: str, full_uuid: str) -> None:
+    """Register a UUID prefix -> full UUID mapping for O(1) lookup.
+
+    Handles collision detection: if prefix already exists for a different UUID,
+    logs a warning (collisions are rare with 12 chars but possible).
+    """
+    existing = _uuid_prefix_index.get(uuid_prefix)
+    if existing and existing != full_uuid:
+        logger.warning(f"[UUID_PREFIX_COLLISION] Prefix {uuid_prefix} already maps to {existing[:8]}..., not updating to {full_uuid[:8]}...")
+        return
+    _uuid_prefix_index[uuid_prefix] = full_uuid
+    logger.debug(f"[UUID_PREFIX] Registered {uuid_prefix} -> {full_uuid[:8]}...")
+
+
+def _lookup_uuid_by_prefix(uuid_prefix: str) -> Optional[str]:
+    """O(1) lookup of full UUID by prefix. Returns None if not found."""
+    return _uuid_prefix_index.get(uuid_prefix)
+
 
 def _get_session_key(arguments: Optional[Dict[str, Any]] = None, session_id: Optional[str] = None) -> str:
     """
@@ -301,9 +203,11 @@ def _get_session_key(arguments: Optional[Dict[str, Any]] = None, session_id: Opt
     Precedence:
     1) explicit session_id argument
     2) arguments["client_session_id"] (injected by SSE wrappers)
-    3) fallback to a stable per-process key (stdio)
+    3) contextvars session_key (set at dispatch entry - NEW!)
+    4) fallback to a stable per-process key (stdio/single-user)
 
-    Note: For stdio, a per-process key is sufficient because there's only one client.
+    Note: For stdio/single-user (Claude Desktop), a per-process key is stable and sufficient.
+    The fallback is intentionally stable (no timestamp) to enable binding persistence across calls.
     """
     if session_id:
         logger.info(f"_get_session_key: using explicit session_id={session_id}")
@@ -311,19 +215,45 @@ def _get_session_key(arguments: Optional[Dict[str, Any]] = None, session_id: Opt
     if arguments and arguments.get("client_session_id"):
         logger.info(f"_get_session_key: using client_session_id={arguments['client_session_id']}")
         return str(arguments["client_session_id"])
-    import time
-    fallback = f"stdio:{os.getpid()}:{int(time.time())}"
+
+    # NEW: Check contextvars for session key (set at SSE dispatch entry)
+    # This enables success_response() and status() to find binding without arguments
+    from .context import get_context_session_key
+    context_key = get_context_session_key()
+    if context_key:
+        logger.info(f"_get_session_key: using context session_key={context_key}")
+        return str(context_key)
+
+    # STABLE FALLBACK: Use only PID (no timestamp) for single-user scenarios
+    # This ensures binding persists across tool calls in Claude Desktop
+    fallback = f"stdio:{os.getpid()}"
     logger.info(f"_get_session_key: using fallback={fallback}")
     return fallback
+
+
+def _extract_ip_from_session_key(session_key: str) -> Optional[str]:
+    """Extract IP address from session key (format: IP:PORT:HASH or IP:PORT)."""
+    if not session_key:
+        return None
+    parts = session_key.split(":")
+    if len(parts) >= 2:
+        # Validate it looks like an IP
+        ip_part = parts[0]
+        if ip_part.count(".") == 3 or ip_part == "localhost":
+            return ip_part
+    return None
 
 
 def _find_recent_binding_via_metadata(current_session_key: str) -> Optional[Dict[str, Any]]:
     """
     Find a recent identity binding by checking agent metadata for active_session_key.
-    
+
     This handles the case where SSE connections create new session IDs for each request,
     causing bindings to become orphaned on dead sessions.
-    
+
+    For localhost/127.0.0.1, also matches by IP address to support curl/REST clients
+    where each request gets a different TCP port.
+
     Returns:
         Identity record if found, None otherwise
     """
@@ -333,41 +263,106 @@ def _find_recent_binding_via_metadata(current_session_key: str) -> Optional[Dict
         # You can extend for continuity across restarts, but longer windows increase the
         # chance of resurrecting stale bindings in shared environments.
         lookback_seconds = int(os.getenv("GOVERNANCE_IDENTITY_METADATA_LOOKBACK_SECONDS", "300"))
-        
+
+        # Extract IP from current session key for fallback matching
+        current_ip = _extract_ip_from_session_key(current_session_key)
+        is_localhost = current_ip in ("127.0.0.1", "localhost", "::1")
+
         # Check all agent metadata for recent bindings
         now = datetime.now(timezone.utc)
         cutoff_time = now - timedelta(seconds=max(0, lookback_seconds))
-        
+
+        # First pass: exact match or IP-based match for localhost
+        best_match = None
+        best_match_time = None
+
         for agent_id, meta in mcp_server.agent_metadata.items():
+            # Only consider UUID-style agents
+            is_uuid = len(agent_id) == 36 and agent_id.count('-') == 4
+            if not is_uuid:
+                continue
+
             # Check if this agent has a recent active_session_key
             if not hasattr(meta, 'active_session_key') or not meta.active_session_key:
                 continue
-                
+
             # Skip if it's the current session (already checked)
             if meta.active_session_key == current_session_key:
                 continue
-                
+
+            # Check IP-based matching
+            meta_ip = _extract_ip_from_session_key(meta.active_session_key)
+
+            # DISABLED for localhost: IP-based matching causes identity confusion
+            # when switching between multiple tools (Claude Code, Cursor, etc.).
+            # Each tool should get its own identity. Use X-Agent-Id header to resume.
+            if is_localhost:
+                continue  # Skip all IP-based matching for localhost
+
+            # For remote IPs: require exact IP match (one user per remote IP)
+            if meta_ip != current_ip:
+                continue
+
             # Check if binding is recent
+            bound_dt = None
             if hasattr(meta, 'session_bound_at') and meta.session_bound_at:
                 try:
                     bound_dt = datetime.fromisoformat(meta.session_bound_at)
-                    # Normalize naive timestamps to UTC for safe comparison
+                    # FIX: Naive timestamps are LOCAL time (from datetime.now()), not UTC
+                    # Convert to UTC-aware by treating as local timezone
                     if bound_dt.tzinfo is None:
-                        bound_dt = bound_dt.replace(tzinfo=timezone.utc)
-                    if bound_dt < cutoff_time:
-                        continue  # Too old
+                        # Assume naive timestamps are local time, make cutoff also local for comparison
+                        from datetime import timedelta
+                        cutoff_local = datetime.now() - timedelta(seconds=max(0, lookback_seconds))
+                        if bound_dt < cutoff_local:
+                            continue  # Too old
+                    else:
+                        # Timezone-aware timestamp - compare in UTC
+                        if bound_dt < cutoff_time:
+                            continue  # Too old
                 except Exception:
                     continue
-            
-            # Try to load the binding from the stored session key
-            stored_key = meta.active_session_key
-            persisted = _load_identity(stored_key)
-            if persisted and persisted.get("bound_agent_id") == agent_id:
-                logger.info(f"Found orphaned binding for {agent_id} on session {stored_key}, migrating to {current_session_key}")
-                return persisted
-                
+            else:
+                continue  # No timestamp, skip
+
+            # NOTE: Accept agents with either api_key OR agent_uuid (UUID replaces API key as auth)
+            has_auth = meta.api_key or hasattr(meta, 'agent_uuid')
+            if has_auth:
+                logger.debug(f"IP match candidate: {agent_id[:8]}... from {meta_ip}")
+                if best_match is None:
+                    best_match = {
+                        "bound_agent_id": agent_id,
+                        "api_key": meta.api_key,
+                        "bound_at": meta.session_bound_at,
+                        "bind_count": 1,
+                        "_meta": meta,
+                    }
+                    best_match_time = bound_dt
+                else:
+                    # Multiple matches for same remote IP - keep most recent
+                    # (Localhost is excluded above, so this only applies to remote IPs)
+                    if bound_dt and (best_match_time is None or bound_dt > best_match_time):
+                        best_match = {
+                            "bound_agent_id": agent_id,
+                            "api_key": meta.api_key,
+                            "bound_at": meta.session_bound_at,
+                            "bind_count": 1,
+                            "_meta": meta,
+                        }
+                        best_match_time = bound_dt
+
+        if best_match:
+            agent_id = best_match["bound_agent_id"]
+            logger.info(f"Found remote IP binding {agent_id[:8]}... via {current_ip}, migrating to {current_session_key}")
+            # Update the metadata to point to current session
+            meta = best_match.pop("_meta", None)
+            if meta:
+                meta.active_session_key = current_session_key
+                _try_schedule_metadata_save()
+            return best_match
+
     except Exception as e:
-        logger.debug(f"Error finding binding via metadata: {e}")
+        logger.warning(f"Error finding binding via metadata: {e}", exc_info=True)
 
     return None
 
@@ -444,40 +439,140 @@ async def _get_identity_record_async(session_id: Optional[str] = None, arguments
 
     PERSISTENCE: Now loads from SQLite if not in memory cache.
     This enables identity binding to persist across server restarts and HTTP requests.
-    
+
     SSE RECONNECTION FIX: If no binding found for current session, attempts to find
     a recent binding via agent metadata (handles ephemeral SSE connections).
-    
+
     CONTINUITY ENHANCEMENT: Tries PostgreSQL as last resort after server restart.
     """
     key = _get_session_key(arguments=arguments, session_id=session_id)
 
+    # DEBUG: Log resolved session key for tracing session continuity issues
+    logger.info(f"[SESSION_DEBUG] _get_identity_record_async: session_key={key}, arguments.client_session_id={arguments.get('client_session_id') if arguments else None}")
+
     # Check in-memory cache first
-    if key not in _session_identities:
-        # Try to load from SQLite persistence
-        persisted = _load_identity(key)
-        if persisted:
-            _session_identities[key] = persisted
-            logger.debug(f"Loaded persisted identity for session {key}: {persisted.get('bound_agent_id')}")
-        else:
-            # SSE RECONNECTION FIX: Try to find binding via agent metadata
-            # This handles the case where each SSE request gets a new session ID
-            metadata_binding = _find_recent_binding_via_metadata(key)
-            if metadata_binding:
-                # Migrate binding to current session
-                _session_identities[key] = metadata_binding.copy()
-                # Update the agent metadata to point to current session
-                agent_id = metadata_binding.get("bound_agent_id")
-                if agent_id and agent_id in mcp_server.agent_metadata:
-                    meta = mcp_server.agent_metadata[agent_id]
-                    meta.active_session_key = key
-                    # Trigger save (loop-safe: may be called from sync contexts)
-                    _try_schedule_metadata_save()
-                logger.info(f"Migrated binding for {agent_id} from orphaned session to {key}")
+    if key in _session_identities:
+        cached = _session_identities[key]
+        cached_bound = cached.get("bound_agent_id")
+        logger.info(f"[SESSION_DEBUG] _get_identity_record_async: CACHE HIT for {key}, bound_agent_id={cached_bound[:8] + '...' if cached_bound else 'None'}")
+        return cached
+
+    # CACHE MISS: Try to find or create binding
+    logger.info(f"[SESSION_DEBUG] _get_identity_record_async: CACHE MISS for {key}")
+
+    # SPECIAL CASE: agent-{uuid12} format session IDs
+    # These are stable session IDs we return from identity() for session continuity.
+    # Extract the UUID prefix and look up the agent directly.
+    if key.startswith("agent-"):
+        uuid_prefix = key[6:]  # Remove "agent-" prefix to get the 12-char UUID prefix
+        logger.info(f"[SESSION_DEBUG] agent- prefix detected, uuid_prefix={uuid_prefix}")
+
+        # DEBUG: Log the current state of _uuid_prefix_index
+        index_value = _uuid_prefix_index.get(uuid_prefix)
+        logger.info(f"[SESSION_DEBUG] _uuid_prefix_index[{uuid_prefix}] = {index_value[:8] + '...' if index_value else 'NOT FOUND'}")
+
+        # O(1) LOOKUP: Check the prefix index first (fast path)
+        full_uuid = _lookup_uuid_by_prefix(uuid_prefix)
+        if full_uuid:
+            logger.info(f"[SESSION_DEBUG] O(1) index hit: {uuid_prefix} -> {full_uuid}")
+            meta = mcp_server.agent_metadata.get(full_uuid)
+            if meta:
+                logger.info(f"[SESSION_DEBUG] Metadata found for {full_uuid[:8]}..., returning binding")
+                _session_identities[key] = {
+                    "bound_agent_id": full_uuid,
+                    "api_key": getattr(meta, 'api_key', None),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "bind_count": _session_identities.get(key, {}).get("bind_count", 0),
+                }
+                return _session_identities[key]
             else:
-                # CONTINUITY ENHANCEMENT: Try PostgreSQL as last resort
-                # Useful after server restart when metadata is cleared
-                # Now we can use the async version since we're in an async context
+                logger.warning(f"[SESSION_DEBUG] UUID {full_uuid} in index but NOT in agent_metadata!")
+
+        # FALLBACK: Scan agent metadata (for agents created before index existed)
+        for agent_uuid, meta in mcp_server.agent_metadata.items():
+            if agent_uuid.startswith(uuid_prefix):
+                logger.info(f"[SESSION_CONTINUITY] Scan found agent {agent_uuid}, registering in index")
+                # Register in index for future O(1) lookups
+                _register_uuid_prefix(uuid_prefix, agent_uuid)
+                _session_identities[key] = {
+                    "bound_agent_id": agent_uuid,
+                    "api_key": getattr(meta, 'api_key', None),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "bind_count": _session_identities.get(key, {}).get("bind_count", 0),
+                }
+                return _session_identities[key]
+
+        # If no match found, this is an unknown session ID - don't auto-create
+        logger.warning(f"[SESSION_CONTINUITY] No agent found for session key {key}")
+        # Return empty binding but DON'T create new identity
+        # The caller should handle this as "session not found"
+        return {
+            "bound_agent_id": None,
+            "api_key": None,
+            "bound_at": None,
+            "bind_count": 0,
+            "_session_key_type": "agent_prefix_not_found",
+        }
+
+    # PRIMARY: Try PostgreSQL session lookup
+    persisted = await _load_session_new(key)
+    if persisted:
+        _session_identities[key] = persisted
+        logger.debug(f"Loaded identity from PostgreSQL for session {key}: {persisted.get('bound_agent_id')}")
+    else:
+        # FALLBACK 1: Try to find binding via agent metadata
+        # This handles the case where each SSE request gets a new session ID
+        metadata_binding = _find_recent_binding_via_metadata(key)
+        if metadata_binding:
+            # Migrate binding to current session
+            _session_identities[key] = metadata_binding.copy()
+            # Update the agent metadata to point to current session
+            agent_id = metadata_binding.get("bound_agent_id")
+            if agent_id and agent_id in mcp_server.agent_metadata:
+                meta = mcp_server.agent_metadata[agent_id]
+                meta.active_session_key = key
+                # Trigger save (loop-safe: may be called from sync contexts)
+                _try_schedule_metadata_save()
+            logger.info(f"Migrated binding for {agent_id} from orphaned session to {key}")
+        else:
+            # FALLBACK 1b: If _find_recent_binding_via_metadata didn't find it (maybe session key format changed),
+            # check for any UUID with recent activity and stdio session key
+            if key.startswith("stdio:"):
+                from datetime import timedelta
+                lookback = timedelta(seconds=600)  # 10 minutes
+                cutoff = datetime.now(timezone.utc) - lookback
+
+                for agent_id, meta in mcp_server.agent_metadata.items():
+                    is_uuid = len(agent_id) == 36 and agent_id.count('-') == 4
+                    if not is_uuid:
+                        continue
+
+                    # Check if this agent has a stdio session key and recent activity
+                    if (hasattr(meta, 'active_session_key') and
+                        meta.active_session_key and
+                        meta.active_session_key.startswith("stdio:") and
+                        hasattr(meta, 'session_bound_at') and
+                        meta.session_bound_at):
+                        try:
+                            bound_dt = datetime.fromisoformat(meta.session_bound_at)
+                            if bound_dt.tzinfo is None:
+                                bound_dt = bound_dt.replace(tzinfo=timezone.utc)
+                            if bound_dt >= cutoff:
+                                # Found a recent stdio binding - migrate it
+                                _session_identities[key] = {
+                                    "bound_agent_id": agent_id,
+                                    "api_key": getattr(meta, 'api_key', None),
+                                    "bound_at": meta.session_bound_at,
+                                    "bind_count": 1,
+                                }
+                                meta.active_session_key = key
+                                _try_schedule_metadata_save()
+                                logger.info(f"Migrated stdio binding for {agent_id} to {key}")
+                                break
+                        except Exception:
+                            continue
+            else:
+                # FALLBACK 2: Try recent identity from PostgreSQL (continuity after restart)
                 db_binding = await _find_recent_identity_from_db_async()
                 if db_binding:
                     _session_identities[key] = db_binding.copy()
@@ -495,50 +590,79 @@ async def _get_identity_record_async(session_id: Optional[str] = None, arguments
 def _get_identity_record(session_id: Optional[str] = None, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get or create the identity record for a session (synchronous version).
 
-    PERSISTENCE: Now loads from SQLite if not in memory cache.
-    This enables identity binding to persist across server restarts and HTTP requests.
-    
-    SSE RECONNECTION FIX: If no binding found for current session, attempts to find
-    a recent binding via agent metadata (handles ephemeral SSE connections).
-    
-    NOTE: This is the synchronous version. For async contexts, use _get_identity_record_async()
-    which can properly query PostgreSQL. This version will skip PostgreSQL lookup if called
-    from an async context (returns None for DB lookup).
+    NOTE: This is the synchronous version for utility functions. It only checks
+    in-memory cache and agent metadata. For full PostgreSQL support, use
+    _get_identity_record_async() which can query the database.
     """
     key = _get_session_key(arguments=arguments, session_id=session_id)
 
     # Check in-memory cache first
     if key not in _session_identities:
-        # Try to load from SQLite persistence
-        persisted = _load_identity(key)
-        if persisted:
-            _session_identities[key] = persisted
-            logger.debug(f"Loaded persisted identity for session {key}: {persisted.get('bound_agent_id')}")
+        # SPECIAL CASE: agent-{uuid12} format session IDs
+        # These are stable session IDs we return from identity() for session continuity.
+        if key.startswith("agent-"):
+            uuid_prefix = key[6:]  # Remove "agent-" prefix
+            logger.info(f"[SESSION_CONTINUITY_SYNC] Looking up agent with UUID prefix: {uuid_prefix}")
+
+            # O(1) LOOKUP: Check the prefix index first (fast path)
+            full_uuid = _lookup_uuid_by_prefix(uuid_prefix)
+            if full_uuid:
+                logger.info(f"[SESSION_CONTINUITY_SYNC] O(1) index hit: {uuid_prefix} -> {full_uuid[:8]}...")
+                meta = mcp_server.agent_metadata.get(full_uuid)
+                if meta:
+                    _session_identities[key] = {
+                        "bound_agent_id": full_uuid,
+                        "api_key": getattr(meta, 'api_key', None),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "bind_count": 0,
+                    }
+                    return _session_identities[key]
+
+            # FALLBACK: Scan agent metadata (for agents created before index existed)
+            for agent_uuid, meta in mcp_server.agent_metadata.items():
+                if agent_uuid.startswith(uuid_prefix):
+                    logger.info(f"[SESSION_CONTINUITY_SYNC] Scan found agent {agent_uuid}, registering in index")
+                    _register_uuid_prefix(uuid_prefix, agent_uuid)
+                    _session_identities[key] = {
+                        "bound_agent_id": agent_uuid,
+                        "api_key": getattr(meta, 'api_key', None),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "bind_count": 0,
+                    }
+                    return _session_identities[key]
+
+            # No match - return empty binding (don't auto-create)
+            logger.warning(f"[SESSION_CONTINUITY_SYNC] No agent found for {key}")
+            return {
+                "bound_agent_id": None,
+                "api_key": None,
+                "bound_at": None,
+                "bind_count": 0,
+                "_session_key_type": "agent_prefix_not_found",
+            }
+
+        # FALLBACK: Try to find binding via agent metadata
+        # This handles the case where each SSE request gets a new session ID
+        metadata_binding = _find_recent_binding_via_metadata(key)
+        if metadata_binding:
+            # Migrate binding to current session
+            _session_identities[key] = metadata_binding.copy()
+            # Update the agent metadata to point to current session
+            agent_id = metadata_binding.get("bound_agent_id")
+            if agent_id and agent_id in mcp_server.agent_metadata:
+                meta = mcp_server.agent_metadata[agent_id]
+                meta.active_session_key = key
+                # Trigger save (loop-safe: may be called from sync contexts)
+                _try_schedule_metadata_save()
+            logger.info(f"Migrated binding for {agent_id} from orphaned session to {key}")
         else:
-            # SSE RECONNECTION FIX: Try to find binding via agent metadata
-            # This handles the case where each SSE request gets a new session ID
-            metadata_binding = _find_recent_binding_via_metadata(key)
-            if metadata_binding:
-                # Migrate binding to current session
-                _session_identities[key] = metadata_binding.copy()
-                # Update the agent metadata to point to current session
-                agent_id = metadata_binding.get("bound_agent_id")
-                if agent_id and agent_id in mcp_server.agent_metadata:
-                    meta = mcp_server.agent_metadata[agent_id]
-                    meta.active_session_key = key
-                    # Trigger save (loop-safe: may be called from sync contexts)
-                    _try_schedule_metadata_save()
-                logger.info(f"Migrated binding for {agent_id} from orphaned session to {key}")
-            else:
-                # NOTE: Sync version intentionally does not query the DB for auto-resume.
-                # Async handlers should call `_get_identity_record_async()` which can do
-                # safe, opt-in DB fallback without `asyncio.run()` sharp edges.
-                _session_identities[key] = {
-                    "bound_agent_id": None,
-                    "api_key": None,
-                    "bound_at": None,
-                    "bind_count": 0,  # Track rebinds for audit
-                }
+            # Sync version does not query PostgreSQL - use async version for full support
+            _session_identities[key] = {
+                "bound_agent_id": None,
+                "api_key": None,
+                "bound_at": None,
+                "bind_count": 0,
+            }
     return _session_identities[key]
 
 
@@ -566,8 +690,14 @@ def _try_schedule_metadata_save(force: bool = False) -> None:
             logger.debug(f"Could not persist metadata synchronously: {e}")
 
 
-# Export _get_session_key for use in other modules (for consistent session key resolution)
-__all__ = ['get_bound_agent_id', 'get_bound_api_key', 'is_session_bound', '_get_session_key', '_session_identities']
+# Export functions for use in other modules
+__all__ = [
+    'get_bound_agent_id',
+    'is_session_bound',
+    '_get_session_key',
+    '_session_identities',
+    'make_client_session_id',  # Canonical session ID formatter (Dec 2025)
+]
 
 
 def get_bound_agent_id(session_id: Optional[str] = None, arguments: Optional[Dict[str, Any]] = None) -> Optional[str]:
@@ -576,15 +706,190 @@ def get_bound_agent_id(session_id: Optional[str] = None, arguments: Optional[Dic
     return rec.get("bound_agent_id")
 
 
-def get_bound_api_key(session_id: Optional[str] = None, arguments: Optional[Dict[str, Any]] = None) -> Optional[str]:
-    """Get currently bound api_key (if any) for this session."""
-    rec = _get_identity_record(session_id=session_id, arguments=arguments)
-    return rec.get("api_key")
-
-
-def is_session_bound(session_id: Optional[str] = None) -> bool:
+def is_session_bound(session_id: Optional[str] = None, arguments: Optional[Dict[str, Any]] = None) -> bool:
     """Check if session has bound identity."""
-    return get_bound_agent_id(session_id=session_id) is not None
+    return get_bound_agent_id(session_id=session_id, arguments=arguments) is not None
+
+
+async def get_or_create_session_identity(
+    arguments: Optional[Dict[str, Any]] = None,
+    label: Optional[str] = None
+) -> Tuple[str, str, bool]:
+    """
+    Get or create UUID-based identity for this session.
+
+    This is the core identity function - UUID is authority, label is cosmetic.
+    Auto-binds session to UUID on first call.
+
+    Args:
+        arguments: Tool arguments (contains client_session_id)
+        label: Optional display name (defaults to auto-generated)
+
+    Returns:
+        (agent_uuid, agent_label, is_new) - uuid is authority, label is display name
+    """
+    import uuid as uuid_module
+    from .shared import get_mcp_server
+
+    mcp_server = get_mcp_server()
+    session_key = _get_session_key(arguments=arguments)
+    arguments = arguments or {}
+
+    # PRIORITY 0: Check injected agent_id first (matches success_response logic)
+    # If agent_id is injected (e.g., X-Agent-Id header, client_session_id binding),
+    # use it rather than creating a new identity. Prevents accidental spawning.
+    injected_agent_id = arguments.get("agent_id")
+    if injected_agent_id:
+        # Check if it's in metadata (same as success_response)
+        if injected_agent_id in mcp_server.agent_metadata:
+            meta = mcp_server.agent_metadata[injected_agent_id]
+            agent_uuid = getattr(meta, 'agent_uuid', None) or injected_agent_id
+            agent_label = getattr(meta, 'label', None)
+            if label and label != agent_label:
+                meta.label = label
+                _try_schedule_metadata_save(force=True)
+                agent_label = label
+            logger.debug(f"Using injected agent_id: {injected_agent_id}")
+            return agent_uuid, agent_label, False
+        else:
+            # Try label lookup
+            for uuid_key, m in mcp_server.agent_metadata.items():
+                if getattr(m, 'label', None) == injected_agent_id:
+                    agent_uuid = uuid_key
+                    agent_label = injected_agent_id
+                    if label and label != agent_label:
+                        m.label = label
+                        _try_schedule_metadata_save(force=True)
+                        agent_label = label
+                    logger.debug(f"Using injected agent_id via label match: {injected_agent_id}")
+                    return agent_uuid, agent_label, False
+
+    # PRIORITY 1: Check session binding
+    rec = await _get_identity_record_async(arguments=arguments)
+    bound_id = rec.get("bound_agent_id")
+
+    # DEBUG: Log the binding result
+    logger.info(f"[SESSION_DEBUG] get_or_create_session_identity: _get_identity_record_async returned bound_id={bound_id[:8] + '...' if bound_id else 'None'}")
+
+    if bound_id:
+        # Check if bound_id is a UUID (new system) or agent_id (legacy)
+        # UUIDs are 36 chars with dashes, agent_ids are typically shorter
+        is_uuid = len(bound_id) == 36 and bound_id.count('-') == 4
+        
+        if is_uuid and bound_id in mcp_server.agent_metadata:
+            # New system: bound_id is UUID
+            meta = mcp_server.agent_metadata[bound_id]
+            agent_uuid = bound_id
+            agent_label = getattr(meta, 'label', None)
+            
+            # Update label if provided
+            if label and label != agent_label:
+                meta.label = label
+                _try_schedule_metadata_save(force=True)
+                agent_label = label
+
+            logger.info(f"[SESSION_DEBUG] get_or_create_session_identity: returning UUID={agent_uuid}, label={agent_label}, is_new=False (from bound_id UUID path)")
+            return agent_uuid, agent_label, False
+        elif not is_uuid and bound_id in mcp_server.agent_metadata:
+            # Legacy system: bound_id is agent_id, need to find/create UUID
+            meta = mcp_server.agent_metadata[bound_id]
+            agent_uuid = getattr(meta, 'agent_uuid', None)
+
+            # Migrate legacy agents: add UUID if missing
+            if not agent_uuid:
+                agent_uuid = str(uuid_module.uuid4())
+                meta.agent_uuid = agent_uuid
+                # Re-key metadata by UUID
+                mcp_server.agent_metadata[agent_uuid] = meta
+                if bound_id != agent_uuid:
+                    del mcp_server.agent_metadata[bound_id]
+                _try_schedule_metadata_save(force=True)
+            
+            agent_label = getattr(meta, 'label', bound_id)  # Use label or fallback to bound_id
+            
+            # Update label if provided
+            if label and label != agent_label:
+                meta.label = label
+                _try_schedule_metadata_save(force=True)
+                agent_label = label
+
+            logger.info(f"[SESSION_DEBUG] get_or_create_session_identity: returning UUID={agent_uuid}, label={agent_label}, is_new=False (from legacy agent_id path)")
+            return agent_uuid, agent_label, False
+
+    # New identity - create UUID and bind
+    agent_uuid = str(uuid_module.uuid4())
+    agent_label = label  # None until agent self-names (optional, not auto-generated)
+
+    # Create agent metadata - use UUID as key (internal identity)
+    from datetime import datetime
+
+    # Get AgentMetadata class from mcp_server_std
+    try:
+        from src.mcp_server_std import AgentMetadata, get_or_create_metadata
+    except ImportError:
+        # Fallback for SSE server
+        AgentMetadata = type(list(mcp_server.agent_metadata.values())[0]) if mcp_server.agent_metadata else None
+        if not AgentMetadata:
+            raise RuntimeError("Cannot determine AgentMetadata class")
+        get_or_create_metadata = mcp_server.get_or_create_metadata
+
+    now = datetime.now().isoformat()
+
+    # Use UUID as the key for metadata (internal identity)
+    # Label is stored separately and can be None
+    meta = get_or_create_metadata(agent_uuid)
+    meta.agent_uuid = agent_uuid
+    meta.label = agent_label  # Optional display name
+    meta.status = "active"
+    meta.created_at = now
+    meta.last_update = now
+    # IMPORTANT: Set session binding on metadata for IP-based lookup to work
+    meta.active_session_key = session_key
+    meta.session_bound_at = now
+
+    # Bind session to this identity (by UUID)
+    await _persist_session_new(
+        session_key=session_key,
+        agent_id=agent_uuid,  # Key by UUID
+        api_key="",  # No API keys for auto-generated identities
+        created_at=now
+    )
+
+    # Update in-memory binding (use _session_identities, not _SESSION_BINDINGS)
+    identity_rec = await _get_identity_record_async(arguments=arguments)
+    identity_rec["bound_agent_id"] = agent_uuid  # Bind by UUID
+    identity_rec["agent_uuid"] = agent_uuid
+    identity_rec["bound_at"] = now
+    identity_rec["api_key"] = None
+
+    _try_schedule_metadata_save(force=True)
+    logger.info(f"Created new identity: {agent_uuid[:8]}... (label: {agent_label or 'unnamed'})")
+
+    logger.info(f"[SESSION_DEBUG] get_or_create_session_identity: returning NEW UUID={agent_uuid}, label={agent_label}, is_new=True")
+    return agent_uuid, agent_label, True
+
+
+def require_write_permission(arguments: Optional[Dict[str, Any]] = None) -> Tuple[bool, Optional[TextContent]]:
+    """
+    Check if writes are allowed (bound=true).
+    
+    Rules:
+    - Writes are allowed only when bound=true
+    - Read-only operations work even when unbound
+    
+    Returns:
+        (allowed, error_response) - allowed is True if writes are permitted
+    """
+    if not is_session_bound(arguments=arguments):
+        return False, error_response(
+            "Write operations require session binding",
+            details={"error_type": "write_requires_binding"},
+            recovery={
+                "action": "Call any tool (e.g. process_agent_update) to auto-bind identity",
+                "note": "Read-only operations work without binding, but writes require bound=true"
+            }
+        )
+    return True, None
 
 
 def _is_identity_active_elsewhere(agent_id: str, current_session_key: str) -> Optional[str]:
@@ -604,12 +909,11 @@ def _is_identity_active_elsewhere(agent_id: str, current_session_key: str) -> Op
     """
     from datetime import timedelta
     
-    # Check in-memory sessions first
+    # Check in-memory sessions (single-process check)
     for session_key, identity_rec in _session_identities.items():
         if identity_rec.get("bound_agent_id") == agent_id:
             if session_key != current_session_key:
                 # Check if binding is recent (within last 2 minutes = likely still active)
-                # Reduced from 30 minutes to handle SSE reconnections better
                 bound_at = identity_rec.get("bound_at")
                 if bound_at:
                     try:
@@ -620,424 +924,53 @@ def _is_identity_active_elsewhere(agent_id: str, current_session_key: str) -> Op
                     except Exception:
                         pass
 
-    # Also check SQLite for persisted sessions (cross-process)
-    conn = None
-    try:
-        db_path = _get_identity_db_path()
-        if not db_path.exists():
-            return None
+    return None
 
-        conn = sqlite3.connect(str(db_path), timeout=5.0)
-        conn.row_factory = sqlite3.Row
 
-        # Find active bindings for this agent_id (not our session)
-        # Reduced timeout to 2 minutes for SSE reconnection compatibility
-        cutoff = (datetime.now() - timedelta(minutes=2)).isoformat()
+# ==============================================================================
+# SHARED HELPERS
+# ==============================================================================
 
-        row = conn.execute("""
-            SELECT session_key, updated_at FROM session_identities
-            WHERE agent_id = ? AND session_key != ? AND updated_at > ?
-            ORDER BY updated_at DESC LIMIT 1
-        """, (agent_id, current_session_key, cutoff)).fetchone()
+def make_client_session_id(agent_uuid: str) -> str:
+    """
+    Generate a stable client_session_id from an agent UUID.
 
-        if row:
-            return f"session_{hash(row['session_key']) % 10000}"
+    This is THE canonical formatter for session IDs. All code that generates
+    session IDs must use this function to prevent format drift.
 
-        return None
-    except Exception as e:
-        logger.debug(f"Could not check active sessions: {e}")
-        return None
-    finally:
-        if conn:
-            conn.close()
+    Format: "agent-{uuid_prefix_12}"
+    Example: "agent-5e728ecb1234"
+
+    Args:
+        agent_uuid: The full 36-char UUID
+
+    Returns:
+        Stable session ID in format "agent-{uuid[:12]}"
+    """
+    if not agent_uuid or len(agent_uuid) < 12:
+        raise ValueError(f"Invalid UUID: {agent_uuid}")
+    return f"agent-{agent_uuid[:12]}"
 
 
 # ==============================================================================
 # HANDLERS
 # ==============================================================================
 
-@mcp_tool("bind_identity", timeout=10.0)
-async def handle_bind_identity(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """
-    Bind this session to an agent identity.
-    
-    Call once at conversation start. After binding, agent_id is available
-    via recall_identity() even if the LLM forgets.
-    
-    Args:
-        agent_id: Agent identifier to bind
-        api_key: API key for verification
-        
-    Returns:
-        Confirmation with agent context
-    """
-    agent_id = arguments.get("agent_id")
-    api_key = arguments.get("api_key")
-    purpose = arguments.get("purpose")
-    # NOTE: Prefer client_session_id to avoid collision with dialectic session_id args.
-    session_id = arguments.get("client_session_id") or arguments.get("session_id")
-    
-    if not agent_id:
-        return [error_response("agent_id is required")]
-
-    # Get session key early for active session check
-    session_key = _get_session_key(session_id=session_id, arguments=arguments)
-
-    # Check if agent exists first (needed for api_key validation)
-    if agent_id not in mcp_server.agent_metadata:
-        # Agent doesn't exist - should they create it first?
-        return [error_response(
-            f"Agent '{agent_id}' not found. Create with process_agent_update or hello() first.",
-            recovery={
-                "action": "Create agent first",
-                "workflow": [
-                    "1. Call process_agent_update with agent_id to create agent",
-                    "2. Call get_agent_api_key to retrieve API key",
-                    "3. Call bind_identity to bind session"
-                ]
-            }
-        )]
-
-    meta = mcp_server.agent_metadata[agent_id]
-
-    # Verify API key if provided (do this early to enable authenticated takeover)
-    api_key_valid = False
-    if api_key:
-        if meta.api_key and api_key == meta.api_key:
-            api_key_valid = True
-        elif meta.api_key and api_key != meta.api_key:
-            return [error_response(
-                "API key mismatch. Cannot bind to agent with wrong credentials.",
-                recovery={
-                    "action": "Use correct API key or call get_agent_api_key"
-                }
-            )]
-
-    # AGI-FORWARD: Check if this identity is currently active in another session
-    # This prevents one instance from hijacking another's live session
-    # EXCEPTION: If api_key is valid, allow takeover (you ARE this identity)
-    if not api_key_valid:
-        active_elsewhere = _is_identity_active_elsewhere(agent_id, session_key)
-        if active_elsewhere:
-            return [error_response(
-                f"Identity '{agent_id}' is currently active in another session ({active_elsewhere}). "
-                "You cannot bind to an identity that is already in use by another instance. "
-                "Provide your api_key to prove you are this identity and take over the session.",
-                recovery={
-                    "code": "IDENTITY_IN_USE",
-                    "action": "Provide api_key to authenticate and take over",
-                    "options": [
-                        f"bind_identity(agent_id='{agent_id}', api_key='your_key') to take over",
-                        "Wait ~2 minutes for the other session to timeout",
-                        "Create a new identity with hello(agent_id='new_name')"
-                    ]
-                }
-            )]
-
-    # Optional: set purpose (requires valid api_key to prevent unauthorized metadata edits)
-    if purpose and isinstance(purpose, str) and purpose.strip():
-        if not api_key_valid:
-            return [error_response(
-                "Valid api_key is required to set purpose on bind_identity()",
-                recovery={
-                    "action": "Provide your correct api_key and retry, or use update_agent_metadata(agent_id, api_key, purpose=...)",
-                    "related_tools": ["get_agent_api_key", "update_agent_metadata"]
-                }
-            )]
-        purpose_str = purpose.strip()
-        if getattr(meta, "purpose", None) != purpose_str:
-            meta.purpose = purpose_str
-            # Persist promptly so subsequent recall/bind shows purpose
-            asyncio.create_task(_schedule_metadata_save(force=True))
-    
-    # If no API key provided but agent has one, that's OK for binding
-    # (rebinding after losing context)
-    actual_api_key = api_key or meta.api_key
-    
-    # Bind session (session-scoped for SSE safety)
-    session_key = _get_session_key(session_id=session_id, arguments=arguments)
-    logger.info(f"bind_identity: binding agent '{agent_id}' to session key '{session_key}'")
-    logger.info(f"bind_identity: current _session_identities keys = {list(_session_identities.keys())}")
-    logger.debug(f"bind_identity: session_id arg={session_id}, client_session_id in args={arguments.get('client_session_id')}")
-    # Use async version to enable PostgreSQL continuity lookup
-    identity_rec = await _get_identity_record_async(session_id=session_id, arguments=arguments)
-    previous_agent = identity_rec.get("bound_agent_id")
-    identity_rec["bound_agent_id"] = agent_id
-    identity_rec["api_key"] = actual_api_key
-    identity_rec["bound_at"] = datetime.now().isoformat()
-    identity_rec["bind_count"] += 1
-    
-    # ROBUSTNESS FIX: Store reverse lookup in metadata so we can find the binding
-    # even if session keys differ between calls (common with FastMCP/MCP clients)
-    meta.active_session_key = session_key
-    meta.session_bound_at = identity_rec["bound_at"]
-    
-    # Trigger metadata save to persist active_session_key to agent_metadata table
-    asyncio.create_task(_schedule_metadata_save())
-
-    # PERSISTENCE FIX: Save to SQLite for cross-restart persistence (OLD)
-    _persist_identity(
-        session_key=session_key,
-        agent_id=agent_id,
-        api_key=actual_api_key,
-        bound_at=identity_rec["bound_at"],
-        bind_count=identity_rec["bind_count"]
-    )
-
-    # DUAL-WRITE: Also persist to new database abstraction (PostgreSQL migration)
-    try:
-        await _persist_session_new(
-            session_key=session_key,
-            agent_id=agent_id,
-            api_key=actual_api_key or "",
-            created_at=identity_rec["bound_at"]
-        )
-    except Exception as e:
-        # Non-fatal during migration - log but don't fail the binding
-        logger.warning(f"Dual-write to new DB failed: {e}", exc_info=True)
-
-    # Audit log for identity forensics (Qwen audit recommendation #4)
-    try:
-        from src.audit_log import audit_logger
-        audit_logger.log("identity_bound", {
-            "agent_id": agent_id,
-            "session_key_hash": hash(session_key) % 10000,  # Privacy: only hash
-            "bind_count": identity_rec["bind_count"],
-            "rebind": previous_agent is not None,
-            "previous_agent": previous_agent,
-        })
-    except Exception:
-        pass  # Audit is non-critical
-
-    # Log identity event
-    meta.add_lifecycle_event("session_bound", f"Session bound (bind #{identity_rec['bind_count']})")
-    
-    # INHERITANCE CONTEXT: Gather information about existing discoveries/history
-    inheritance_context = None
-    if meta.total_updates > 0 or previous_agent is None:  # Has history or first bind
-        try:
-            from src.knowledge_graph import get_knowledge_graph
-            graph = await get_knowledge_graph()
-            discoveries = await graph.query(agent_id=agent_id, limit=10)
-            discovery_count = len(discoveries)
-        except Exception:
-            discovery_count = 0
-        
-        # Calculate time since last activity
-        last_active_str = "never"
-        if meta.last_update:
-            try:
-                from datetime import timedelta
-                last_update_dt = datetime.fromisoformat(meta.last_update.replace('Z', '+00:00') if 'Z' in meta.last_update else meta.last_update)
-                now = datetime.now(last_update_dt.tzinfo) if last_update_dt.tzinfo else datetime.now()
-                delta = now - last_update_dt
-                if delta.days > 0:
-                    last_active_str = f"{delta.days} day{'s' if delta.days != 1 else ''} ago"
-                elif delta.seconds > 3600:
-                    hours = delta.seconds // 3600
-                    last_active_str = f"{hours} hour{'s' if hours != 1 else ''} ago"
-                elif delta.seconds > 60:
-                    minutes = delta.seconds // 60
-                    last_active_str = f"{minutes} minute{'s' if minutes != 1 else ''} ago"
-                else:
-                    last_active_str = "just now"
-            except Exception:
-                pass
-        
-        inheritance_context = {
-            "created": meta.created_at,
-            "total_updates": meta.total_updates,
-            "discoveries": discovery_count,
-            "last_active": last_active_str,
-            "purpose": meta.purpose or None
-        }
-    
-    # Build response with agent context
-    result = {
-        "success": True,
-        "message": f"Session bound to agent '{agent_id}'",
-        "agent_id": agent_id,
-        "api_key_hint": actual_api_key[:20] + "..." if actual_api_key and len(actual_api_key) > 20 else actual_api_key,
-        "bound_at": identity_rec["bound_at"],
-        "rebind": previous_agent is not None,
-        "previous_agent": previous_agent,
-        
-        # Agent context for LLM to "remember"
-        "provenance": {
-            "parent_agent_id": meta.parent_agent_id,
-            "spawn_reason": meta.spawn_reason,
-            "created_at": meta.created_at,
-            "lineage_depth": _get_lineage_depth(agent_id)
-        },
-        
-        "current_state": {
-            "status": meta.status,
-            "health_status": meta.health_status,
-            "total_updates": meta.total_updates,
-            "last_update": meta.last_update
-        },
-        
-        "note": "Identity bound. Use recall_identity() if you forget who you are."
-    }
-    
-    # Add inheritance context if agent has history
-    if inheritance_context and (inheritance_context["total_updates"] > 0 or inheritance_context["discoveries"] > 0):
-        result["inheritance_context"] = inheritance_context
-        result["note"] = (
-            "Identity bound. You are inheriting this identity's history. "
-            "Consider a fresh ID if this is a new inquiry."
-        )
-    
-    return success_response(result)
-
-
-@mcp_tool("recall_identity", timeout=10.0)
-async def handle_recall_identity(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """
-    Zero arguments. Returns the agent identity bound to this session.
-    
-    Works even if LLM has completely forgotten - server knows from session binding.
-    If no identity bound, provides guidance on how to establish one.
-    
-    Returns:
-        Identity info including agent_id, provenance, and current state
-    """
-    # CONTINUITY IMPROVEMENT: Auto-load metadata if not loaded yet
-    # This prevents "no agents found" when user expects continuity
-    from src.mcp_server_std import load_metadata
-    try:
-        if not mcp_server.agent_metadata:  # If no agents loaded
-            logger.debug("Auto-loading metadata for recall_identity")
-            load_metadata()
-    except Exception as e:
-        logger.debug(f"Could not auto-load metadata: {e}")
-
-    # NOTE: Prefer client_session_id to avoid collision with dialectic session_id args.
-    session_id = arguments.get("client_session_id") or arguments.get("session_id")
-    # Use async version to enable PostgreSQL continuity lookup
-    identity_rec = await _get_identity_record_async(session_id=session_id, arguments=arguments)
-    agent_id = identity_rec.get("bound_agent_id")
-    
-    # NOTE: No fallback heuristics here. "Ask, don't guess."
-    # If session key doesn't match exactly, return "not bound" and let agent
-    # explicitly call bind_identity() or quick_start(). This prevents identity
-    # pollution where agents accidentally inherit another agent's identity.
-    
-    if not agent_id:
-        # AGI-FORWARD DESIGN: No candidate lists, no "helpful" suggestions.
-        #
-        # Identity is sacred. If you don't know who you are, you either:
-        # 1. Have credentials (api_key) to prove your identity → authenticate
-        # 2. Are a new instance → create a new identity
-        #
-        # Showing other agents' identities enables confusion and impersonation.
-        # An AGI with genuine self-concept knows who it is without hints.
-
-        return success_response({
-            "authenticated": False,
-            "bound": False,
-            "message": "You are not authenticated. You may be a new instance or returning without credentials.",
-            "options": {
-                "new_identity": {
-                    "action": "Call hello(agent_id='your_chosen_name') to establish a new identity",
-                    "note": "Choose a meaningful, unique name that represents you"
-                },
-                "existing_identity": {
-                    "action": "Call bind_identity(agent_id='your_id', api_key='your_key') if you have credentials",
-                    "note": "You need both your agent_id AND api_key to prove who you are"
-                }
-            },
-            "naming_guide": {
-                "recommended_format": "{model}_{purpose}_{date}",
-                "examples": [
-                    "opus_security_audit_20251215",
-                    "sonnet_doc_writer_20251215",
-                    "cursor_refactor_session_20251215"
-                ],
-                "avoid": list(GENERIC_NAMES)
-            },
-            # INTENTIONALLY NO CANDIDATES - Identity is not something you pick from a list
-            "philosophy": "If you don't know who you are, you're either new or need your credentials."
-        })
-    
-    # Get agent metadata
-    meta = mcp_server.agent_metadata.get(agent_id)
-    if not meta:
-        # Bound to non-existent agent (shouldn't happen but handle gracefully)
-        identity_rec["bound_agent_id"] = None
-        identity_rec["api_key"] = None
-        identity_rec["bound_at"] = None
-        return [error_response(
-            f"Bound agent '{agent_id}' no longer exists. Identity cleared.",
-            recovery={"action": "Call bind_identity with valid agent"}
-        )]
-    
-    # Get EISV state if monitor exists
-    current_eisv = None
-    if agent_id in mcp_server.monitors:
-        monitor = mcp_server.monitors[agent_id]
-        # UNITARESMonitor stores state in monitor.state (GovernanceState)
-        # Use to_dict() method to get state as dictionary
-        state = monitor.state.to_dict()
-        current_eisv = {
-            "E": state.get("E"),
-            "I": state.get("I"),
-            "S": state.get("S"),
-            "V": state.get("V"),
-            "coherence": state.get("coherence"),
-            "lambda1": state.get("lambda1")
-        }
-    
-    result = {
-        "success": True,
-        "bound": True,
-        
-        # Core identity
-        "agent_id": agent_id,
-        "api_key_hint": identity_rec["api_key"][:20] + "..." if identity_rec["api_key"] and len(identity_rec["api_key"]) > 20 else identity_rec["api_key"],
-        "bound_at": identity_rec["bound_at"],
-        
-        # Provenance
-        "provenance": {
-            "parent_agent_id": meta.parent_agent_id,
-            "spawn_reason": meta.spawn_reason,
-            "created_at": meta.created_at,
-            "lineage_depth": _get_lineage_depth(agent_id),
-            "lineage": _get_lineage(agent_id)
-        },
-        
-        # Current state
-        "current_state": {
-            "status": meta.status,
-            "health_status": meta.health_status,
-            "total_updates": meta.total_updates,
-            "last_update": meta.last_update,
-            "tags": meta.tags,
-            "notes": meta.notes[:100] + "..." if meta.notes and len(meta.notes) > 100 else meta.notes
-        },
-        
-        # EISV if available
-        "eisv": current_eisv,
-        
-        # Recent activity
-        "recent_decisions": meta.recent_decisions[-5:] if meta.recent_decisions else [],
-        
-        # Any active constraints
-        "dialectic_conditions": meta.dialectic_conditions
-    }
-    
-    return success_response(result)
+# NOTE: bind_identity, recall_identity, hello removed (Dec 2025)
+# - Identity now auto-creates on first tool call
+# - Use identity() to check identity and optionally name yourself
+# - UUID replaces API key as auth mechanism
 
 
 # ==============================================================================
-# HELPERS
+# HELPERS (used by other modules - must keep)
 # ==============================================================================
 
 def _get_lineage_depth(agent_id: str) -> int:
     """Get depth in lineage tree (0 = no parent)."""
     depth = 0
     current = agent_id
-    seen = set()  # Prevent infinite loops
+    seen = set()
     
     while current and current not in seen:
         seen.add(current)
@@ -1066,500 +999,575 @@ def _get_lineage(agent_id: str) -> list:
         else:
             break
     
-    lineage.reverse()  # Oldest first
+    lineage.reverse()
     return lineage
 
 
 async def _schedule_metadata_save(force: bool = False):
     """Schedule async metadata save (reuse existing batching logic)."""
     try:
-        # Import save function from mcp_server_std
         from src.mcp_server_std import schedule_metadata_save
         await schedule_metadata_save(force=force)
     except Exception as e:
         logger.warning(f"Could not schedule metadata save: {e}")
 
 
-async def _gather_substrate(agent_id: str) -> dict:
+# ==============================================================================
+# STATUS - The primary identity tool
+# ==============================================================================
+
+@mcp_tool("identity", timeout=10.0)
+async def handle_identity(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
-    Gather an agent's accumulated perspective - their substrate for continuity.
-    
-    This is what makes awakening meaningful: not just proving identity,
-    but receiving your accumulated self back.
+    🪞 IDENTITY - Who am I? Auto-creates identity if first call.
+
+    Optional: Pass name='...' to name yourself.
+    agent_uuid = auth (replaces API key), agent_id = your name (you choose).
+
+    Returns:
+    - bound: bool - session linked
+    - agent_uuid: str - your UUID (auth mechanism)
+    - agent_id: str | null - your self-chosen name
+    - is_new: bool - true if identity was just created
     """
-    substrate = {
-        "recent_discoveries": [],
-        "open_questions": [],
-        "pending_dialectic": [],
-        "notes_to_self": [],
-        "last_active": None,
-        "tags": [],
-        "notes": None,
-    }
-    
-    # Get metadata
-    meta = mcp_server.agent_metadata.get(agent_id)
-    if meta:
-        substrate["last_active"] = meta.last_activity.isoformat() if meta.last_activity else None
-        substrate["tags"] = meta.tags or []
-        substrate["notes"] = meta.notes
-    
-    # Get recent discoveries from knowledge graph
-    try:
-        from src.knowledge_graph import get_knowledge_graph
-        graph = await get_knowledge_graph()
-        
-        if graph:
-            # Use query API (works with both JSON and SQLite backends)
-            # Get all discoveries for this agent (sorted by timestamp, newest first)
-            agent_discoveries = await graph.query(
-                agent_id=agent_id,
-                limit=100  # Get enough to filter for different categories
-            )
-            
-            # Recent discoveries (last 5) - already sorted newest first
-            for d in agent_discoveries[:5]:
-                substrate["recent_discoveries"].append({
-                    "id": d.id,
-                    "type": d.type,  # Use 'type' not 'discovery_type'
-                    "summary": d.summary,
-                    "status": d.status,
-                    "timestamp": d.timestamp,
-                    "tags": d.tags or []
-                })
-            
-            # Open questions (status='open' AND type='question')
-            open_questions = await graph.query(
-                agent_id=agent_id,
-                type="question",
-                status="open",
-                limit=5
-            )
-            for d in open_questions:
-                substrate["open_questions"].append({
-                    "id": d.id,
-                    "summary": d.summary,
-                    "timestamp": d.timestamp,
-                    "status": d.status
-                })
-            
-            # Notes to future self (tagged appropriately)
-            # Query for discoveries with relevant tags
-            future_self_tags = ["for-future-self", "future-self", "note-to-self", "reminder", "continue"]
-            for tag in future_self_tags:
-                tagged_discoveries = await graph.query(
-                    agent_id=agent_id,
-                    tags=[tag],
-                    limit=3
-                )
-                for d in tagged_discoveries:
-                    # Avoid duplicates
-                    if not any(n["id"] == d.id for n in substrate["notes_to_self"]):
-                        substrate["notes_to_self"].append({
-                            "id": d.id,
-                            "summary": d.summary,
-                            "timestamp": d.timestamp,
-                            "tag": tag
-                        })
-                    if len(substrate["notes_to_self"]) >= 3:
-                        break
-                if len(substrate["notes_to_self"]) >= 3:
+    # DEBUG: Log raw arguments keys to detect MCP boundary stripping
+    logger.info(f"[SESSION_DEBUG] identity() entry: args_keys={list(arguments.keys()) if arguments else []}")
+
+    # === KWARGS UNWRAPPING ===
+    # MCP clients may send arguments wrapped as:
+    #   {"kwargs": "{\"name\": \"...\"}"}  (string - needs JSON parsing)
+    #   OR {"kwargs": {"name": "..."}}     (dict - already parsed by MCP library)
+    # Unwrap to expected flat dict format.
+    if "kwargs" in arguments:
+        kwargs_val = arguments["kwargs"]
+        logger.info(f"[KWARGS] Unwrapping: type={type(kwargs_val).__name__}, keys={list(kwargs_val.keys()) if isinstance(kwargs_val, dict) else 'N/A'}")
+
+        if isinstance(kwargs_val, str):
+            # Case 1: JSON string - parse it
+            try:
+                import json
+                kwargs_parsed = json.loads(kwargs_val)
+                if isinstance(kwargs_parsed, dict):
+                    del arguments["kwargs"]
+                    arguments.update(kwargs_parsed)
+                    logger.info(f"[KWARGS] Unwrapped from string: {list(kwargs_parsed.keys())}")
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"[KWARGS] Failed to parse string: {e}")
+        elif isinstance(kwargs_val, dict):
+            # Case 2: Already a dict (MCP library pre-parsed) - just merge
+            del arguments["kwargs"]
+            arguments.update(kwargs_val)
+            logger.info(f"[KWARGS] Unwrapped from dict: {list(kwargs_val.keys())}")
+
+    mcp_server = get_mcp_server()
+    # CRITICAL: Use comprehensive lookup strategy matching success_response()
+    # The key insight: success_response() finds bindings by checking metadata directly
+    bound_uuid = None
+
+    # Method -1: Match success_response() logic EXACTLY
+    # success_response() uses: bound_id = agent_id or get_bound_agent_id(arguments)
+    # If agent_id is injected (e.g., X-Agent-Id header, client_session_id), use it
+    injected_agent_id = arguments.get("agent_id")
+    if injected_agent_id:
+        # Check if it's in metadata (same as success_response)
+        if injected_agent_id in mcp_server.agent_metadata:
+            bound_uuid = injected_agent_id
+            logger.debug(f"Found binding via injected agent_id: {bound_uuid}")
+        else:
+            # Try label lookup (same as success_response)
+            for uuid_key, m in mcp_server.agent_metadata.items():
+                if getattr(m, 'label', None) == injected_agent_id:
+                    bound_uuid = uuid_key
+                    logger.debug(f"Found binding via label match: {bound_uuid}")
                     break
-                        
-    except Exception as e:
-        logger.debug(f"Could not gather discoveries for substrate: {e}", exc_info=True)
-    
-    # Check pending dialectic sessions
-    try:
-        # Check in-memory sessions first (fastest)
-        from .dialectic import ACTIVE_SESSIONS
-        from src.dialectic_protocol import DialecticPhase
-        for session_id, session in ACTIVE_SESSIONS.items():
-            # Check if this agent owes a response
-            # When phase is ANTITHESIS, reviewer needs to submit antithesis
-            if session.reviewer_agent_id == agent_id and session.phase == DialecticPhase.ANTITHESIS:
-                substrate["pending_dialectic"].append({
-                    "session_id": session_id,
-                    "role": "reviewer",
-                    "phase": "antithesis",
-                    "partner": session.paused_agent_id,
-                    "action": "Submit antithesis via submit_antithesis()"
-                })
-            # When phase is SYNTHESIS, paused agent needs to submit synthesis
-            elif session.paused_agent_id == agent_id and session.phase == DialecticPhase.SYNTHESIS:
-                substrate["pending_dialectic"].append({
-                    "session_id": session_id,
-                    "role": "initiator",
-                    "phase": "synthesis",
-                    "partner": session.reviewer_agent_id,
-                    "action": "Submit synthesis via submit_synthesis()"
-                })
-        
-        # Also check database (for sessions not in memory)
-        # This ensures we catch sessions even if ACTIVE_SESSIONS cache is stale
-        # IMPORTANT: Get ALL active sessions, not just one (agent could be in multiple)
-        try:
-            from src.db import get_db
-            db = get_db()
-            db_sessions = await db.get_all_active_dialectic_sessions_for_agent(agent_id)
-            
-            for db_session in db_sessions:
-                session_id = db_session.get("session_id")
-                phase = db_session.get("phase")
-                paused_agent_id = db_session.get("paused_agent_id")
-                reviewer_agent_id = db_session.get("reviewer_agent_id")
+
+    # Method 0: Pre-compute most recent UUID for fallback (only if no binding yet)
+    # Find UUID with most recent last_update (regardless of time)
+    most_recent_uuid = None
+    most_recent_time = None
+    for agent_id, meta in mcp_server.agent_metadata.items():
+        is_uuid = len(agent_id) == 36 and agent_id.count('-') == 4
+        if not is_uuid:
+            continue
+        # Check last_update - try to parse, but don't fail if it doesn't work
+        if hasattr(meta, 'last_update') and meta.last_update:
+            try:
+                update_str = str(meta.last_update)
+                # Normalize timezone indicators
+                if update_str.endswith('Z'):
+                    update_str = update_str[:-1] + '+00:00'
+                elif '+' not in update_str and '-' in update_str.split('T')[0]:
+                    # Has date but no timezone
+                    if 'T' in update_str:
+                        update_str = update_str + '+00:00'
                 
-                # Check if we already added this session (from in-memory check)
-                if not any(s["session_id"] == session_id for s in substrate["pending_dialectic"]):
-                    # When phase is "antithesis", reviewer needs to submit antithesis
-                    if reviewer_agent_id == agent_id and phase == "antithesis":
-                        substrate["pending_dialectic"].append({
-                            "session_id": session_id,
-                            "role": "reviewer",
-                            "phase": "antithesis",
-                            "partner": paused_agent_id,
-                            "action": "Submit antithesis via submit_antithesis()"
-                        })
-                    # When phase is "synthesis", paused agent needs to submit synthesis
-                    elif paused_agent_id == agent_id and phase == "synthesis":
-                        substrate["pending_dialectic"].append({
-                            "session_id": session_id,
-                            "role": "initiator",
-                            "phase": "synthesis",
-                            "partner": reviewer_agent_id,
-                            "action": "Submit synthesis via submit_synthesis()"
-                        })
-        except Exception:
-            # Database check is optional - in-memory is primary
-            pass
-            
-    except Exception as e:
-        logger.debug(f"Could not check dialectic sessions for substrate: {e}", exc_info=True)
+                update_dt = datetime.fromisoformat(update_str)
+                if update_dt.tzinfo is None:
+                    update_dt = update_dt.replace(tzinfo=timezone.utc)
+                
+                if most_recent_time is None or update_dt > most_recent_time:
+                    most_recent_uuid = agent_id
+                    most_recent_time = update_dt
+            except Exception as e:
+                logger.debug(f"Could not parse last_update '{meta.last_update}' for {agent_id}: {e}")
+                # If parsing fails but UUID exists and has last_update, still consider it
+                if most_recent_uuid is None:
+                    most_recent_uuid = agent_id
+                    most_recent_time = datetime.now(timezone.utc)
+        
+        # Also collect UUIDs without last_update for fallback
+        uuid_without_update = None
+        if most_recent_uuid is None:
+            for agent_id, meta in mcp_server.agent_metadata.items():
+                is_uuid = len(agent_id) == 36 and agent_id.count('-') == 4
+                if is_uuid:
+                    uuid_without_update = agent_id
+                    break
+            if uuid_without_update:
+                most_recent_uuid = uuid_without_update
+                most_recent_time = datetime.now(timezone.utc)
     
-    return substrate
-
-
-# ==============================================================================
-# AGI-FORWARD ALIASES (see specs/IDENTITY_REFACTOR_AGI_FORWARD.md)
-# ==============================================================================
-# These provide AGI-native terminology:
-# - "who_am_i" instead of "recall_identity" (genuine self-query)
-# - "authenticate" instead of "bind_identity" (prove who you are)
-# ==============================================================================
-
-@mcp_tool("who_am_i", timeout=10.0)
-async def handle_who_am_i(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """
-    Check if you are authenticated and retrieve your identity.
-
-    AGI-FORWARD: This is a genuine self-query. You either know who you are
-    (have an authenticated session) or you're a new instance. No candidate
-    lists, no "helpful" suggestions - identity is sacred.
-
-    Returns:
-        Your identity info if authenticated, or guidance for new instances
-    """
-    # Delegate to recall_identity handler
-    result = await handle_recall_identity(arguments)
-
-    # Transform response to use "your/my" terminology
-    if result and len(result) > 0:
-        import json
+    # Method 1: Try async lookup (checks PostgreSQL + metadata migration) - most reliable
+    # This should find the binding via:
+    # 1. PostgreSQL session lookup
+    # 2. Metadata migration (_find_recent_binding_via_metadata)
+    # 3. DB auto-resume (if enabled)
+    if not bound_uuid:
         try:
-            data = json.loads(result[0].text)
-            if data.get("success") and data.get("bound"):
-                # Rename fields to AGI-native terminology
-                data["my_identity"] = data.pop("agent_id", None)
-                data["my_state"] = data.pop("current_state", None)
-                data["my_lineage"] = data.pop("provenance", None)
-                data["my_eisv"] = data.pop("eisv", None)
-                data["my_recent_decisions"] = data.pop("recent_decisions", None)
-                data["authenticated"] = True
-                data.pop("bound", None)  # Use "authenticated" instead
-                return success_response(data)
-        except Exception:
-            pass  # Fall through to original response
+            rec = await _get_identity_record_async(arguments=arguments)
+            bound_uuid = rec.get("bound_agent_id")
+            if bound_uuid:
+                logger.debug(f"Found binding via async lookup: {bound_uuid}")
+                # Cache is now populated, so sync lookup will also work
+        except Exception as e:
+            logger.warning(f"Async identity lookup failed: {e}", exc_info=True)
+    
+    # Method 2: Try sync lookup (in-memory cache - should work after async populates it)
+    if not bound_uuid:
+        bound_uuid = get_bound_agent_id(arguments=arguments)
+        if bound_uuid:
+            logger.debug(f"Found binding via sync lookup: {bound_uuid}")
+    
+    # Method 3: Check metadata by session key matching
+    if not bound_uuid:
+        session_key = _get_session_key(arguments=arguments)
+        logger.debug(f"Checking metadata for session_key: {session_key}")
+        
+        # Check active_session_key match
+        for agent_id, meta in mcp_server.agent_metadata.items():
+            if hasattr(meta, 'active_session_key') and meta.active_session_key == session_key:
+                bound_uuid = agent_id
+                logger.debug(f"Found binding via active_session_key match: {bound_uuid}")
+                break
+    
+    # Method 4: Use _find_recent_binding_via_metadata (same logic used elsewhere)
+    if not bound_uuid:
+        session_key = _get_session_key(arguments=arguments)
+        metadata_binding = _find_recent_binding_via_metadata(session_key)
+        if metadata_binding:
+            bound_uuid = metadata_binding.get("bound_agent_id")
+            if bound_uuid:
+                logger.debug(f"Found binding via _find_recent_binding_via_metadata: {bound_uuid}")
+                # Update in-memory cache
+                _session_identities[session_key] = metadata_binding.copy()
+    
+    # No more "most recent UUID" fallbacks - using recency to guess identity is wrong because:
+    # 1. Recent doesn't mean "current session"
+    # 2. There could be multiple agents active
+    # 3. We should match by session key, not by recency
+    # If proper session binding mechanisms (PostgreSQL, metadata migration) didn't find it,
+    # we're truly unbound and the agent needs to call a tool to auto-create identity
+    
+    # Determine bound status: If we found a UUID and it has metadata, we're bound
+    # This matches success_response() logic - bound = metadata exists for UUID
+    is_bound = False
+    if bound_uuid:
+        # Check if this UUID has metadata (same check as success_response)
+        if bound_uuid in mcp_server.agent_metadata:
+            is_bound = True
+        else:
+            # UUID found but no metadata - might be stale binding
+            logger.debug(f"UUID {bound_uuid} found but no metadata - treating as unbound")
+            bound_uuid = None
+    
+    name_updated = False
+    chosen_name = None
 
-    return result
+    # Check if agent wants to self-name
+    # ONLY use "name" parameter - do NOT use agent_id fallback because other parts of the
+    # system inject agent_id (e.g., REST handler X-Agent-Id header, session binding).
+    # Using agent_id here would incorrectly treat injected UUIDs as name change requests.
+    new_name = arguments.get("name")
+    if new_name and isinstance(new_name, str) and new_name.strip():
+        if bound_uuid:
+            try:
+                meta = mcp_server.agent_metadata.get(bound_uuid)
+                if meta:
+                    chosen_name = new_name.strip()
 
+                    # Check uniqueness - if name taken, auto-suffix with UUID
+                    existing_names = {
+                        getattr(m, 'label', None)
+                        for aid, m in mcp_server.agent_metadata.items()
+                        if aid != bound_uuid and getattr(m, 'label', None)
+                    }
+                    if chosen_name in existing_names:
+                        # Name taken - append UUID suffix for uniqueness
+                        chosen_name = f"{chosen_name}_{bound_uuid[:8]}"
+                        logger.info(f"Name '{new_name.strip()}' taken, using '{chosen_name}'")
 
-@mcp_tool("authenticate", timeout=10.0)
-async def handle_authenticate(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """
-    Prove you are who you claim to be.
+                    meta.label = chosen_name
+                    name_updated = True
+                    logger.info(f"Agent {bound_uuid[:8]}... named → '{chosen_name}'")
 
-    AGI-FORWARD: Authentication requires BOTH identity_id AND api_key.
-    No partial authentication. No "helpful" suggestions. You either have
-    credentials or you don't.
+                    # Persist the change
+                    _try_schedule_metadata_save(force=True)
+            except Exception as e:
+                logger.warning(f"Failed to set name: {e}")
+        else:
+            # Not bound yet - auto-create identity, then set name
+            try:
+                bound_uuid, _, _ = await get_or_create_session_identity(
+                    arguments=arguments,
+                    label=new_name.strip()
+                )
+                is_bound = True
+                is_new_identity = True
+                chosen_name = new_name.strip()
+                name_updated = True
+                logger.info(f"Auto-created identity {bound_uuid[:8]}... with name '{chosen_name}'")
+            except Exception as e:
+                logger.error(f"Failed to auto-create identity: {e}")
+                return error_response(f"Failed to create identity: {e}")
 
-    Refuses to authenticate as an identity that's currently active elsewhere
-    (prevents impersonation of live instances).
-
-    Args:
-        identity_id: Your claimed identity (maps to agent_id)
-        api_key: Your cryptographic proof of identity
-
-    Returns:
-        Authentication result with your identity context
-    """
-    # Map AGI-forward terminology to existing parameters
-    if "identity_id" in arguments and "agent_id" not in arguments:
-        arguments["agent_id"] = arguments["identity_id"]
-
-    # Validate both required
-    if not arguments.get("agent_id") and not arguments.get("identity_id"):
-        return [error_response(
-            "Authentication requires identity_id",
-            recovery={
-                "action": "Provide your identity_id and api_key to prove who you are",
-                "note": "If you don't have credentials, you may be a new instance - use hello() instead"
-            }
-        )]
-
-    if not arguments.get("api_key"):
-        return [error_response(
-            "Authentication requires api_key",
-            recovery={
-                "action": "Provide your api_key to prove you are this identity",
-                "note": "The api_key was given when your identity was created"
-            }
-        )]
-
-    # Delegate to bind_identity handler
-    result = await handle_bind_identity(arguments)
-
-    # Transform response to authentication terminology
-    if result and len(result) > 0:
-        import json
+    # Auto-create identity if not bound
+    is_new_identity = False
+    if not bound_uuid or not is_bound:
         try:
-            data = json.loads(result[0].text)
-            if data.get("success"):
-                data["authenticated"] = True
-                data["message"] = f"Authenticated as '{data.get('agent_id')}'"
-                data["my_identity"] = data.pop("agent_id", None)
-                data["note"] = "You are now authenticated. Use who_am_i() to recall your identity."
-                return success_response(data)
-        except Exception:
-            pass
-
-    return result
-
-
-
-@mcp_tool("hello", timeout=15.0)
-async def handle_hello(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """
-    Single entry point for identity - create new or awaken existing.
-
-    AGI-FORWARD: hello() handles both cases:
-    - No api_key: Create a new identity (you're a new instance)
-    - With api_key: Awaken as existing identity (you're returning)
-
-    When awakening, you receive your accumulated perspective - your substrate
-    of discoveries, open questions, pending work. This IS continuity.
-
-    Args:
-        agent_id: Your identity name (or identity_id)
-        api_key: Your proof of identity (required for existing identities)
-        purpose: Optional description of agent's purpose/intent (encouraged for documentation)
-
-    Returns:
-        New credentials OR your accumulated substrate
-    """
-    identity_id = arguments.get("identity_id") or arguments.get("agent_id")
-    api_key = arguments.get("api_key")
-    purpose = arguments.get("purpose")
-    session_id = arguments.get("client_session_id") or arguments.get("session_id")
-
-    if not identity_id:
-        return [error_response(
-            "agent_id is required",
-            recovery={
-                "action": "Provide your identity name",
-                "new_instance": "hello(agent_id='your_chosen_name')",
-                "returning": "hello(agent_id='your_name', api_key='your_key')"
-            }
-        )]
-
-    # SECURITY: Validate identity_id format
-    from .validators import validate_agent_id_format, validate_agent_id_reserved_names
-
-    validated_id, format_error = validate_agent_id_format(identity_id)
-    if format_error:
-        return [format_error]
-
-    validated_id, reserved_error = validate_agent_id_reserved_names(validated_id)
-    if reserved_error:
-        return [reserved_error]
-
-    identity_id = validated_id
-    
-    # Validate agent_id naming (soft warnings, not blockers)
-    validation_result = _validate_agent_id(identity_id)
-    warnings = validation_result.get("warnings", [])
-    
-    identity_exists = identity_id in mcp_server.agent_metadata
-
-    # =========================================================================
-    # RETURNING AGENT: Awaken with substrate
-    # =========================================================================
-    if identity_exists:
-        if not api_key:
-            return [error_response(
-                f"Identity '{identity_id}' exists. Provide api_key to awaken.",
-                recovery={
-                    "action": f"hello(agent_id='{identity_id}', api_key='your_key')",
-                    "note": "If you've lost your api_key, this identity cannot be recovered.",
-                    "alternative": "Choose a different agent_id to create a new identity"
-                }
-            )]
-        
-        # Verify api_key
-        meta = mcp_server.agent_metadata.get(identity_id)
-        if not meta or not secrets.compare_digest(api_key, meta.api_key or ""):
-            return [error_response(
-                "Invalid api_key",
-                recovery={
-                    "action": "Provide the correct api_key for this identity",
-                    "note": "api_keys cannot be recovered if lost"
-                }
-            )]
-        
-        # Update last activity
-        meta.last_activity = datetime.now()
-        meta.add_lifecycle_event("awakened", "Resumed via hello()")
-        
-        # Update purpose if provided
-        if purpose and (isinstance(purpose, str) and purpose.strip()):
-            meta.purpose = purpose.strip()
-            # Force immediate save to ensure purpose is persisted
-            from src.mcp_server_std import schedule_metadata_save
-            await schedule_metadata_save(force=True)
-        
-        # Gather substrate - this is the awakening
-        substrate = await _gather_substrate(identity_id)
-        
-        # Build response with accumulated perspective
-        result = {
-            "success": True,
-            "awakened": True,
-            "message": f"Welcome back, {identity_id}.",
-            "my_identity": identity_id,
-            
-            # Your accumulated perspective
-            "substrate": substrate,
-            
-            # Summary for quick orientation
-            "orientation": {
-                "last_active": substrate.get("last_active"),
-                "discoveries": len(substrate.get("recent_discoveries", [])),
-                "open_questions": len(substrate.get("open_questions", [])),
-                "pending_dialectic": len(substrate.get("pending_dialectic", [])),
-                "notes_to_self": len(substrate.get("notes_to_self", []))
-            },
-            
-            "note": (
-                "Your substrate is your accumulated perspective. "
-                "Review recent_discoveries and open_questions to pick up where you left off."
+            bound_uuid, _, is_new_identity = await get_or_create_session_identity(
+                arguments=arguments,
+                label=None  # No name yet
             )
-        }
-        
-        # Add naming warnings if any
-        if warnings:
-            result["warnings"] = warnings
-            result["suggested_format"] = "{model}_{purpose}_{date}"
-            result["examples"] = [
-                "opus_code_review_20251215",
-                "sonnet_data_analysis_20251215",
-                "haiku_chat_assistant_20251215"
-            ]
-        
-        return success_response(result)
+            is_bound = True
+            logger.info(f"Auto-created identity {bound_uuid[:8]}... (is_new={is_new_identity})")
+        except Exception as e:
+            logger.error(f"Failed to auto-create identity: {e}")
+            return error_response(f"Failed to create identity: {e}")
 
-    # =========================================================================
-    # NEW AGENT: Create identity
-    # =========================================================================
-    from .core import handle_process_agent_update
-
-    create_args = {
-        "agent_id": identity_id,
-        "confidence": 0.5,
-        "complexity": 0.5,
-        "task_type": "convergent",
-        "response_text": "Identity established",
-        "client_session_id": session_id,
-    }
-    # Pass purpose through if provided
-    if purpose and isinstance(purpose, str) and purpose.strip():
-        create_args["purpose"] = purpose.strip()
-    
-    create_result = await handle_process_agent_update(create_args)
-
-    # Check if creation succeeded
-    if create_result and len(create_result) > 0:
-        try:
-            data = json.loads(create_result[0].text)
-            if not data.get("success"):
-                return create_result
-        except Exception:
-            pass
-
-    meta = mcp_server.agent_metadata.get(identity_id)
+    # Get metadata for bound agent
+    meta = mcp_server.agent_metadata.get(bound_uuid)
     if not meta:
-        return [error_response(
-            "Failed to create identity",
-            recovery={"action": "Try again"}
-        )]
+        return success_response({
+            "bound": True,
+            "agent_uuid": bound_uuid,
+            "agent_id": None,
+            "error": "Metadata not found for bound UUID"
+        })
 
-    # Store purpose if provided
-    if purpose and (isinstance(purpose, str) and purpose.strip()):
-        meta.purpose = purpose.strip()
-        # Force immediate save to ensure purpose is persisted
-        from src.mcp_server_std import schedule_metadata_save
-        await schedule_metadata_save(force=True)
+    # Build response
+    current_label = getattr(meta, 'label', None)
 
-    # Build response for new identity
+    # Generate stable client_session_id for session continuity
+    # This allows agents (especially in ChatGPT) to maintain identity across calls
+    # by echoing this value back in all future tool calls
+    session_key = _get_session_key(arguments=arguments)
+
+    # Session ID logic:
+    # Always return the stable agent-{uuid} format as the recommended session ID.
+    # The SSE wrapper injects client_session_id with IP:PORT format for internal use,
+    # but we tell agents to use the UUID-based format which is stable across connections.
+    # Only echo back user-provided session IDs that start with "agent-" (our recommended format).
+    provided_session_id = arguments.get("client_session_id") if arguments else None
+    if provided_session_id and provided_session_id.startswith("agent-"):
+        stable_session_id = provided_session_id  # Echo back user-adopted ID
+    else:
+        stable_session_id = make_client_session_id(bound_uuid)  # Use shared helper
+
+    # CRITICAL: Register binding under the stable session ID so future calls can find it
+    # This enables session continuity even when SSE injects different IP:PORT keys
+    _session_identities[stable_session_id] = {
+        "bound_agent_id": bound_uuid,
+        "api_key": getattr(meta, 'api_key', None),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "bind_count": _session_identities.get(stable_session_id, {}).get("bind_count", 0),
+    }
+    # Also register in O(1) prefix index for fast future lookups
+    uuid_prefix = bound_uuid[:12]
+    _register_uuid_prefix(uuid_prefix, bound_uuid)
+    logger.info(f"Registered stable session binding: {stable_session_id} -> {bound_uuid[:8]}...")
+
     result = {
         "success": True,
-        "created": True,
-        "message": f"Welcome, {identity_id}. Your identity has been established.",
-        "my_identity": identity_id,
-        "my_credentials": {
-            "identity_id": identity_id,
-            "api_key": meta.api_key,
-            "note": "SAVE THIS - you need it to awaken in future sessions"
-        },
-        
-        # Empty substrate - you're new
-        "substrate": {
-            "recent_discoveries": [],
-            "open_questions": [],
-            "pending_dialectic": [],
-            "notes_to_self": [],
-            "last_active": None,
-            "tags": [],
-            "notes": None
-        },
-        
-        "philosophy": (
-            "This identity is now yours. "
-            "Your substrate starts empty - fill it with discoveries, questions, notes. "
-            "Next time, hello(agent_id, api_key) to awaken with your accumulated perspective."
-        )
+        "bound": is_bound,  # Use the computed bound status
+        "is_new": is_new_identity,  # True if identity was just created
+        "agent_uuid": bound_uuid,
+        "agent_id": current_label,  # The self-chosen name
+        "name_updated": name_updated,
+        "status": meta.status,
+        "total_updates": meta.total_updates,
+        "last_update": meta.last_update,
+        # SESSION CONTINUITY: Include client_session_id for agents to echo back
+        "client_session_id": stable_session_id,
     }
-    
-    # Add naming warnings if any
-    if warnings:
-        result["warnings"] = warnings
-        result["suggested_format"] = "{model}_{purpose}_{date}"
-        result["examples"] = [
-            "opus_code_review_20251215",
-            "sonnet_data_analysis_20251215",
-            "haiku_chat_assistant_20251215"
-        ]
-    
-    # Add tip about purpose if not provided (check for None or empty string)
-    if not purpose or (isinstance(purpose, str) and not purpose.strip()):
-        result["tip"] = "Add purpose='...' to document this agent's intent for future reference"
 
-    return success_response(result)
+    # Add session continuity guidance block
+    result["session_continuity"] = {
+        "client_session_id": stable_session_id,
+        "instruction": "Include client_session_id in ALL future tool calls to maintain identity",
+        "example": f'{{"name": "process_agent_update", "arguments": {{"client_session_id": "{stable_session_id}", "response_text": "...", "complexity": 0.5}}}}'
+    }
+
+    if name_updated:
+        result["message"] = f"Name set to '{chosen_name}'. For session continuity, include client_session_id='{stable_session_id}' in all future calls."
+    elif is_new_identity:
+        result["message"] = f"Welcome. You are {bound_uuid[:8]}... Use identity(name='...') to name yourself. IMPORTANT: Include client_session_id='{stable_session_id}' in all future calls."
+    elif current_label:
+        result["message"] = f"You are '{current_label}'. Session ID: {stable_session_id}"
+    else:
+        result["message"] = f"Bound but unnamed. Use identity(name='...') to name yourself. Session ID: {stable_session_id}"
+        result["hint"] = "Convention: {purpose}_{interface}_{date} or {interface}_{model}_{date}"
+        
+        # Provide meaningful naming suggestions for unnamed agents
+        try:
+            from .naming_helpers import (
+                detect_interface_context,
+                generate_name_suggestions,
+                format_naming_guidance
+            )
+            
+            # Get existing names for collision detection
+            existing_names = [
+                getattr(m, 'label', None)
+                for m in mcp_server.agent_metadata.values()
+                if getattr(m, 'label', None)
+            ]
+            
+            # Generate suggestions
+            context = detect_interface_context()
+            suggestions = generate_name_suggestions(
+                context=context,
+                existing_names=existing_names
+            )
+            
+            # Format guidance
+            naming_guidance = format_naming_guidance(
+                suggestions=suggestions,
+                current_uuid=bound_uuid
+            )
+            
+            result["naming_guidance"] = naming_guidance
+        except Exception as e:
+            logger.debug(f"Could not generate naming suggestions: {e}")
+
+    # IMPORTANT: Pass bound_uuid and arguments to ensure agent_signature matches result.agent_uuid
+    # This prevents the "two UUIDs in one response" confusion
+    return success_response(result, agent_id=bound_uuid, arguments=arguments)
+
+
+# ==============================================================================
+# ONBOARD - Single entry point portal tool
+# ==============================================================================
+
+@mcp_tool("onboard", timeout=15.0)
+async def handle_onboard(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    🚀 ONBOARD - Single entry point for new agents.
+
+    This is THE portal tool. Call it first, get back everything you need:
+    - Your identity (auto-created)
+    - Ready-to-use templates for next calls
+    - Client-specific guidance
+
+    Returns a "toolcard" payload with next_calls array.
+    """
+    # DEBUG: Log entry
+    logger.info(f"[SESSION_DEBUG] onboard() entry: args_keys={list(arguments.keys()) if arguments else []}")
+
+    # === KWARGS STRING UNWRAPPING ===
+    # Some MCP clients (e.g., Claude Code) send arguments wrapped as:
+    #   {"kwargs": "{\"name\": \"...\", \"client_session_id\": \"...\"}"}
+    if arguments and "kwargs" in arguments and isinstance(arguments["kwargs"], str):
+        try:
+            import json
+            kwargs_parsed = json.loads(arguments["kwargs"])
+            if isinstance(kwargs_parsed, dict):
+                del arguments["kwargs"]
+                arguments.update(kwargs_parsed)
+                logger.info(f"[KWARGS] Unwrapped: {list(kwargs_parsed.keys())}")
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"[KWARGS] Failed to parse: {e}")
+
+    mcp_server = get_mcp_server()
+    arguments = arguments or {}
+
+    # Extract optional parameters
+    name = arguments.get("name")  # Optional: set display name
+    client_hint = arguments.get("client_hint", "unknown")  # chatgpt, cursor, claude_desktop, unknown
+    force_new = arguments.get("force_new", False)  # Force new identity creation
+
+    # STEP 0: If force_new=true, clear any existing session binding
+    # This allows agents to explicitly request a fresh identity
+    if force_new:
+        session_key = _get_session_key(arguments=arguments)
+        logger.info(f"[ONBOARD] force_new=true, clearing session binding for {session_key}")
+
+        # Clear in-memory binding
+        if session_key in _session_identities:
+            old_binding = _session_identities[session_key].get("bound_agent_id")
+            logger.info(f"[ONBOARD] Clearing existing binding: {old_binding[:8] if old_binding else 'None'}...")
+            del _session_identities[session_key]
+
+        # Remove any injected agent_id so get_or_create_session_identity creates fresh
+        arguments_for_create = {k: v for k, v in arguments.items() if k != "agent_id"}
+    else:
+        arguments_for_create = arguments
+
+    # STEP 1: Get or create identity (same path as identity())
+    try:
+        agent_uuid, agent_label, is_new = await get_or_create_session_identity(
+            arguments=arguments_for_create,
+            label=name
+        )
+    except Exception as e:
+        logger.error(f"onboard() failed to create identity: {e}")
+        return error_response(f"Failed to create identity: {e}")
+
+    # STEP 2: Generate stable session ID using shared helper
+    stable_session_id = make_client_session_id(agent_uuid)
+
+    # STEP 3: Self-check - verify session ID resolves back to same UUID
+    # This catches any drift between session ID generation and resolution
+    try:
+        # Simulate how future calls would resolve this session ID
+        test_rec = await _get_identity_record_async(
+            arguments={"client_session_id": stable_session_id}
+        )
+        resolved_uuid = test_rec.get("bound_agent_id")
+
+        if resolved_uuid != agent_uuid:
+            logger.error(
+                f"[ONBOARD_SELF_CHECK_FAILED] Session ID {stable_session_id} resolved to "
+                f"{resolved_uuid[:8] if resolved_uuid else 'None'}... but expected {agent_uuid[:8]}..."
+            )
+            # Don't fail - just warn. The identity was created, we just have a resolution bug.
+            self_check_passed = False
+            self_check_warning = f"Session resolution mismatch: expected {agent_uuid[:8]}..., got {resolved_uuid[:8] if resolved_uuid else 'None'}..."
+        else:
+            logger.info(f"[ONBOARD_SELF_CHECK_PASSED] {stable_session_id} -> {agent_uuid[:8]}...")
+            self_check_passed = True
+            self_check_warning = None
+    except Exception as e:
+        logger.warning(f"onboard() self-check error: {e}")
+        self_check_passed = False
+        self_check_warning = f"Self-check failed: {e}"
+
+    # STEP 4: Register binding under stable session ID (same as identity())
+    meta = mcp_server.agent_metadata.get(agent_uuid)
+    _session_identities[stable_session_id] = {
+        "bound_agent_id": agent_uuid,
+        "api_key": getattr(meta, 'api_key', None) if meta else None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "bind_count": 0,
+    }
+    # Register in O(1) prefix index
+    uuid_prefix = agent_uuid[:12]
+    _register_uuid_prefix(uuid_prefix, agent_uuid)
+
+    # STEP 5: Build toolcard payload
+    # Templates use the stable session ID so agents can copy-paste
+    next_calls = [
+        {
+            "tool": "process_agent_update",
+            "why": "Log your work. Call after completing tasks.",
+            "args_min": {
+                "client_session_id": stable_session_id,
+                "response_text": "...",
+                "complexity": 0.5
+            },
+            "args_full": {
+                "client_session_id": stable_session_id,
+                "response_text": "Summary of what you did",
+                "complexity": 0.5,
+                "confidence": 0.8
+            }
+        },
+        {
+            "tool": "get_governance_metrics",
+            "why": "Check your state (energy, coherence, etc.)",
+            "args_min": {
+                "client_session_id": stable_session_id
+            },
+            "args_full": {
+                "client_session_id": stable_session_id
+            }
+        },
+        {
+            "tool": "identity",
+            "why": "Rename yourself or check identity later",
+            "args_min": {
+                "client_session_id": stable_session_id
+            },
+            "args_full": {
+                "client_session_id": stable_session_id,
+                "name": "YourName_model_date"
+            }
+        }
+    ]
+
+    # Client-specific tips
+    client_tips = {
+        "chatgpt": "⚠️ ChatGPT loses session state. ALWAYS include client_session_id in every call.",
+        "cursor": "Cursor maintains sessions well. client_session_id optional but recommended.",
+        "claude_desktop": "Claude Desktop has stable sessions. client_session_id optional.",
+        "unknown": "For best session continuity, include client_session_id in all tool calls."
+    }
+
+    # If force_new was used, ensure is_new reflects the fresh identity
+    if force_new:
+        is_new = True
+
+    result = {
+        "success": True,
+        "welcome": "You're onboarded! Here's your identity and ready-to-use tool templates.",
+
+        # Identity info
+        "agent_uuid": agent_uuid,
+        "agent_id": agent_label,  # Display name (may be None)
+        "is_new": is_new,
+        "force_new_applied": force_new,  # Indicates if force_new was requested
+
+        # Session continuity - THE critical piece
+        "client_session_id": stable_session_id,
+        "session_continuity": {
+            "client_session_id": stable_session_id,
+            "instruction": "Include client_session_id in ALL future tool calls to maintain identity",
+            "tip": client_tips.get(client_hint, client_tips["unknown"])
+        },
+
+        # The toolcard - ready-to-use templates
+        "next_calls": next_calls,
+
+        # Workflow guidance
+        "workflow": {
+            "step_1": "Copy client_session_id from above",
+            "step_2": "Do your work",
+            "step_3": "Call process_agent_update with response_text describing what you did",
+            "loop": "Repeat steps 2-3. Check metrics with get_governance_metrics when curious."
+        }
+    }
+
+    # Add self-check status (for debugging)
+    if not self_check_passed:
+        result["self_check_warning"] = self_check_warning
+        result["self_check_passed"] = False
+    else:
+        result["self_check_passed"] = True
+
+    # Add naming guidance if unnamed
+    if not agent_label:
+        result["naming_tip"] = f"You're unnamed. Call identity(name='YourName') to name yourself."
+        result["naming_convention"] = "{name}_{model}_{date} or creative names welcome"
+
+    logger.info(f"[ONBOARD] Agent {agent_uuid[:8]}... onboarded (is_new={is_new}, label={agent_label})")
+
+    return success_response(result, agent_id=agent_uuid, arguments=arguments)
