@@ -2,8 +2,8 @@
 
 This directory contains essential documentation for the UNITARES Governance Monitor system.
 
-**Last Updated:** 2025-12-09  
-**Total Files:** 5 markdown files
+**Last Updated:** 2025-12-23
+**Total Files:** 6 markdown files
 
 ---
 
@@ -16,6 +16,7 @@ Essential guides for using the system:
 - **[MCP_SETUP.md](guides/MCP_SETUP.md)** - MCP server setup instructions
 - **[TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)** - Common issues and solutions
 - **[THRESHOLDS.md](guides/THRESHOLDS.md)** - Governance thresholds and configuration
+- **[SCRIPTS_OVERVIEW.md](guides/SCRIPTS_OVERVIEW.md)** - Active vs archived scripts map
 
 ### `/reference/` - Reference Documentation (1 file)
 
@@ -25,13 +26,17 @@ Essential guides for using the system:
 
 - **[EISV_THEORETICAL_FOUNDATIONS.md](theory/EISV_THEORETICAL_FOUNDATIONS.md)** - Comprehensive theoretical treatment of EISV framework (mathematical elegance, domain integration, philosophical significance)
 
+### `/dev/` - Developer Documentation (1 file)
+
+- **[TOOL_REGISTRATION.md](dev/TOOL_REGISTRATION.md)** - How to add/modify tools in the MCP server (auto-registration, session injection, SSE-only tools)
+
 ---
 
 ## Quick Start
 
 **New to the system?**
 
-1. Read **[../START_HERE.md](../START_HERE.md)** (5 min) - Quick onboarding
+1. Read **[START_HERE.md](guides/START_HERE.md)** (5 min) - Quick onboarding
 2. Read **[AI_ASSISTANT_GUIDE.md](reference/AI_ASSISTANT_GUIDE.md)** (20 min) - Complete agent guide
 3. Reference **[TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)** as needed
 
@@ -48,7 +53,7 @@ Essential guides for using the system:
 ## Project Root Documentation
 
 - **[README.md](../README.md)** - Main project documentation
-- **[START_HERE.md](../START_HERE.md)** - Onboarding entry point
+- **[START_HERE.md](guides/START_HERE.md)** - Onboarding entry point
 - **[CHANGELOG.md](../CHANGELOG.md)** - Version history
 
 ---
@@ -76,5 +81,4 @@ Essential guides for using the system:
 
 ---
 
-**Last Updated:** 2025-12-09
-
+**Last Updated:** 2025-12-23

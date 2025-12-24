@@ -407,8 +407,8 @@ class GovernanceDocValidator:
 
         content = readme.read_text()
 
-        # Check for version marker
-        if "v2.1" not in content and "v2.0" not in content:
+        # Check for version marker (accept any semantic version)
+        if not re.search(r"UNITARES Governance Framework v\d+\.\d+", content):
             self.add_issue(
                 severity="major",
                 category="no_version",
@@ -564,7 +564,8 @@ class GovernanceDocValidator:
             'DIALECTIC_IMPROVEMENTS.md', 'CONFIDENCE_GATING_AND_CALIBRATION.md',
             'BACKUP_STRATEGY.md', 'DOCUMENTATION_COHERENCE.md', 'META_PATTERNS.md',
             'AGI_FRIENDLINESS_ASSESSMENT.md', 'AGI_FRIENDLINESS_IMPROVEMENTS.md',
-            'authentication-guide.md', 'knowledge-layer.md'
+            'authentication-guide.md', 'knowledge-layer.md',
+            'DATE_CONTEXT_CONNECTION_ISSUES.md'
         }
         
         # Threshold: 1000 words ≈ 5000 characters (rough estimate)
