@@ -212,10 +212,37 @@ python -m pytest tests/ -v
 
 ---
 
+## Why Thermodynamic Governance?
+
+Most AI governance approaches are either:
+- **Binary** (aligned/misaligned) - too coarse for real-time monitoring
+- **Philosophical** (values, ethics) - hard to measure
+- **Post-hoc** (evals, audits) - too late for prevention
+
+UNITARES treats agent state like a physical system with **continuous, measurable variables**. This enables:
+- Real-time drift detection (not just eval failures)
+- Graduated responses (caution before pause)
+- Circuit breakers with automatic recovery paths
+- Cross-agent comparison and fleet monitoring
+
+The thermodynamic framing isn't metaphor - it's a design choice that makes governance **observable and actionable**.
+
+---
+
+## Author
+
+Built by Kenny Wang ([@CIRWEL](https://github.com/CIRWEL)) - 25-year professional musician turned AI systems builder.
+
+Background in precision work (orchestral performance), pattern recognition, and self-directed learning. No CS degree, just building.
+
+Also building [Lumen](https://github.com/CIRWEL/anima-mcp) - an embodied AI creature with real sensors and persistent identity.
+
+---
+
 ## License
 
 Research prototype - contact for licensing.
 
 ---
 
-**Version:** 2.5.4 | **Last Updated:** 2026-02-01
+**Version:** 2.5.4 | **Last Updated:** 2026-02-03
