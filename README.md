@@ -52,29 +52,31 @@ pip install -r requirements-core.txt
 
 **Run server:**
 ```bash
-# Multi-client SSE server (recommended)
+# MCP server (recommended)
 python src/mcp_server_sse.py --port 8765
 
 # Or single-client stdio
 python src/mcp_server_std.py
 ```
 
-**Access:**
-- MCP Endpoint: `http://localhost:8765/sse`
-- Dashboard: `http://localhost:8765/dashboard`
-- Health: `http://localhost:8765/health`
+**Endpoints:**
+| Endpoint | Transport | Use Case |
+|----------|-----------|----------|
+| `/mcp` | Streamable HTTP | **Recommended** - resumability, modern clients |
+| `/sse` | Server-Sent Events | Legacy - older MCP clients |
+| `/dashboard` | HTTP | Web dashboard |
+| `/health` | HTTP | Health checks |
 
 ---
 
 ## MCP Configuration
 
-**Cursor / Claude Desktop (SSE):**
+**Cursor / Claude Desktop (Streamable HTTP - recommended):**
 ```json
 {
   "mcpServers": {
     "unitares": {
-      "type": "sse",
-      "url": "http://localhost:8765/sse"
+      "url": "http://localhost:8765/mcp"
     }
   }
 }
@@ -85,11 +87,22 @@ python src/mcp_server_std.py
 {
   "mcpServers": {
     "unitares": {
-      "type": "sse",
-      "url": "https://unitares.ngrok.io/sse",
+      "url": "https://unitares.ngrok.io/mcp",
       "headers": {
         "Authorization": "Basic <base64-credentials>"
       }
+    }
+  }
+}
+```
+
+**Legacy SSE (older clients):**
+```json
+{
+  "mcpServers": {
+    "unitares": {
+      "type": "sse",
+      "url": "http://localhost:8765/sse"
     }
   }
 }
