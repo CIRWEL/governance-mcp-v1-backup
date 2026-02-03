@@ -433,7 +433,7 @@ m.process_update({'response_text': 'Work summary', 'complexity': 0.5})
 → [Troubleshooting Guide](docs/guides/TROUBLESHOOTING.md)
 
 **See all available tools:**
-→ **Call `list_tools` MCP tool** - Returns all 47 tools with descriptions, categories, and workflows  
+→ **Call `list_tools` MCP tool** - Returns all 79 tools with descriptions, categories, and workflows  
 → Or check [README.md](README.md) for full feature list
 
 **Find a quick command:**

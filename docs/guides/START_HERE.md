@@ -54,9 +54,9 @@ export GOVERNANCE_TOOL_MODE=minimal
 
 **Other modes:**
 - **Lite mode** (`GOVERNANCE_TOOL_MODE=lite`): 10 essential tools - for local models
-- **Full mode** (`GOVERNANCE_TOOL_MODE=full`): All 45 tools - for cloud models (default)
+- **Full mode** (`GOVERNANCE_TOOL_MODE=full`): All 79 tools - for cloud models (default)
   - Note: Tool mode filtering removed - all tools always available
-  - SSE server: 46 tools (+1 SSE-only: `get_connected_clients`)
+  - SSE server: 79 tools (+1 SSE-only: `get_connected_clients`)
 
 **Note:** `list_tools` is always available in any mode to enable tool discovery.
 
@@ -380,4 +380,4 @@ Governance should be **informative, not restrictive**. Agents log activity, rece
 
 ---
 
-**Last Updated:** 2025-12-25 (v2.4.0: identity_v2, session auto-bind, no API keys needed)
+**Last Updated:** 2026-02-01 (v2.5.4: identity_v2, session auto-bind, no API keys needed)
