@@ -18,7 +18,6 @@
 | Guide | Description |
 |-------|-------------|
 | [GETTING_STARTED_SIMPLE](guides/GETTING_STARTED_SIMPLE.md) | Fastest path - 3 tools |
-| [QUICK_REFERENCE](guides/QUICK_REFERENCE.md) | One-page cheat sheet |
 | [START_HERE](guides/START_HERE.md) | Full onboarding guide |
 | [DEPLOYMENT](guides/DEPLOYMENT.md) | Installation & setup |
 | [MCP_SETUP](guides/MCP_SETUP.md) | MCP client configuration |

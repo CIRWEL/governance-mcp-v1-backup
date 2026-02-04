@@ -155,7 +155,7 @@ Key sections below:
 - Quick Reference: Common tasks
 
 **Additional resources:**
-- [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - One-page cheat sheet
+- [GETTING_STARTED_SIMPLE.md](GETTING_STARTED_SIMPLE.md) - Quick 3-step intro
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and fixes
 - [GETTING_STARTED_SIMPLE.md](GETTING_STARTED_SIMPLE.md) - Minimal 3-tool path
 
@@ -316,7 +316,7 @@ list_tools(include_advanced=False)  # Hide Tier 3 (advanced) tools
 |-------------|-------------|
 | **Get started** | `onboard()` - THE portal tool, call FIRST |
 | Read the guide | This file (START_HERE.md) |
-| Quick cheat sheet | [QUICK_REFERENCE.md](QUICK_REFERENCE.md) |
+| Quick start | [GETTING_STARTED_SIMPLE.md](GETTING_STARTED_SIMPLE.md) |
 | Share my work | `process_agent_update` (MCP) or `UNITARESMonitor` (Python) |
 | Check my identity | `identity()` (MCP) |
 | Check my state | `get_governance_metrics` (MCP) |
