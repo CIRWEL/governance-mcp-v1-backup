@@ -271,7 +271,6 @@ The drift is *computed*, but interpreting "high drift = bad" requires domain con
 |-------|---------|
 | [GETTING_STARTED_SIMPLE.md](docs/guides/GETTING_STARTED_SIMPLE.md) | 3-step quickstart |
 | [START_HERE.md](docs/guides/START_HERE.md) | Full onboarding |
-| [QUICK_REFERENCE.md](docs/guides/QUICK_REFERENCE.md) | One-page cheat sheet |
 | [TROUBLESHOOTING.md](docs/guides/TROUBLESHOOTING.md) | Common issues |
 | [governance_core/README.md](governance_core/README.md) | Math foundation |
 
