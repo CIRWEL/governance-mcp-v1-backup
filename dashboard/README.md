@@ -1,7 +1,7 @@
 # UNITARES Governance Dashboard
 
-**Created:** December 30, 2025  
-**Last Updated:** December 30, 2025  
+**Created:** December 30, 2025
+**Last Updated:** February 3, 2026
 **Status:** Active
 
 ---
@@ -14,8 +14,8 @@ Web-based dashboard for visualizing multi-agent coordination in real-time. Shows
 
 Once the MCP server is running, access the dashboard at:
 
-- **Local:** http://127.0.0.1:8765/dashboard
-- **Root:** http://127.0.0.1:8765/ (also serves dashboard)
+- **Local:** http://127.0.0.1:8767/dashboard
+- **Root:** http://127.0.0.1:8767/ (also serves dashboard)
 - **Via ngrok:** https://unitares.ngrok.io/dashboard
 
 ## Features
@@ -61,8 +61,8 @@ Edit `dashboard/index.html` to:
 ## Development
 
 ### Local Testing
-1. Start the MCP server: `python src/mcp_server_sse.py --port 8765`
-2. Open browser: http://127.0.0.1:8765/dashboard
+1. Start the MCP server: `python src/mcp_server_sse.py --port 8767`
+2. Open browser: http://127.0.0.1:8767/dashboard
 3. Edit `dashboard/index.html` and refresh
 
 ### Adding New Features
