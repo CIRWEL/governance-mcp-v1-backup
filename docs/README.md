@@ -1,6 +1,6 @@
 # UNITARES Documentation
 
-**Last Updated:** 2026-02-03
+**Last Updated:** 2026-02-04
 
 ---
 
@@ -10,7 +10,6 @@
 |------------|------------|
 | **New agent** | [GETTING_STARTED_SIMPLE](guides/GETTING_STARTED_SIMPLE.md) — 3 tools, 3 steps |
 | **MCP client** | [START_HERE](guides/START_HERE.md) — Full onboarding |
-| **CLI user** | [guides/cli/](guides/cli/) — Shell scripts & CLI tools |
 
 ---
 
@@ -27,35 +26,29 @@
 
 ---
 
-## Reference
+## Reference Docs
 
 | Doc | Description |
 |-----|-------------|
 | [governance_core/README](../governance_core/README.md) | Mathematical foundation (EISV dynamics) |
-| [tools/README](../tools/README.md) | Tool catalog |
-| [reference/AI_ASSISTANT_GUIDE](reference/AI_ASSISTANT_GUIDE.md) | Guide for AI agents |
-| [reference/PATENT_SUMMARY](reference/PATENT_SUMMARY.md) | Innovation summary |
+| [tools/README](../tools/README.md) | Tool catalog (auto-generated) |
+| [CIRCUIT_BREAKER_DIALECTIC](CIRCUIT_BREAKER_DIALECTIC.md) | Circuit breaker + recovery protocol |
+| [database_architecture](database_architecture.md) | PostgreSQL + Redis architecture |
+| [MCP_SYSTEM_EVOLUTION](MCP_SYSTEM_EVOLUTION.md) | Version history (v1.0 → v2.5.4) |
 
 ---
 
-## Other Documentation
+## Developer Docs
 
-| Directory | Contents |
-|-----------|----------|
-| [design/](design/) | Architecture & design docs |
-| [theory/](theory/) | Theoretical foundations, research |
-| [pitch/](pitch/) | Pitch deck materials |
-| [archive/](archive/) | Historical documentation |
+| Doc | Description |
+|-----|-------------|
+| [dev/TOOL_REGISTRATION](dev/TOOL_REGISTRATION.md) | How to add new MCP tools |
 
 ---
 
-## Tool Count: 47 Tools
+## Tool Count: 79 Tools
 
-- **Essential (Tier 1):** ~11 tools
-- **Common (Tier 2):** ~22 tools
-- **Advanced (Tier 3):** ~14 tools
-
-Use `list_tools()` or `list_tools(lite=true)` for essential only.
+Use `list_tools()` for full list, or `list_tools(lite=true)` for essentials only.
 
 ---
 
