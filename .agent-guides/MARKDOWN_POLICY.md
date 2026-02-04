@@ -1,92 +1,77 @@
 # Markdown File Creation Policy
 
 ## TL;DR
-**Don't create markdown files in the project root.** Use the structured docs/ hierarchy.
+**STOP creating markdown files.** Use the knowledge graph instead (`leave_note`, `store_knowledge_graph`).
 
-## Policy (Established Dec 15, 2024)
+## Policy (Updated Feb 2026)
 
-### ✅ Allowed Locations
-1. **Root level** - ONLY these permanent files:
+### The Problem
+We have **288+ markdown files** despite multiple cleanup efforts. Markdown proliferates because:
+- Every agent creates "just one more doc"
+- Session notes become permanent fixtures
+- Nobody deletes old docs
+
+### The Solution: Knowledge Graph First
+
+**Before creating ANY markdown file, ask:**
+1. Can this be a `leave_note()` instead? → YES for most things
+2. Can this be `store_knowledge_graph()` with tags? → YES for discoveries/insights
+3. Is this truly permanent reference material? → Only then consider markdown
+
+### ✅ Allowed Markdown Locations
+1. **Root level** - ONLY:
    - `README.md` - Project overview
    - `CHANGELOG.md` - Version history
-   - That's it.
 
-2. **Documentation hierarchy**:
-   - `docs/guides/` - How-to guides, tutorials
-   - `docs/reference/` - API docs, technical specs
-   - `docs/theory/` - Conceptual/theoretical content
-   - `docs/architecture/` - System design docs
-   - `docs/archive/YYYY-MM/` - Session notes, temporary analysis
+2. **`.agent-guides/`** - Instructions for AI agents (this directory)
 
-3. **Specs**:
-   - `specs/` - Feature specifications, design proposals
+3. **`docs/dev/`** - Developer reference (tool registration, etc.)
 
-4. **Agent-specific**:
-   - `.agent-guides/` - Instructions for AI agents
+4. **`docs/guides/`** - Essential user guides only (max 10 files)
 
-### ❌ Anti-Patterns
-- ❌ `MIGRATION_HANDOFF.md` in root → Should be `docs/archive/2025-12/postgres_migration_handoff.md`
-- ❌ `PHASE5_CUTOVER_COMPLETE.md` in root → Archive it
-- ❌ `ANALYSIS_20251215.md` in root → Goes to `docs/archive/2025-12/`
-- ❌ Creating duplicate docs instead of updating existing ones
+5. **`docs/archive/YYYY-MM/`** - Historical records (READ-ONLY, no new files)
+
+### ❌ DO NOT CREATE
+- Session notes → Use `leave_note()`
+- Analysis results → Use `store_knowledge_graph()`
+- Fix summaries → Use `leave_note()`
+- Temporary docs → Just don't
+- "Quick reference" files → Knowledge graph is searchable
 
 ### Decision Tree
 ```
-Need to create a markdown file?
+Need to document something?
 │
-├─ Is it the main README or CHANGELOG?
-│  └─ YES → Root level OK
+├─ Is it a quick insight/note?
+│  └─ YES → leave_note(summary="...", tags=[...])
 │
-├─ Is it a permanent guide/tutorial?
-│  └─ YES → docs/guides/
+├─ Is it a discovery/finding?
+│  └─ YES → store_knowledge_graph(summary="...", tags=[...])
 │
-├─ Is it technical reference?
-│  └─ YES → docs/reference/
+├─ Is it updating README or CHANGELOG?
+│  └─ YES → Edit those files
 │
-├─ Is it a feature spec/proposal?
-│  └─ YES → specs/
+├─ Is it agent instructions?
+│  └─ YES → Edit existing .agent-guides/ file
 │
-├─ Is it session notes/temporary analysis?
-│  └─ YES → docs/archive/YYYY-MM/
-│
-└─ Is it for AI agents specifically?
-   └─ YES → .agent-guides/
+└─ None of the above?
+   └─ Ask yourself: "Do I REALLY need a markdown file?"
+      └─ Probably not. Use the knowledge graph.
 ```
 
-## Rationale
-**Problem**: 81 markdown files scattered across the project, many at root level, causing:
-- Hard to find relevant docs
-- Duplicate/overlapping content
-- Root directory clutter
-- Unclear what's current vs historical
-
-**Solution**: Strict hierarchy with clear purpose per directory.
-
 ## Enforcement
-- **AI Agents**: Check this file before creating markdown
-- **Humans**: Review PR for markdown in wrong locations
-- **Automated**: (Future) Pre-commit hook to reject root-level markdown except README/CHANGELOG
+- **Pre-commit hook**: Warns if markdown count increases
+- **AI Agents**: Default to knowledge graph tools
+- **validate_file_path()**: Rejects markdown in wrong locations
 
-## Examples from Dec 15 Migration
-
-**What happened** (before policy):
-- Created `MIGRATION_HANDOFF.md` in root
-- Cursor agent created `PHASE5_CUTOVER_COMPLETE.md` in root
-- `VERIFICATION_REPORT.md` in root
-
-**What should happen** (after policy):
-- All moved to `docs/archive/2025-12/postgres_migration_*.md`
-- Consolidated session notes in archive
-- Root stays clean
-
-## Migration Complete
-As of Dec 15, 2024, all root-level markdown (except README/CHANGELOG) has been moved to proper locations.
-
-**Current root-level markdown files**:
+## Root Level Status
 ```bash
 $ ls *.md
 README.md
 CHANGELOG.md
 ```
+Keep it this way.
 
-That's it. Keep it that way! 🧹
+---
+**Last Updated:** Feb 2026
+**Previous versions:** Dec 2025 (81 files), Feb 2026 (288 files - oops)
