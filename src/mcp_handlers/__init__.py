@@ -81,8 +81,9 @@ from .dialectic import handle_get_dialectic_session, handle_list_dialectic_sessi
 # Self-Recovery - Simplified recovery without external reviewers (Jan 2026)
 # Note: handle_self_recovery_review moved to lifecycle.py per SELF_RECOVERY_SPEC.md
 from .self_recovery import (
-    handle_quick_resume,
-    handle_check_recovery_options,
+    handle_self_recovery,  # Consolidated entry point
+    handle_quick_resume,  # Hidden, used by dispatcher
+    handle_check_recovery_options,  # Hidden, used by dispatcher
     handle_operator_resume_agent,
 )
 # Identity - v2 simplified (Dec 2025, 3-path architecture)
@@ -115,7 +116,18 @@ from .cirs_protocol import (
     maybe_emit_void_alert,  # Hook for process_agent_update
     auto_emit_state_announce,  # Hook for process_agent_update
 )
-# Pi sensor tools removed Dec 2025 - building separate lightweight Pi MCP
+# Pi Orchestration - Mac→Pi coordination tools (Feb 2026)
+# Proxies calls to anima-mcp on Pi, handles SSE protocol translation
+from .pi_orchestration import (
+    handle_pi_get_context,
+    handle_pi_health,
+    handle_pi_sync_eisv,
+    handle_pi_display,
+    handle_pi_say,
+    handle_pi_post_message,
+    handle_pi_query,
+    handle_pi_workflow,
+)
 # Keep helper functions from identity.py (used by dispatch_tool)
 from .identity import (
     get_bound_agent_id,

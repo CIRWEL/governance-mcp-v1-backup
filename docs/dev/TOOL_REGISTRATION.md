@@ -89,7 +89,7 @@ TOOLS_NEEDING_SESSION_INJECTION = {
     "get_system_history",
     "export_to_file",
     "mark_response_complete",
-    # "direct_resume_if_safe", # DEPRECATED - use quick_resume
+    # "direct_resume_if_safe", # DEPRECATED - use self_recovery(action="quick")
     "update_discovery_status_graph",
     "get_discovery_details",
     "get_dialectic_session",

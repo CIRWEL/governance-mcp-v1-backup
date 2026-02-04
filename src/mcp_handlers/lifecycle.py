@@ -1405,7 +1405,7 @@ async def handle_direct_resume_if_safe(arguments: Dict[str, Any]) -> Sequence[Te
     return success_response(response_data)
 
 
-@mcp_tool("self_recovery_review", timeout=15.0)
+@mcp_tool("self_recovery_review", timeout=15.0, hidden=True)  # Use self_recovery(action="review") instead
 async def handle_self_recovery_review(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
     Self-reflection recovery - lightweight alternative to dialectic.
