@@ -4,8 +4,8 @@
 
 **If you have MCP access (Cursor, Claude Desktop, etc.):**
 - ✅ **Use MCP tools directly** - Don't use scripts
-- ✅ **See `tools/README.md`** - Tools are the primary interface
-- ✅ **Full tool suite available** - Use list_tools() for current count (43 as of Dec 2025)
+- ✅ **Use `list_tools()`** - Shows all 79 available tools
+- ✅ **Full tool suite available** - Scripts are only for CLI-only interfaces
 
 **If you DON'T have MCP access (CLI-only):**
 - ⚠️ **Use scripts below** - Only for CLI-only interfaces
@@ -135,8 +135,8 @@
 
 ---
 
-**Last Updated:** December 8, 2025  
-**Status:** 12 active scripts (6 automation + 6 utilities), 31 archived, 5 moved to tests/
+**Last Updated:** February 3, 2026
+**Status:** 12 active scripts, 31 archived, 5 moved to tests/
 
-**Key Change:** Most scripts replaced by MCP tools. Only essential CLI bridge and maintenance scripts remain.
+**Key Change:** Most functionality provided by 79 MCP tools. Scripts only needed for CLI-only interfaces.
 
