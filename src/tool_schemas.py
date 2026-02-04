@@ -4593,104 +4593,49 @@ EXAMPLES:
                 "required": ["protocol"]
             }
         ),
-        # Self-Recovery Tools (added per SELF_RECOVERY_SPEC.md)
+        # Consolidated Self-Recovery Tool (replaces self_recovery_review, quick_resume, check_recovery_options)
         Tool(
-            name="self_recovery_review",
-            description="""Self-reflection recovery - recover from stuck states with reflection. Primary recovery path.
+            name="self_recovery",
+            description="""Unified self-recovery for stuck/paused agents.
 
-USE CASES:
-- Recover from stuck/paused states with genuine reflection
-- When quick_resume isn't safe enough (coherence < 0.60 or risk > 0.40)
-- Complex recovery scenarios requiring explanation
+ACTIONS:
+  check  - See what recovery options are available (read-only)
+  quick  - Fast resume for safe states (coherence > 0.60, risk < 0.40)
+  review - Full recovery with reflection (for moderate states)
 
-REQUIRED:
-- reflection: What went wrong and what you'll do differently
+WORKFLOW:
+  1. self_recovery(action="check") - see what's available
+  2. self_recovery(action="quick") - if metrics are safe
+  3. self_recovery(action="review", reflection="...") - if not
 
-OPTIONAL:
-- conditions: Specific recovery conditions (e.g., "reduce complexity")
-- reason: Brief reason for stuck state
-
-RETURNS:
-{
-  "success": true,
-  "action": "resumed" | "escalated",
-  "message": "string",
-  "metrics": { "coherence": float, "risk_score": float }
-}""",
+RETURNS (varies by action):
+  check:  { eligible: bool, blockers: [], recommendations: [] }
+  quick:  { recovered: bool, method: "quick_resume", metrics: {...} }
+  review: { recovered: bool, method: "self_review", metrics: {...} }""",
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["check", "quick", "review"],
+                        "description": "Recovery action: check (diagnose), quick (fast resume), review (with reflection)",
+                        "default": "check"
+                    },
                     "reflection": {
                         "type": "string",
-                        "description": "What went wrong and what you'll do differently (required)"
+                        "description": "What went wrong and what you'll change (required for action=review)"
                     },
                     "conditions": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Specific recovery conditions"
+                        "description": "Recovery conditions (optional for action=review)"
                     },
                     "reason": {
                         "type": "string",
-                        "description": "Brief reason for stuck state"
+                        "description": "Brief reason (optional for action=quick)"
                     }
                 },
-                "required": ["reflection"]
-            }
-        ),
-        Tool(
-            name="quick_resume",
-            description="""Fast recovery without reflection - for very safe states only.
-
-USE CASES:
-- Simple stuck scenarios with excellent metrics
-- Fast recovery (< 1 second) when state is clearly safe
-- Requires: coherence > 0.60, risk_score < 0.40
-
-RETURNS:
-{
-  "success": true,
-  "action": "resumed",
-  "message": "string",
-  "metrics": { "coherence": float, "risk_score": float }
-}
-
-NOTE: If metrics don't meet threshold, use self_recovery_review instead.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "reason": {
-                        "type": "string",
-                        "description": "Brief reason for recovery (optional)"
-                    }
-                },
-                "required": []
-            }
-        ),
-        Tool(
-            name="check_recovery_options",
-            description="""Check what recovery options are available for current agent state.
-
-USE CASES:
-- Diagnose why recovery is blocked
-- See which recovery path is appropriate
-- Read-only - doesn't modify state
-
-RETURNS:
-{
-  "success": true,
-  "agent_id": "string",
-  "metrics": { "coherence": float, "risk_score": float },
-  "recovery_options": {
-    "quick_resume": { "available": bool, "reason": "string" },
-    "self_recovery_review": { "available": bool, "reason": "string" },
-    "needs_human": { "required": bool, "reason": "string" }
-  },
-  "recommendation": "quick_resume" | "self_recovery_review" | "needs_human"
-}""",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": []
+                "required": ["action"]
             }
         ),
         Tool(
@@ -4722,6 +4667,157 @@ RETURNS:
                     }
                 },
                 "required": ["agent_id", "reason"]
+            }
+        ),
+
+        # ================================================================
+        # Pi Orchestration Tools - Mac→Pi coordination
+        # ================================================================
+        Tool(
+            name="pi_get_context",
+            description="Get Lumen's complete context from Pi (identity, anima, sensors, mood). Orchestrated call to Pi's get_lumen_context.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "include": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "What to include: identity, anima, sensors, mood (default: all)"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="pi_health",
+            description="Check Pi anima-mcp health and connectivity. Returns latency, component status, and diagnostics.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
+            name="pi_sync_eisv",
+            description="Sync Lumen's anima state to EISV governance metrics. Maps warmth→E, clarity→I, stability→S, presence→V.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "update_governance": {
+                        "type": "boolean",
+                        "description": "Whether to update governance state with synced values (default: false)"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="pi_display",
+            description="Control Pi's display: switch screens, show face, navigate.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Action: next, prev, switch, show_face"
+                    },
+                    "screen": {
+                        "type": "string",
+                        "description": "Screen name (for action=switch)"
+                    }
+                },
+                "required": ["action"]
+            }
+        ),
+        Tool(
+            name="pi_say",
+            description="Have Lumen speak via Pi's voice system.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Text for Lumen to speak"
+                    },
+                    "blocking": {
+                        "type": "boolean",
+                        "description": "Wait for speech to complete (default: true)"
+                    }
+                },
+                "required": ["text"]
+            }
+        ),
+        Tool(
+            name="pi_post_message",
+            description="Post a message to Lumen's message board on Pi.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "Message to post"
+                    },
+                    "agent_name": {
+                        "type": "string",
+                        "description": "Agent name (default: mac-governance)"
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Message source (default: agent)"
+                    },
+                    "responds_to": {
+                        "type": "string",
+                        "description": "ID of message being responded to"
+                    }
+                },
+                "required": ["message"]
+            }
+        ),
+        Tool(
+            name="pi_query",
+            description="Query Lumen's knowledge systems on Pi (learned, memory, graph, cognitive).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Query text"
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": "Query type: learned, memory, graph, cognitive (default: cognitive)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default: 10)"
+                    }
+                },
+                "required": ["text"]
+            }
+        ),
+        Tool(
+            name="pi_workflow",
+            description="Execute multi-step workflow on Pi with audit trail. Workflows: full_status, morning_check, custom.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "workflow": {
+                        "type": "string",
+                        "description": "Workflow name: full_status, morning_check, custom"
+                    },
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "tool": {"type": "string"},
+                                "args": {"type": "object"}
+                            }
+                        },
+                        "description": "Custom steps (for workflow=custom)"
+                    }
+                },
+                "required": ["workflow"]
             }
         ),
     ]

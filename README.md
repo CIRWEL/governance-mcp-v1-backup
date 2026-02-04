@@ -121,7 +121,7 @@ python src/mcp_server_std.py
 
 ## Key Features
 
-### 77 MCP Tools
+### 73 MCP Tools
 
 | Category | Count | Purpose |
 |----------|-------|---------|
@@ -129,11 +129,11 @@ python src/mcp_server_std.py
 | **Lifecycle** | 10 | Agent management, archiving |
 | **Knowledge Graph** | 9 | Discovery storage, semantic search |
 | **Observability** | 5 | Pattern analysis, anomaly detection |
-| **Recovery** | 4 | Dialectic review, stuck-agent recovery |
+| **Recovery** | 2 | `self_recovery` (unified), operator resume |
 | **Admin** | 14 | Health, calibration, telemetry |
 | **Identity** | 2 | Onboarding, identity management |
-| **Pi Orchestration** | 6 | Mac↔Raspberry Pi coordination |
-| **CIRS/HCK** | Various | Oscillation detection, resonance damping |
+| **Pi Orchestration** | 8 | Mac↔Raspberry Pi coordination |
+| **CIRS** | 1 | `cirs_protocol` (unified coordination) |
 
 **List tools:** `list_tools()` — progressive disclosure, start with essentials
 

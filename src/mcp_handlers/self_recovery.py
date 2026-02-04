@@ -173,6 +173,53 @@ def assess_recovery_safety(
 # The helper functions below (assess_recovery_safety, validate_recovery_conditions)
 # are still used by the lifecycle.py version.
 
+
+# ============================================================================
+# CONSOLIDATED SELF_RECOVERY TOOL
+# Single entry point with action dispatch - replaces 3 separate tools
+# ============================================================================
+
+@mcp_tool("self_recovery", timeout=15.0)
+async def handle_self_recovery(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    Unified self-recovery tool for stuck/paused agents.
+
+    Actions:
+        check  - See what recovery options are available (read-only)
+        quick  - Fast resume for safe states (coherence > 0.60, risk < 0.40)
+        review - Full recovery with reflection (for moderate states)
+
+    Natural workflow:
+        1. self_recovery(action="check") - see what's available
+        2. self_recovery(action="quick") - if safe enough
+        3. self_recovery(action="review", reflection="...") - if not
+    """
+    action = arguments.get("action", "check")
+
+    if action == "check":
+        return await handle_check_recovery_options(arguments)
+    elif action == "quick":
+        return await handle_quick_resume(arguments)
+    elif action == "review":
+        # Dispatch to lifecycle.py handler
+        from .lifecycle import handle_self_recovery_review
+        return await handle_self_recovery_review(arguments)
+    else:
+        return [error_response(
+            f"Unknown action: {action}",
+            error_code="INVALID_ACTION",
+            error_category="validation_error",
+            recovery={
+                "valid_actions": ["check", "quick", "review"],
+                "examples": [
+                    'self_recovery(action="check")',
+                    'self_recovery(action="quick")',
+                    'self_recovery(action="review", reflection="I was stuck because...")',
+                ],
+            }
+        )]
+
+
 @mcp_tool("check_recovery_options", timeout=10.0, hidden=True)
 async def handle_check_recovery_options(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
