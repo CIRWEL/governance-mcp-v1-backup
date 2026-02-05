@@ -282,7 +282,7 @@ The drift is *computed*, but interpreting "high drift = bad" requires domain con
 python -m pytest tests/ -v
 ```
 
-**Current status:** 310+ tests, 83-88% coverage
+**Current status:** 358 tests, 30% overall coverage (core modules higher)
 
 Core governance logic is well-tested. Coverage improves with each session.
 
@@ -307,14 +307,19 @@ The thermodynamic framing isn't metaphor — it's a design choice that makes beh
 ## Roadmap
 
 **Recently completed (Feb 2026):**
+- ✅ UX friction fixes — error code auto-inference, tool alias action injection, lite response mode
+- ✅ Consolidated tools — `config`, `knowledge`, `agent`, `calibration` (38+ tool aliases)
+- ✅ LLM delegation — delegate tasks to local/remote smaller models (Ollama, OpenAI)
+- ✅ Dashboard improvements — modular components, better structure
 - ✅ Ethical drift (Δη) computed and integrated into φ objective
 - ✅ Trajectory identity — genesis signatures, lineage comparison
 - ✅ Model-based agent_id naming (`Claude_Opus_4_5_20260204`)
 - ✅ Automatic ground truth collection from objective outcomes
 - ✅ SSH-based Pi restart (`pi_restart_service`) — works even when MCP is down
-- ✅ 310+ tests with 83-88% coverage on core modules
+- ✅ 358 tests with comprehensive UX fix coverage
 
 **In progress:**
+- 🔄 Identity simplification — reduce PID complexity
 - 🔄 Outcome correlation — does instability actually predict bad outcomes?
 - 🔄 Threshold tuning — domain-specific drift thresholds need real-world calibration
 
@@ -339,4 +344,4 @@ MIT License with Attribution — see [LICENSE](LICENSE) for details.
 
 ---
 
-**Version:** 2.5.6 | **Last Updated:** 2026-02-04
+**Version:** 2.5.6 | **Last Updated:** 2026-02-05
