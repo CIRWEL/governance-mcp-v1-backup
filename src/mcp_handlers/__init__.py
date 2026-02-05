@@ -137,8 +137,8 @@ from .pi_orchestration import (
     handle_pi_git_pull,
     handle_pi_restart_service,  # SSH-based fallback when MCP is down
 )
-# Keep helper functions from identity.py (used by dispatch_tool)
-from .identity import (
+# Keep helper functions from identity_shared.py (used by dispatch_tool)
+from .identity_shared import (
     get_bound_agent_id,
     is_session_bound,
 )

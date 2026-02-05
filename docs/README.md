@@ -1,6 +1,6 @@
 # UNITARES Documentation
 
-**Last Updated:** 2026-02-04
+**Last Updated:** 2026-02-05
 
 ---
 
@@ -58,7 +58,7 @@ Use `list_tools()` for full list, or `list_tools(lite=true)` for essentials only
 | `trajectory_identity.py` | 88% |
 | `workspace_health.py` | 83% |
 
-310+ tests passing as of Feb 2026.
+416 tests passing as of Feb 2026.
 
 ---
 

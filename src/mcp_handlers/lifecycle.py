@@ -633,7 +633,7 @@ async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[Te
             pass
 
     # Check write permission (bound=true required for writes)
-    from .identity import require_write_permission
+    from .identity_shared import require_write_permission
     allowed, write_error = require_write_permission(arguments=arguments)
     if not allowed:
         return [write_error]

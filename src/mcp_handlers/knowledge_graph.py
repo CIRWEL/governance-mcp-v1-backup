@@ -257,7 +257,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
         provenance_chain = None
         try:
             from .shared import get_mcp_server
-            from .identity import _get_lineage  # Import lineage function
+            from .identity_shared import _get_lineage  # Import lineage function
 
             mcp_server = get_mcp_server()
             if agent_id in mcp_server.agent_metadata:

@@ -19,8 +19,8 @@ The MCP system has evolved from a simple governance monitor to a comprehensive m
 - **v2.5.1** (Dec 2025) - Three-tier identity model
 - **v2.5.4** (Dec 2025) - Meaningful identity in knowledge graph
 - **v2.5.5** (Feb 2026) - Ethical drift, trajectory identity, 85+ tools
-- **v2.5.6** (Feb 2026) - SSH-based Pi restart, test expansion (310+ tests)
-- **v2.5.7** (Feb 2026) - Identity persistence fix, Redis failure logging
+- **v2.5.6** (Feb 2026) - UX friction fixes, consolidated tools, 38+ tool aliases
+- **v2.5.7** (Feb 2026) - Three-tier identity (merged label→display_name), identity_shared.py module, 416 tests
 
 ---
 

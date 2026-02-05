@@ -203,7 +203,7 @@ async def handle_check_continuity_health(arguments: Dict[str, Any]) -> Sequence[
             lineage_info = {}
             if hasattr(mcp_server, 'agent_metadata') and agent_id in mcp_server.agent_metadata:
                 meta = mcp_server.agent_metadata[agent_id]
-                from src.mcp_handlers.identity import _get_lineage
+                from src.mcp_handlers.identity_shared import _get_lineage
                 lineage_info = {
                     "has_parent": meta.parent_agent_id is not None,
                     "spawn_reason": meta.spawn_reason,
@@ -2122,7 +2122,7 @@ async def handle_debug_request_context(arguments: Dict[str, Any]) -> Sequence[Te
     uuid_prefix_keys = []
     uuid_prefix_mappings = {}
     try:
-        from .identity import _session_identities, _uuid_prefix_index
+        from .identity_shared import _session_identities, _uuid_prefix_index
         for k, v in list(_session_identities.items())[:10]:  # Show first 10
             agent_id = v.get("bound_agent_id")
             if agent_id:
