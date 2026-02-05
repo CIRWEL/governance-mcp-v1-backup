@@ -1,8 +1,10 @@
 # Self-Hosted Deployment Guide
 
-**Created:** December 30, 2025  
-**Last Updated:** December 30, 2025  
+**Created:** December 30, 2025
+**Last Updated:** February 4, 2026
 **Status:** Active
+**Transport:** Streamable HTTP (`/mcp/` endpoint)
+**Port:** 8767 (default)
 
 ---
 
@@ -21,9 +23,9 @@ That's it! The script will:
 5. Verify health
 
 **Access:**
-- Dashboard: http://localhost:8765/dashboard
-- MCP Endpoint: http://localhost:8765/sse
-- Health Check: http://localhost:8765/health
+- Dashboard: http://localhost:8767/dashboard
+- MCP Endpoint: http://localhost:8767/mcp/
+- Health Check: http://localhost:8767/health
 
 ---
 
@@ -32,7 +34,7 @@ That's it! The script will:
 - **Docker** 20.10+ and **Docker Compose** 2.0+
 - **4GB RAM** minimum (8GB recommended)
 - **10GB disk space** for data
-- **Port 8765** available (configurable)
+- **Port 8767** available (configurable)
 
 ---
 
@@ -61,7 +63,7 @@ docker-compose up -d
 
 ### Step 4: Verify Installation
 ```bash
-curl http://localhost:8765/health
+curl http://localhost:8767/health
 # Should return: {"status": "ok", ...}
 ```
 
@@ -78,7 +80,7 @@ curl http://localhost:8765/health
 - `HF_TOKEN` - Hugging Face token for model inference
 - `GOOGLE_AI_API_KEY` - Google AI key for Gemini
 - `NGROK_API_KEY` - ngrok key for gateway
-- `SERVER_PORT` - Server port (default: 8765)
+- `SERVER_PORT` - Server port (default: 8767)
 - `SERVER_HOST` - Server host (default: 0.0.0.0)
 
 ### Port Configuration
@@ -86,7 +88,7 @@ curl http://localhost:8765/health
 To change the port, edit `docker-compose.yml`:
 ```yaml
 ports:
-  - "YOUR_PORT:8765"  # Change YOUR_PORT
+  - "YOUR_PORT:8767"  # Change YOUR_PORT
 ```
 
 ---
@@ -149,7 +151,7 @@ docker-compose logs server
 ```
 
 **Common issues:**
-- Port 8765 already in use → Change port in `docker-compose.yml`
+- Port 8767 already in use → Change port in `docker-compose.yml`
 - PostgreSQL not ready → Wait 30 seconds, check `docker-compose logs postgres`
 - Missing .env → Run `./install.sh` again
 
@@ -170,7 +172,7 @@ docker-compose up -d
 
 **Check server status:**
 ```bash
-curl http://localhost:8765/health
+curl http://localhost:8767/health
 docker-compose logs server | tail -50
 ```
 
@@ -182,7 +184,7 @@ docker-compose logs server | tail -50
 
 - [ ] Change `POSTGRES_PASSWORD` in `.env`
 - [ ] Use reverse proxy (nginx/traefik) with SSL
-- [ ] Restrict port 8765 to internal network
+- [ ] Restrict port 8767 to internal network
 - [ ] Set up firewall rules
 - [ ] Enable log rotation
 - [ ] Set up backups
@@ -199,7 +201,7 @@ server {
     ssl_certificate_key /path/to/key.pem;
     
     location / {
-        proxy_pass http://localhost:8765;
+        proxy_pass http://localhost:8767;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
@@ -210,12 +212,12 @@ server {
 
 **Health check endpoint:**
 ```bash
-curl http://localhost:8765/health
+curl http://localhost:8767/health
 ```
 
 **Metrics endpoint:**
 ```bash
-curl http://localhost:8765/metrics
+curl http://localhost:8767/metrics
 ```
 
 ---

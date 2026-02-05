@@ -546,39 +546,47 @@ class GovernanceConfig:
             'coherence': coherence_margin,
             'void': void_margin
         }
-        
-        # Filter out negative margins (already past threshold)
+
+        # Check if any threshold has been crossed (negative margin)
+        crossed_margins = {k: v for k, v in margins.items() if v < 0}
         valid_margins = {k: v for k, v in margins.items() if v >= 0}
-        
-        if not valid_margins:
-            # Already past all thresholds - critical
-            nearest_edge = min(margins.items(), key=lambda x: abs(x[1]))[0]
+
+        if crossed_margins:
+            # At least one threshold crossed - find the worst one
+            worst_edge = min(crossed_margins.items(), key=lambda x: x[1])[0]
+            distance_past = abs(crossed_margins[worst_edge])
+
+            # warning: just crossed (< 0.1 past)
+            # critical: deep past (>= 0.1 past)
+            if distance_past >= 0.1:
+                margin_level = 'critical'
+            else:
+                margin_level = 'warning'
+
             return {
-                'margin': 'critical',
-                'nearest_edge': nearest_edge,
-                'distance_to_edge': 0.0,
+                'margin': margin_level,
+                'nearest_edge': worst_edge,
+                'distance_to_edge': -distance_past,  # Negative to indicate past threshold
                 'details': {
                     'risk_margin': risk_margin,
                     'coherence_margin': coherence_margin,
                     'void_margin': void_margin
                 }
             }
-        
+
+        # All margins positive - find nearest edge we haven't crossed
         nearest_edge = min(valid_margins.items(), key=lambda x: x[1])[0]
         distance_to_edge = valid_margins[nearest_edge]
-        
-        # Determine margin level based on distance
+
+        # Determine margin level based on distance TO threshold
         # comfortable: > 0.15 away from any threshold
-        # tight: 0.05-0.15 away from threshold
-        # critical: < 0.05 away from threshold
-        
+        # tight: <= 0.15 away from threshold (approaching)
+
         if distance_to_edge > 0.15:
             margin_level = 'comfortable'
-        elif distance_to_edge > 0.05:
-            margin_level = 'tight'
         else:
-            margin_level = 'critical'
-        
+            margin_level = 'tight'
+
         return {
             'margin': margin_level,
             'nearest_edge': nearest_edge if margin_level != 'comfortable' else None,

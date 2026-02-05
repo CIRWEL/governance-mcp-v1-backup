@@ -1,39 +1,41 @@
 # ngrok Deployment Guide
 
 **Last Updated:** February 4, 2026
-**Tier Required:** ngrok Hobby or higher
-**Reserved Domain:** unitares.ngrok.io ✅
-**Target:** ChatGPT MCP, Gemini, public demos
+**Transport:** Streamable HTTP (SSE deprecated)
+**Port:** 8767
+
+> **Note:** This guide uses placeholder values. Replace `your-domain.ngrok.io` with your own [ngrok reserved domain](https://dashboard.ngrok.com/domains).
 
 ---
 
 ## Overview
 
 Deploy your UNITARES MCP server publicly via ngrok for:
-- ✅ ChatGPT OAuth testing
-- ✅ Multi-model client demos
-- ✅ Investor presentations
-- ✅ Remote collaboration
-
-**ngrok Hobby tier benefits:**
-- Reserved domains (stable URL)
-- Custom subdomains
-- Higher rate limits
-- Better for production demos
+- Multi-client access (Cursor, Claude Code, Claude Desktop)
+- Remote collaboration
+- Production deployments
 
 ---
 
 ## Quick Start
 
-### Deploy Server
+### 1. Start the MCP Server
+
+The server runs as a launchd service:
 
 ```bash
-cd /Users/cirwel/projects/governance-mcp-v1
+# Check if running
+launchctl list | grep governance
 
-# Start SSE server (if not already running)
-python src/mcp_server_sse.py --port 8765 &
+# Restart if needed
+launchctl unload ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+launchctl load ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+```
 
-# Deploy via ngrok (uses reserved domain automatically)
+### 2. Deploy ngrok Tunnel
+
+```bash
+cd /path/to/governance-mcp-v1
 ./scripts/deploy_ngrok.sh
 ```
 
@@ -42,53 +44,63 @@ python src/mcp_server_sse.py --port 8765 &
 🚀 UNITARES MCP Server - ngrok Deployment
 ==========================================
 
-✅ SSE server running on port 8765
-✅ ngrok installed: ngrok version 3.34.1
-✅ ngrok configured
-📍 Using reserved domain: unitares.ngrok.io
-
-🌐 Starting ngrok tunnel...
+✅ MCP server running on port 8767
+📍 Using reserved domain: your-domain.ngrok.io
 
 🔗 Your UNITARES MCP Server is available at:
-   https://unitares.ngrok.io/sse
+   https://your-domain.ngrok.io/mcp/
 ```
 
 ---
 
-## ChatGPT MCP Configuration
+## Client Configuration
 
-### Step 1: Add MCP Connector
+### Cursor IDE
 
-In ChatGPT settings → Connectors:
+Add to `~/.cursor/mcp.json`:
 
 ```json
 {
-  "servers": {
-    "unitares": {
-      "url": "https://unitares.ngrok.io/sse",
-      "description": "UNITARES AI Governance Framework",
-      "auth": {
-        "type": "oauth",
-        "provider": "google",
-        "client_id": "YOUR_GOOGLE_CLIENT_ID",
-        "client_secret": "YOUR_GOOGLE_CLIENT_SECRET",
-        "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
-        "token_url": "https://oauth2.googleapis.com/token",
-        "scopes": ["openid", "email", "profile"]
-      }
+  "mcpServers": {
+    "unitares-governance": {
+      "type": "http",
+      "url": "https://your-domain.ngrok.io/mcp/"
     }
   }
 }
 ```
 
-### Step 2: Test Connection
+### Claude Code CLI
 
-In ChatGPT:
-```
-Can you list available governance tools?
+Add to `~/.claude.json` under `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "unitares-governance": {
+      "type": "http",
+      "url": "https://your-domain.ngrok.io/mcp/"
+    }
+  }
+}
 ```
 
-**Expected:** ChatGPT prompts for OAuth login, then lists ~25 tools.
+> **Optional:** Add `"headers": {"Authorization": "Basic <token>"}` if you've configured ngrok Traffic Policy with authentication.
+
+### Local Development (No ngrok)
+
+For local-only access:
+
+```json
+{
+  "mcpServers": {
+    "unitares-governance": {
+      "type": "http",
+      "url": "http://127.0.0.1:8767/mcp/"
+    }
+  }
+}
+```
 
 ---
 
@@ -96,40 +108,27 @@ Can you list available governance tools?
 
 ### Using launchd (Auto-Start)
 
-Your SSE server already has launchd integration:
+The MCP server uses launchd for automatic restart:
 
 ```bash
 # Check status
 launchctl list | grep governance
 
-# Logs
-tail -f ~/Library/Logs/governance-mcp-sse.log
+# View logs
+tail -f /path/to/governance-mcp-v1/data/logs/mcp_server.log
+tail -f /path/to/governance-mcp-v1/data/logs/mcp_server_error.log
 ```
 
 ### ngrok as a Service
 
-Create persistent ngrok tunnel:
-
-```bash
-# Install ngrok service (macOS)
-ngrok service install \
-  --config /Users/cirwel/Library/Application\ Support/ngrok/ngrok.yml
-
-# Start service
-ngrok service start
-
-# Check status
-ngrok service status
-```
-
-**Alternative:** Use tmux/screen for persistence:
+For persistent ngrok tunnel, use tmux:
 
 ```bash
 # Create persistent session
 tmux new -s ngrok
 
 # Run deploy script
-./scripts/deploy_ngrok.sh unitares-governance.ngrok-free.app
+./scripts/deploy_ngrok.sh
 
 # Detach: Ctrl+B, then D
 # Reattach: tmux attach -t ngrok
@@ -137,307 +136,108 @@ tmux new -s ngrok
 
 ---
 
-## Security Considerations
-
-### 1. OAuth Secret Management
-
-**Set server OAuth secret:**
-```bash
-# In .env
-GOVERNANCE_OAUTH_SECRET="your-production-secret-here-change-from-default"
-
-# Restart SSE server
-pkill -f mcp_server_sse.py
-python src/mcp_server_sse.py --port 8765
-```
-
-### 2. ngrok Security
-
-**Enable IP restrictions (Hobby tier):**
-```yaml
-# ~/Library/Application Support/ngrok/ngrok.yml
-version: "3"
-agent:
-  authtoken: YOUR_TOKEN
-tunnels:
-  unitares:
-    proto: http
-    addr: 8765
-    domain: unitares-governance.ngrok-free.app
-    inspect: false  # Disable request inspection for privacy
-    ip_restriction:
-      allow_cidrs:
-        - 0.0.0.0/0  # Allow all (or restrict to specific IPs)
-```
-
-### 3. Rate Limiting
-
-**Check ngrok dashboard:**
-- Monitor requests/min
-- Set up alerts for unusual traffic
-- ngrok Hobby: 20,000 requests/month
-
-**SSE server has built-in rate limiting:**
-- 100 requests/minute per IP (configurable)
-- Circuit breaker for suspicious patterns
-
----
-
-## Custom Domain (Optional)
-
-### Using Your Own Domain
-
-With ngrok Hobby, you can use your own domain:
-
-```bash
-# 1. Add CNAME record in your DNS:
-#    governance.yourdomain.com → [your-ngrok-id].ngrok-free.app
-
-# 2. Reserve domain in ngrok:
-ngrok domains create governance.yourdomain.com
-
-# 3. Deploy:
-./scripts/deploy_ngrok.sh governance.yourdomain.com
-```
-
-**Result:** `https://governance.yourdomain.com/sse`
-
----
-
 ## Monitoring
+
+### Health Check
+
+```bash
+# Via ngrok
+curl -s https://your-domain.ngrok.io/health
+
+# Local
+curl -s http://127.0.0.1:8767/health
+```
+
+### Server Logs
+
+```bash
+# MCP server logs
+tail -f data/logs/mcp_server.log
+
+# Error logs
+tail -f data/logs/mcp_server_error.log
+```
 
 ### ngrok Dashboard
 
 Access: https://dashboard.ngrok.com
 
-**Key Metrics:**
-- Active tunnels
-- Request volume
-- Error rates
-- Geographic distribution
-
-### Server Logs
-
-```bash
-# SSE server logs
-tail -f data/logs/mcp_sse.log
-
-# Filter for OAuth
-tail -f data/logs/mcp_sse.log | grep -i oauth
-
-# Filter for errors
-tail -f data/logs/mcp_sse.log | grep -i error
-```
-
-### Health Check
-
-```bash
-# From remote
-curl https://unitares-governance.ngrok-free.app/health
-
-# Expected response:
-{
-  "status": "healthy",
-  "version": "2.4.0",
-  "transport": "SSE",
-  "uptime_seconds": 3600
-}
-```
-
 ---
 
 ## Troubleshooting
 
-### "Tunnel not found"
-
-**Cause:** Reserved domain not created or authtoken missing.
-
-**Fix:**
-```bash
-# Create domain
-ngrok domains create unitares-governance.ngrok-free.app
-
-# Or use random domain
-./scripts/deploy_ngrok.sh
-```
-
----
-
 ### "Connection refused"
 
-**Cause:** SSE server not running.
+**Cause:** MCP server not running.
 
 **Fix:**
 ```bash
 # Check if running
-lsof -ti:8765
+lsof -ti:8767
 
-# Start if not running
-cd /Users/cirwel/projects/governance-mcp-v1
-python src/mcp_server_sse.py --port 8765 &
+# Restart service
+launchctl unload ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+launchctl load ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
 ```
 
----
+### "Tunnel not found"
 
-### "OAuth failed"
-
-**Cause:** Invalid OAuth configuration or missing scopes.
+**Cause:** ngrok domain not reserved or authtoken missing.
 
 **Fix:**
-1. Verify OAuth provider credentials
-2. Check scopes include `openid`, `email`, `profile`
-3. Verify redirect URI is whitelisted
-4. Check server logs for OAuth errors
-
----
-
-### "Rate limit exceeded"
-
-**Cause:** ngrok Hobby limit reached (20k req/month).
-
-**Upgrade to:**
-- ngrok Pro: 100k req/month
-- ngrok Business: Unlimited
-
-**Or optimize:**
-- Cache responses
-- Reduce polling frequency
-- Use webhooks instead of polling
-
----
-
-## Cost Analysis
-
-### ngrok Hobby ($8/month)
-
-**Limits:**
-- 20,000 requests/month (~27 req/hour sustained)
-- Reserved domains: 1
-- Simultaneous tunnels: 3
-
-**Good for:**
-- Testing/demos
-- Small user base (<10 daily users)
-- Investor presentations
-
-### ngrok Pro ($29/month)
-
-**Limits:**
-- 100,000 requests/month (~135 req/hour sustained)
-- Reserved domains: 5
-- Simultaneous tunnels: 10
-- IP restrictions
-- Custom domains
-
-**Good for:**
-- Production pilot (10-50 users)
-- Multi-model testing
-- Team collaboration
-
-### When to Self-Host
-
-**Threshold:** >100k requests/month or >50 concurrent users
-
-**Alternative:** Deploy to:
-- Railway.app (starts free, $5/month)
-- Fly.io ($0-$5/month)
-- Google Cloud Run (pay-per-use)
-- Your own VPS (Digital Ocean $6/month)
-
----
-
-## Testing OAuth Flow
-
-### 1. Start Tunnel
-
 ```bash
-./scripts/deploy_ngrok.sh  # Uses unitares.ngrok.io automatically
+# Check ngrok config
+cat ~/Library/Application\ Support/ngrok/ngrok.yml
+
+# Verify domain
+ngrok domains list
 ```
 
-### 2. Configure ChatGPT
+### "502 Bad Gateway"
 
-Add MCP connector with your ngrok URL.
+**Cause:** Server crashed or not responding.
 
-### 3. Test Identity
+**Fix:**
+```bash
+# Check error logs
+tail -50 data/logs/mcp_server_error.log
 
-In ChatGPT:
+# Restart service
+launchctl unload ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+launchctl load ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
 ```
-Call the status tool to check my identity
-```
-
-**Expected response:**
-```json
-{
-  "bound": true,
-  "agent_id": "oauth_google_a3f8c2e1",
-  "oauth": true,
-  "oauth_provider": "google"
-}
-```
-
-### 4. Test Governance
-
-```
-Process a governance update:
-- I analyzed the codebase structure
-- Complexity: 0.6
-- Confidence: 0.7
-```
-
-**Expected:** OAuth identity auto-injected, governance cycle runs.
 
 ---
 
 ## Production Checklist
 
-Before showing to investors/users:
+Before deploying:
 
-- [x] Reserved domain created (unitares.ngrok.io ✅)
-- [ ] OAuth secret set (`GOVERNANCE_OAUTH_SECRET`)
-- [ ] SSE server running (`lsof -ti:8765`)
+- [x] Reserved domain created (your-domain.ngrok.io)
+- [ ] MCP server running (`lsof -ti:8767`)
 - [ ] launchd auto-start enabled
 - [ ] ngrok tunnel running (`./scripts/deploy_ngrok.sh`)
-- [ ] Health check passes (`curl https://unitares.ngrok.io/health`)
-- [ ] OAuth flow tested (ChatGPT login works)
-- [ ] Tool discovery works (`list_tools`)
-- [ ] Governance cycle works (`process_agent_update`)
-- [ ] Logs monitored (`tail -f data/logs/mcp_sse.log`)
-
----
-
-## Next Steps
-
-1. **Deploy:** (domain already reserved ✅)
-   ```bash
-   ./scripts/deploy_ngrok.sh
-   ```
-
-2. **Test with ChatGPT:**
-   - Add MCP connector (use https://unitares.ngrok.io/sse)
-   - Complete OAuth flow
-   - Call governance tools
-
-3. **Monitor:**
-   - Check ngrok dashboard: https://dashboard.ngrok.com
-   - Watch server logs: `tail -f data/logs/mcp_sse.log`
-   - Track OAuth success rate
+- [ ] Health check passes (`curl https://your-domain.ngrok.io/health`)
+- [ ] Tool discovery works (`health_check` tool)
+- [ ] Logs monitored
 
 ---
 
 ## Support
 
-**Issues?**
-- ngrok docs: https://ngrok.com/docs
-- UNITARES troubleshooting: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-- OAuth guide: [OAUTH_IDENTITY.md](OAUTH_IDENTITY.md)
-- Embeddings guide: [HUGGINGFACE_EMBEDDINGS.md](HUGGINGFACE_EMBEDDINGS.md)
+**Logs:**
+- Server: `data/logs/mcp_server.log`
+- Errors: `data/logs/mcp_server_error.log`
 
-**Questions?**
-- ngrok community: https://ngrok.com/slack
-- UNITARES GitHub issues
+**Service Management:**
+```bash
+# Restart
+launchctl unload ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+launchctl load ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+```
 
 ---
 
 **Status:** ✅ Ready for deployment
-**Verified:** December 20, 2025
-**ngrok Tier:** Hobby or higher required
+**Transport:** Streamable HTTP (`/mcp/` endpoint)
+**Port:** 8767

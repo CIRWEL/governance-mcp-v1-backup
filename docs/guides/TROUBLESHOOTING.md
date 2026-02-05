@@ -11,7 +11,7 @@
 ### Check Server Status
 ```bash
 # Health check
-curl http://localhost:8765/health | python3 -m json.tool
+curl http://localhost:8767/health | python3 -m json.tool
 
 # Check processes
 ps aux | grep -E "(mcp_server|ngrok)"
@@ -39,13 +39,13 @@ tail -f /tmp/ngrok.log
 **Symptoms:**
 - `./scripts/start_unitares.sh` fails
 - Error: "Server is already running"
-- Error: "Port 8765 already in use"
+- Error: "Port 8767 already in use"
 
 **Solutions:**
 
 1. **Clean up stale locks:**
    ```bash
-   cd /Users/cirwel/projects/governance-mcp-v1
+   cd /path/to/governance-mcp-v1
    rm -f data/.mcp_server.*
    ```
 
@@ -54,18 +54,18 @@ tail -f /tmp/ngrok.log
    ./scripts/stop_unitares.sh
    # Or manually:
    pkill -f "mcp_server"
-   pkill -f "ngrok.*8765"
+   pkill -f "ngrok.*8767"
    ```
 
 3. **Check port availability:**
    ```bash
-   lsof -i :8765
+   lsof -i :8767
    # If something is using it, kill that process
    ```
 
 4. **Use --force flag:**
    ```bash
-   python3 src/mcp_server.py --port 8765 --host 0.0.0.0 --force
+   python3 src/mcp_server.py --port 8767 --host 0.0.0.0 --force
    ```
 
 ---
@@ -73,7 +73,7 @@ tail -f /tmp/ngrok.log
 ### Issue 2: Ngrok Not Connecting
 
 **Symptoms:**
-- `https://unitares.ngrok.io/mcp` returns 404
+- `https://your-domain.ngrok.io/mcp` returns 404
 - Ngrok log shows "connection refused"
 - Error: ERR_NGROK_3200
 
@@ -81,18 +81,18 @@ tail -f /tmp/ngrok.log
 
 1. **Check server is running:**
    ```bash
-   curl http://localhost:8765/health
+   curl http://localhost:8767/health
    ```
 
 2. **Verify ngrok is pointing to correct port:**
    ```bash
-   curl http://localhost:4040/api/tunnels | python3 -m json.tool | grep -A 5 "8765"
+   curl http://localhost:4040/api/tunnels | python3 -m json.tool | grep -A 5 "8767"
    ```
 
 3. **Restart ngrok:**
    ```bash
-   pkill -f "ngrok.*8765"
-   ngrok http 8765 --url=unitares.ngrok.io --log=stdout > /tmp/ngrok.log 2>&1 &
+   pkill -f "ngrok.*8767"
+   ngrok http 8767 --url=your-domain.ngrok.io --log=stdout > /tmp/ngrok.log 2>&1 &
    ```
 
 4. **Check ngrok authentication:**
@@ -102,7 +102,7 @@ tail -f /tmp/ngrok.log
 
 5. **Verify custom domain:**
    - Check ngrok dashboard: https://dashboard.ngrok.com
-   - Ensure `unitares.ngrok.io` is configured
+   - Ensure `your-domain.ngrok.io` is configured
    - Check Traffic Policy isn't blocking requests
 
 ---
@@ -127,7 +127,7 @@ tail -f /tmp/ngrok.log
      "mcpServers": {
        "unitares-governance": {
          "type": "http",
-         "url": "http://localhost:8765/mcp"
+         "url": "http://localhost:8767/mcp"
        }
      }
    }
@@ -135,8 +135,8 @@ tail -f /tmp/ngrok.log
 
 2. **Check server is accessible:**
    ```bash
-   curl http://localhost:8765/health
-   curl http://localhost:8765/mcp
+   curl http://localhost:8767/health
+   curl http://localhost:8767/mcp
    ```
 
 3. **Restart Cursor:**
@@ -149,12 +149,13 @@ tail -f /tmp/ngrok.log
    - Check for connection errors
    - Look for "unitares-governance" in server list
 
-5. **Try SSE endpoint instead:**
+5. **Try via ngrok:**
    ```json
    {
      "mcpServers": {
        "unitares-governance": {
-         "url": "http://localhost:8765/sse"
+         "type": "http",
+         "url": "https://your-domain.ngrok.io/mcp/"
        }
      }
    }
@@ -284,7 +285,7 @@ tail -f /tmp/ngrok.log
 
 1. **Use custom domain (prevents URL changes):**
    ```bash
-   ngrok http 8765 --url=unitares.ngrok.io
+   ngrok http 8767 --url=your-domain.ngrok.io
    ```
 
 2. **Check ngrok status:**
@@ -300,7 +301,7 @@ tail -f /tmp/ngrok.log
 4. **Restart ngrok:**
    ```bash
    pkill -f ngrok
-   ngrok http 8765 --url=unitares.ngrok.io --log=stdout > /tmp/ngrok.log 2>&1 &
+   ngrok http 8767 --url=your-domain.ngrok.io --log=stdout > /tmp/ngrok.log 2>&1 &
    ```
 
 5. **Check network stability:**
@@ -316,13 +317,13 @@ tail -f /tmp/ngrok.log
 
 ```bash
 # Server health
-curl http://localhost:8765/health
+curl http://localhost:8767/health
 
 # Metrics
-curl http://localhost:8765/metrics | head -20
+curl http://localhost:8767/metrics | head -20
 
 # Dashboard
-curl http://localhost:8765/dashboard | head -20
+curl http://localhost:8767/dashboard | head -20
 ```
 
 ### Step 2: Check Processes
@@ -332,7 +333,7 @@ curl http://localhost:8765/dashboard | head -20
 ps aux | grep -E "(mcp_server|ngrok|python.*governance)"
 
 # Check port usage
-lsof -i :8765
+lsof -i :8767
 lsof -i :4040  # ngrok web interface
 ```
 
@@ -367,12 +368,12 @@ python3 --version
 
 ```bash
 # Test server startup
-cd /Users/cirwel/projects/governance-mcp-v1
+cd /path/to/governance-mcp-v1
 source .venv/bin/activate
-python3 src/mcp_server.py --port 8765 --host 0.0.0.0 --force
+python3 src/mcp_server.py --port 8767 --host 0.0.0.0 --force
 
 # Test ngrok separately
-ngrok http 8765 --url=unitares.ngrok.io
+ngrok http 8767 --url=your-domain.ngrok.io
 ```
 
 ---
@@ -393,13 +394,13 @@ rm -f /tmp/unitares.log
 rm -f /tmp/ngrok.log
 
 # 3. Verify nothing is running
-ps aux | grep -E "(mcp_server|ngrok.*8765)"
+ps aux | grep -E "(mcp_server|ngrok.*8767)"
 
 # 4. Restart
 ./scripts/start_unitares.sh
 
 # 5. Verify
-curl http://localhost:8765/health
+curl http://localhost:8767/health
 ```
 
 ### Database Reset (DANGEROUS - Only if needed)
@@ -455,7 +456,7 @@ log show --predicate 'process == "Python"' --last 1h
 ./scripts/monitor_health.sh --once
 
 # Check metrics
-curl http://localhost:8765/metrics | grep unitares_server
+curl http://localhost:8767/metrics | grep unitares_server
 ```
 
 ---
