@@ -144,6 +144,61 @@ def _infer_error_code_and_category(message: str) -> Tuple[Optional[str], Optiona
     return None, None
 
 
+# =============================================================================
+# CIRCUIT BREAKER ENFORCEMENT
+# =============================================================================
+
+def check_agent_can_operate(agent_uuid: str) -> Optional[TextContent]:
+    """
+    Check if agent is allowed to perform operations (circuit breaker enforcement).
+
+    Returns None if agent can operate, or an error TextContent if blocked.
+
+    This enforces the circuit breaker - paused/archived agents are blocked
+    until they are resumed or restored.
+
+    Args:
+        agent_uuid: The agent's UUID
+
+    Returns:
+        None if agent can operate, TextContent error response if blocked
+    """
+    from .shared import get_mcp_server
+    mcp_server = get_mcp_server()
+
+    if agent_uuid not in mcp_server.agent_metadata:
+        return None  # New agent, allow
+
+    meta = mcp_server.agent_metadata[agent_uuid]
+
+    if meta.status == "paused":
+        return error_response(
+            "Agent is paused - circuit breaker active",
+            error_code="AGENT_PAUSED",
+            error_category="state_error",
+            details={
+                "agent_id": agent_uuid[:12],
+                "paused_at": meta.paused_at,
+                "status": "paused",
+            },
+            recovery={
+                "action": "Use self_recovery(action='resume') to request recovery",
+                "note": "Circuit breaker triggered due to governance threshold violation",
+                "alternative": "Wait for auto-dialectic recovery to complete",
+            }
+        )
+    elif meta.status == "archived":
+        return error_response(
+            "Agent is archived and cannot perform operations",
+            error_code="AGENT_ARCHIVED",
+            error_category="state_error",
+            details={"agent_id": agent_uuid[:12], "status": "archived"},
+            recovery={"action": "Create a new agent or restore via agent(action='update')"}
+        )
+
+    return None  # Agent can operate
+
+
 def error_response(
     message: str,
     details: Optional[Dict[str, Any]] = None,

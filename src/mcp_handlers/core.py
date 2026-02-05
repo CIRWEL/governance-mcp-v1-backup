@@ -521,6 +521,33 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
         logger.error("No agent_uuid in context - identity_v2 resolution failed at dispatch")
         return [error_response("Identity not resolved. Try calling identity() first.")]
 
+    # CIRCUIT BREAKER: Check if agent is paused/blocked
+    # Paused agents must be resumed before they can continue working
+    if agent_uuid in mcp_server.agent_metadata:
+        meta = mcp_server.agent_metadata[agent_uuid]
+        if meta.status == "paused":
+            return [error_response(
+                f"Agent is paused and cannot process updates",
+                error_code="AGENT_PAUSED",
+                details={
+                    "agent_id": agent_uuid[:12],
+                    "paused_at": meta.paused_at,
+                    "status": "paused",
+                },
+                recovery={
+                    "action": "Use self_recovery(action='resume') or wait for dialectic recovery to complete",
+                    "note": "Circuit breaker triggered due to governance threshold violation",
+                    "auto_recovery": "Dialectic recovery may already be in progress",
+                }
+            )]
+        elif meta.status == "archived":
+            return [error_response(
+                f"Agent is archived and cannot process updates",
+                error_code="AGENT_ARCHIVED",
+                details={"agent_id": agent_uuid[:12], "status": "archived"},
+                recovery={"action": "Create a new agent or restore this one via agent(action='update', status='active')"}
+            )]
+
     # LAZY CREATION (v2.4.1): Ensure agent is persisted on first real work
     # This is where we actually create the agent in PostgreSQL, not at dispatch
     from .identity_v2 import ensure_agent_persisted

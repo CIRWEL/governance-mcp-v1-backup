@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.9] - 2026-02-05
+
+### Added - Agent Circuit Breaker Enforcement
+
+The agent "pause" status now actually blocks operations. Previously, setting `meta.status = "paused"` was purely cosmetic - agents could continue calling tools. Now it's enforced.
+
+#### Enforcement Points
+- **`process_agent_update`** — Paused agents cannot submit work updates
+- **`store_knowledge_graph`** — Paused agents cannot store discoveries
+- **`leave_note`** — Paused agents cannot leave notes
+
+#### New Helper Function
+- **`check_agent_can_operate(agent_uuid)`** — Reusable enforcement function
+  - Returns `None` if agent can operate
+  - Returns error `TextContent` if blocked (paused/archived)
+  - Includes recovery guidance in error response
+
+#### Recovery Path
+- Paused agents receive clear error with recovery instructions
+- Error includes: `self_recovery(action='resume')` or wait for auto-dialectic
+- Error code: `AGENT_PAUSED` or `AGENT_ARCHIVED`
+
+### Tests
+- **9 new tests** for circuit breaker enforcement (`tests/test_circuit_breaker_enforcement.py`)
+- Tests verify enforcement in handlers via source inspection
+- Tests verify `check_agent_can_operate` blocks correctly
+
+### Files Changed
+- `src/mcp_handlers/core.py` — Added enforcement to `handle_process_agent_update`
+- `src/mcp_handlers/knowledge_graph.py` — Added enforcement to `handle_store_knowledge_graph`, `handle_leave_note`
+- `src/mcp_handlers/utils.py` — Added `check_agent_can_operate()` helper
+- `tests/test_circuit_breaker_enforcement.py` — New test file
+
+---
+
 ## [2.5.8] - 2026-02-05
 
 ### Added - Production-Grade Redis Resilience
