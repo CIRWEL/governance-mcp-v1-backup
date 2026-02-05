@@ -171,6 +171,12 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
     if error:
         return [error]
 
+    # CIRCUIT BREAKER: Paused agents cannot store knowledge
+    from .utils import check_agent_can_operate
+    blocked = check_agent_can_operate(agent_id)
+    if blocked:
+        return [blocked]
+
     # Check if batch mode (discoveries array provided)
     if "discoveries" in arguments and arguments["discoveries"] is not None:
         # Batch mode - delegate to batch handler logic
@@ -1399,6 +1405,12 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     agent_id, error = require_registered_agent(arguments)
     if error:
         return [error]
+
+    # CIRCUIT BREAKER: Paused agents cannot leave notes
+    from .utils import check_agent_can_operate
+    blocked = check_agent_can_operate(agent_id)
+    if blocked:
+        return [blocked]
 
     text, error = require_argument(arguments, "summary",
                                   "Note content required. Use 'summary', 'note', 'text', or 'content' parameter.")
