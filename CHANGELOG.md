@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.6] - 2026-02-05
+
+### Added - UX Friction Fixes & Consolidated Tools
+
+#### UX Friction Fixes (9 of 12 implemented)
+- **Error code auto-inference** — `error_response()` now auto-infers error codes from message patterns (DATABASE_ERROR, TIMEOUT, NOT_FOUND, etc.)
+- **Tool alias action injection** — Deprecated tool names automatically inject the correct `action` parameter when routing to consolidated tools
+- **Parameter coercion reporting** — `_param_coercions` field shows what type conversions were applied
+- **Lite response mode** — `lite_response=True` reduces output verbosity by excluding agent_signature
+- **Error message sanitization** — Stack traces and internal paths stripped from error messages
+
+#### Consolidated Tools
+- **`config` tool** — Unified get/set thresholds (replaces `get_thresholds`, `set_thresholds`)
+- **38+ tool aliases** — All legacy tool names map to consolidated tools with action injection
+- **Better error guidance** — Unknown actions return `valid_actions` list with examples
+
+#### LLM Delegation
+- **`llm_delegation.py`** — Delegate tasks to smaller local/remote models
+- **Ollama support** — Local model inference for knowledge synthesis
+- **OpenAI fallback** — Remote model support when local unavailable
+
+#### Dashboard Improvements
+- **Modular components** — `components.js` for reusable UI elements
+- **Shared utilities** — `utils.js` for common functions
+- **Better structure** — Dashboard code reorganized for maintainability
+
+#### Migration Cleanup
+- **13 migration scripts archived** — Moved to `scripts/archive/migrations_completed_202602/`
+- **Telemetry data ignored** — `data/telemetry/*.jsonl` added to `.gitignore`
+
+### Changed
+- Test suite expanded to **358 tests** (from 310+)
+- Coverage at **30%** overall (core modules higher)
+- Documentation updated with port configuration guides
+- LICENSE updated with correct repository URL
+
+### Fixed
+- **Tool 'config' not found** — Added missing consolidated config tool
+- **Alias injection not working** — Added `inject_action` field to `ToolAlias` dataclass
+- **Test assertions** — Fixed test messages to match actual error patterns
+
+### Files Changed
+- `src/mcp_handlers/consolidated.py` — Added `config` tool
+- `src/mcp_handlers/tool_stability.py` — Added `inject_action` to ToolAlias
+- `src/mcp_handlers/utils.py` — Added `_infer_error_code_and_category()`, `_sanitize_error_message()`
+- `src/mcp_handlers/validators.py` — Added coercion tracking
+- `tests/test_ux_fixes.py` — 48 new tests for UX fixes
+- `docs/TOOL_AUDIT_2026-02-04.md` — Tool audit documentation
+
+---
+
 ## [2.5.5] - 2026-02-04
 
 ### Added - Trajectory Identity & Test Coverage
