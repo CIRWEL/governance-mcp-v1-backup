@@ -19,6 +19,7 @@
 |-------|-------------|
 | [GETTING_STARTED_SIMPLE](guides/GETTING_STARTED_SIMPLE.md) | Fastest path - 3 tools |
 | [START_HERE](guides/START_HERE.md) | Full onboarding guide |
+| [LLM_DELEGATION](guides/LLM_DELEGATION.md) | LLM calls + dialectic recovery |
 | [DEPLOYMENT](guides/DEPLOYMENT.md) | Installation & setup (includes [ngrok](guides/NGROK_DEPLOYMENT.md)) |
 | [MCP_SETUP](guides/MCP_SETUP.md) | MCP client configuration |
 | [TROUBLESHOOTING](guides/TROUBLESHOOTING.md) | Common issues & fixes |

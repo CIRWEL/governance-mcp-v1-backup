@@ -31,7 +31,7 @@ Or install manually:
 pip install mcp numpy
 ```
 
-For SSE/HTTP (multi-client) mode:
+For HTTP (multi-client) mode:
 ```bash
 pip install -r requirements-full.txt
 ```
@@ -65,34 +65,53 @@ You should see the server start (it will wait for stdio input).
    
    **Note:** Cursor also maintains project-specific `mcp-cache.json` files in `~/.cursor/projects/*/`. These are managed by Cursor automatically and may cause apparent duplicates in the UI. This is normal Cursor behavior and not necessarily a problem.
 
-2. **Add to config (recommended: SSE):**
+2. **Add to config (Streamable HTTP):**
    ```json
    {
      "mcpServers": {
-       "governance-monitor": {
-         "url": "http://127.0.0.1:8765/sse"
+       "unitares-governance": {
+         "type": "http",
+         "url": "https://your-domain.ngrok.io/mcp/"
+       }
+     }
+   }
+   ```
+
+   Or for local development:
+   ```json
+   {
+     "mcpServers": {
+       "unitares-governance": {
+         "type": "http",
+         "url": "http://127.0.0.1:8767/mcp/"
        }
      }
    }
    ```
 
 3. **Update the path** to match your system:
-   - Replace `/Users/cirwel/` with your home directory
-   - Or use absolute path to `mcp_server_std.py`
+   - Use absolute path to your `governance-mcp-v1` directory
+   - Or use `mcp_server_std.py` with relative path from project root
 
 4. **Restart Cursor**
 
-### Option B: Claude Desktop (recommended: stdio → SSE proxy)
+### Option B: Claude Desktop
 
 1. **Find Claude Desktop MCP config:**
    - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
    - Linux: `~/.config/Claude/claude_desktop_config.json`
    - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
-2. **Generate your config JSON** (prints JSON you can paste):
-   ```bash
-   cd /path/to/governance-mcp-v1
-   ./scripts/mcp config claude-desktop http://127.0.0.1:8765/sse
+2. **Add Streamable HTTP config:**
+   ```json
+   {
+     "mcpServers": {
+       "unitares-governance": {
+         "type": "http",
+         "url": "https://your-domain.ngrok.io/mcp/"
+       }
+     }
+   }
    ```
 
 3. **Restart Claude Desktop**

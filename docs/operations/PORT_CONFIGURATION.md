@@ -50,13 +50,13 @@ DEFAULT_PORT = 8767  # Standard port for unitares governance
 python3 src/mcp_server.py --port 8767
 
 # scripts/deploy_ngrok.sh
-SSE_PORT="${SSE_PORT:-8767}"  # Defaults to 8767
+MCP_PORT="${MCP_PORT:-8767}"  # Defaults to 8767
 ```
 
 ### ✅ Ngrok Configuration
 ```bash
-# ngrok forwards unitares.ngrok.io → localhost:8767
-ngrok http 8767 --url=unitares.ngrok.io
+# ngrok forwards your-domain.ngrok.io → localhost:8767
+ngrok http 8767 --url=your-domain.ngrok.io
 ```
 
 ---

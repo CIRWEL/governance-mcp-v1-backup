@@ -359,7 +359,7 @@ v2.5.4:  Meaningful identity in KG
 - ✅ Identity model (2 visible: agent_id + name; UUID internal)
 - ✅ Auto-healing infrastructure
 - ✅ **85+ MCP tools**
-- ✅ Dual transport support (SSE + Streamable HTTP)
+- ✅ Streamable HTTP transport (`/mcp/` endpoint)
 - ✅ Ethical drift (Δη) fully integrated
 - ✅ Trajectory identity (genesis signatures, lineage comparison)
 - ✅ Automatic calibration from objective outcomes

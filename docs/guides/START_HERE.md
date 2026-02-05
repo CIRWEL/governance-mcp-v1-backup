@@ -320,7 +320,10 @@ list_tools(include_advanced=False)  # Hide Tier 3 (advanced) tools
 | Check my identity | `identity()` (MCP) |
 | Check my state | `get_governance_metrics` (MCP) |
 | See all tools | `list_tools` (MCP) |
+| **Call an LLM** | `call_model` — local (Ollama) or cloud (HF, Gemini) |
+| **Recover when stuck** | `llm_assisted_dialectic` — structured self-reflection |
 | Find solutions | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
+| LLM integration | [LLM_DELEGATION.md](LLM_DELEGATION.md) |
 | Setup MCP | [MCP_SETUP.md](MCP_SETUP.md) |
 | Deploy | [DEPLOYMENT.md](DEPLOYMENT.md) |
 

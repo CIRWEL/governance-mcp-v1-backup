@@ -219,7 +219,7 @@ Response includes `status_breakdown` with counts per status type:
 
 ```bash
 # Server health
-curl http://localhost:8765/health
+curl http://localhost:8767/health
 
 # PostgreSQL
 docker exec postgres-age psql -U postgres -d governance -c "SELECT COUNT(*) FROM core.agents;"
