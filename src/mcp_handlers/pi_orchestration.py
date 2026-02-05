@@ -926,13 +926,12 @@ async def handle_pi_restart_service(arguments: Dict[str, Any]) -> Sequence[TextC
 
     # Audit the action
     audit_logger.log_cross_device_call(
-        source="mac",
-        target="pi",
-        tool=f"ssh_systemctl_{action}",
         agent_id=agent_id,
-        latency_ms=0,  # Will update
-        success=True,  # Assume success, update if fails
-        error=None
+        source_device="mac",
+        target_device="pi",
+        tool_name=f"ssh_systemctl_{action}",
+        arguments={"service": service, "action": action},
+        status="initiated"
     )
 
     start_time = time.time()
@@ -951,12 +950,13 @@ async def handle_pi_restart_service(arguments: Dict[str, Any]) -> Sequence[TextC
 
         # Update audit with actual result
         audit_logger.log_cross_device_call(
-            source="mac",
-            target="pi",
-            tool=f"ssh_systemctl_{action}",
             agent_id=agent_id,
+            source_device="mac",
+            target_device="pi",
+            tool_name=f"ssh_systemctl_{action}",
+            arguments={"service": service, "action": action},
+            status="success" if success else "error",
             latency_ms=latency_ms,
-            success=success,
             error=error if not success else None
         )
 
