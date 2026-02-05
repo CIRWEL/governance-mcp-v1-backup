@@ -377,7 +377,8 @@ async def bind_oauth_session(
         True if binding succeeded
     """
     try:
-        from .identity import _session_identities, _persist_session_new
+        from .identity_shared import _session_identities
+        from .identity import _persist_session_new
 
         agent_id = oauth_identity.agent_id
         bound_at = datetime.now().isoformat()

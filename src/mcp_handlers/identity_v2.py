@@ -11,20 +11,17 @@ Separates two concerns that were previously conflated:
 - resolve_session_identity(): "Who am I?" (session → UUID)
 - lookup_agent(): "Who is agent X?" (moved to get_agent_metadata)
 
-The label is just metadata on the agent, not an identity mechanism.
-
 Lazy creation (v2.4.1):
 - resolve_session_identity(persist=False) returns UUID without PostgreSQL write
 - ensure_agent_persisted() persists on first real work (process_agent_update)
 - Prevents orphan agents from discovery/testing calls
 
-Four-tier identity (v2.5.2):
+Three-tier identity (v2.5.3):
 - UUID: Immutable technical identifier, used for lookup/persistence (primary key)
-- agent_id: Model+date format (e.g., "Claude_Opus_20251227") - system generated
-- display_name: User-chosen name (like birth certificate, set once via identity(name=...))
-- label: Nickname (casual, can change anytime)
+- agent_id: Model+date format (e.g., "Claude_Opus_20251227") - system generated, useful for tracking
+- display_name: User-chosen name (set via identity(name='...')), also aliased as 'label' in responses
 
-UUID is ALWAYS the cached/stored value. agent_id is for awareness.
+UUID is ALWAYS the cached/stored value. agent_id provides model awareness.
 Same UUID = same agent.
 """
 
@@ -148,10 +145,12 @@ async def _find_agent_by_id(agent_id: str) -> Optional[Dict[str, Any]]:
             if not agent_uuid:
                 agent_uuid = agent_id
 
+            display_name = getattr(agent, "label", None) or getattr(agent, "display_name", None)
             return {
                 "agent_id": agent_id,
                 "agent_uuid": agent_uuid,
-                "label": getattr(agent, "label", None) or getattr(agent, "display_name", None),
+                "display_name": display_name,
+                "label": display_name,  # backward compat alias
                 "status": getattr(agent, "status", "active"),
             }
     except Exception as e:
@@ -163,10 +162,12 @@ async def _find_agent_by_id(agent_id: str) -> Optional[Dict[str, Any]]:
         mcp_server = get_mcp_server()
         if agent_id in mcp_server.agent_metadata:
             meta = mcp_server.agent_metadata[agent_id]
+            display_name = getattr(meta, "label", None)
             return {
                 "agent_id": agent_id,
                 "agent_uuid": getattr(meta, "agent_uuid", agent_id),
-                "label": getattr(meta, "label", None),
+                "display_name": display_name,
+                "label": display_name,  # backward compat alias
                 "status": getattr(meta, "status", "active"),
             }
     except Exception as e:
@@ -338,7 +339,9 @@ async def resolve_session_identity(
 
                         "agent_uuid": agent_uuid,
 
-                        "label": label,
+                        "display_name": label,
+
+                        "label": label,  # backward compat
 
                         "created": False,
 
@@ -428,7 +431,9 @@ async def resolve_session_identity(
 
                     "agent_uuid": agent_uuid,
 
-                    "label": label,
+                    "display_name": label,
+
+                    "label": label,  # backward compat
 
                     "created": False,
 
@@ -497,7 +502,8 @@ async def resolve_session_identity(
             return {
                 "agent_id": agent_id,
                 "agent_uuid": agent_uuid,
-                "label": None,
+                "display_name": None,
+                "label": None,  # backward compat
                 "created": True,
                 "persisted": True,
                 "source": "created",
@@ -515,7 +521,8 @@ async def resolve_session_identity(
     return {
         "agent_id": agent_id,
         "agent_uuid": agent_uuid,
-        "label": None,
+        "display_name": None,
+        "label": None,  # backward compat
         "created": True,
         "persisted": False,
         "source": "memory_only",
@@ -620,7 +627,7 @@ async def set_agent_label(agent_uuid: str, label: str, session_key: Optional[str
 
                 # Also update session binding cache so get_or_create_session_identity returns correct label
                 try:
-                    from .identity import _session_identities
+                    from .identity_shared import _session_identities
                     for session_key, binding in _session_identities.items():
                         if binding.get("bound_agent_id") == agent_uuid or binding.get("agent_uuid") == agent_uuid:
                             binding["agent_label"] = label
@@ -822,16 +829,18 @@ async def handle_identity_v2(
             identity["label_set"] = True
             persisted = True  # set_agent_label calls ensure_agent_persisted
 
+    display_name = identity.get("label")  # label is stored internally, exposed as display_name
     return {
         "success": True,
         "agent_id": agent_id,  # model+date format (e.g., "Claude_Opus_20251227")
         "agent_uuid": agent_uuid,  # internal UUID
-        "label": identity.get("label"),
+        "display_name": display_name,  # user-chosen name (three-tier identity)
+        "label": display_name,  # DEPRECATED alias for display_name (backward compat)
         "bound": True,
         "persisted": persisted,
         "source": identity.get("source"),
         "created": identity.get("created", False),
-        "message": f"Identity: {identity.get('label') or agent_id}",
+        "message": f"Identity: {display_name or agent_id}",
     }
 
 
@@ -1327,7 +1336,7 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
 
     # STEP 3: Generate stable session ID
     # Import helper to ensure consistent format
-    from .identity import make_client_session_id
+    from .identity_shared import make_client_session_id
     stable_session_id = make_client_session_id(agent_uuid)
 
     # STEP 4: Register binding under stable session ID (in v2 cache)
@@ -1337,7 +1346,7 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     
     # Also register in O(1) prefix index (legacy support)
     try:
-        from .identity import _register_uuid_prefix
+        from .identity_shared import _register_uuid_prefix
         uuid_prefix = agent_uuid[:12]
         _register_uuid_prefix(uuid_prefix, agent_uuid)
     except ImportError:

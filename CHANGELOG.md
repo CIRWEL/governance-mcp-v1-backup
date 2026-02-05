@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.7] - 2026-02-05
+
+### Changed - Identity Simplification & Code Organization
+
+#### Three-Tier Identity Model
+- **Simplified from four-tier to three-tier**:
+  - `UUID` — Immutable internal identifier (primary key)
+  - `agent_id` — Model+date format (e.g., `Claude_Opus_20251227`) for tracking
+  - `display_name` — User-chosen name (merged with former `label` tier)
+- `label` kept as backward-compat alias pointing to `display_name`
+- Updated docstrings to document v2.5.3 three-tier model
+
+#### Identity Module Refactoring
+- **New `identity_shared.py`** — Shared utilities extracted from identity.py:
+  - Session cache (`_session_identities`, `_uuid_prefix_index`)
+  - Session key functions (`_get_session_key`, `make_client_session_id`)
+  - Identity lookup (`get_bound_agent_id`, `is_session_bound`)
+  - Permissions (`require_write_permission`)
+  - Lineage utilities (`_get_lineage`, `_get_lineage_depth`)
+- **Slimmed `identity.py`** — Now imports shared utilities, contains only async DB functions
+- **Cleaner imports** — All modules now import from `identity_shared.py` for shared state
+
+### Files Changed
+- `src/mcp_handlers/identity_shared.py` — New shared module (280 lines)
+- `src/mcp_handlers/identity_v2.py` — Updated to three-tier, uses identity_shared
+- `src/mcp_handlers/identity.py` — Slimmed down, imports from identity_shared
+- `src/mcp_handlers/__init__.py` — Updated imports
+- `src/mcp_handlers/admin.py`, `lifecycle.py`, `knowledge_graph.py`, `oauth_identity.py` — Updated imports
+
+### Tests
+- **416 tests passing** (all existing tests still pass)
+- **31% coverage** maintained
+
+---
+
 ## [2.5.6] - 2026-02-05
 
 ### Added - UX Friction Fixes & Consolidated Tools
