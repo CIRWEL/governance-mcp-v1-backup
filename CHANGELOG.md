@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.8] - 2026-02-05
+
+### Added - Production-Grade Redis Resilience
+
+#### Circuit Breaker Pattern
+- **Fast failure when Redis is down** — Stops hammering Redis after 5 consecutive failures
+- **Auto-recovery testing** — Transitions to HALF_OPEN after 30s to test if Redis recovered
+- **State machine** — CLOSED → OPEN → HALF_OPEN → CLOSED lifecycle
+
+#### Connection Pooling
+- **Efficient connection management** — Default pool size of 10 connections
+- **Configurable via env** — `REDIS_POOL_SIZE` environment variable
+
+#### Retry with Exponential Backoff
+- **Transient failure handling** — 3 retry attempts with exponential backoff
+- **Configurable delays** — Base delay 0.1s, max delay 2.0s
+- **Connection error detection** — Auto-reconnect on connection failures
+
+#### Periodic Health Check
+- **Reduced overhead** — Background health check every 30s instead of ping-per-call
+- **Proactive failure detection** — Detects Redis failures before operations fail
+
+#### Fallback Metrics
+- **Comprehensive visibility** — Tracks operations, retries, fallbacks, connections
+- **`get_redis_metrics()`** — Export metrics for monitoring dashboards
+- **Success rate tracking** — Know when system is degraded
+
+#### Redis Sentinel Support (HA)
+- **High availability deployments** — Connect via Sentinel for automatic failover
+- **`REDIS_SENTINEL_HOSTS`** — Comma-separated sentinel hosts
+- **`REDIS_SENTINEL_MASTER`** — Master name for Sentinel discovery
+
+### New Classes
+- `CircuitBreaker` — Reusable circuit breaker pattern
+- `RedisConfig` — Configuration dataclass with env var support
+- `RedisMetrics` — Metrics collection and export
+- `ResilientRedisClient` — Main client with all resilience features
+
+### New Functions
+- `get_redis_metrics()` — Get comprehensive health status
+- `get_circuit_breaker()` — Access circuit breaker for monitoring
+- `with_redis_fallback()` — Decorator for operations with fallback
+
+### Environment Variables
+```
+REDIS_URL                      # Connection URL (default: redis://localhost:6379/0)
+REDIS_ENABLED                  # Enable/disable Redis (default: 1)
+REDIS_POOL_SIZE                # Connection pool size (default: 10)
+REDIS_RETRY_ATTEMPTS           # Max retry attempts (default: 3)
+REDIS_CIRCUIT_BREAKER_THRESHOLD # Failures before circuit opens (default: 5)
+REDIS_CIRCUIT_BREAKER_TIMEOUT  # Seconds before retry after open (default: 30)
+REDIS_SENTINEL_HOSTS           # Sentinel hosts (e.g., "host1:26379,host2:26379")
+REDIS_SENTINEL_MASTER          # Sentinel master name (default: "mymaster")
+```
+
+### Tests
+- **27 new tests** for Redis resilience (`tests/test_redis_resilience.py`)
+- **449 tests passing** (up from 416)
+- **31% coverage** maintained
+
+### Files Changed
+- `src/cache/redis_client.py` — Complete rewrite with resilience features (670 lines)
+- `src/cache/__init__.py` — Updated exports for new classes/functions
+- `tests/test_redis_resilience.py` — New comprehensive test suite
+
+---
+
 ## [2.5.7] - 2026-02-05
 
 ### Changed - Identity Simplification & Code Organization

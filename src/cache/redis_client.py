@@ -1,44 +1,605 @@
 """
-Redis client with graceful fallback.
+Redis client with production-grade resilience.
 
-Connection management:
-- Lazy initialization (connects on first use)
-- Auto-reconnect on connection loss
-- Graceful fallback to in-memory if Redis unavailable
+Features:
+- Circuit breaker: Stops hammering Redis when it's down
+- Connection pooling: Efficient connection management
+- Retry with backoff: Handles transient failures gracefully
+- Periodic health check: Reduces overhead vs ping-per-call
+- Fallback metrics: Visibility into degradation events
+- Sentinel support: High availability deployments
 
 Environment variables:
 - REDIS_URL: Redis connection URL (default: redis://localhost:6379/0)
-- REDIS_ENABLED: Set to "0" to disable Redis entirely (force fallback)
+- REDIS_ENABLED: Set to "0" to disable Redis entirely
+- REDIS_SENTINEL_HOSTS: Comma-separated sentinel hosts (e.g., "host1:26379,host2:26379")
+- REDIS_SENTINEL_MASTER: Sentinel master name (default: "mymaster")
+- REDIS_POOL_SIZE: Connection pool size (default: 10)
+- REDIS_RETRY_ATTEMPTS: Max retry attempts (default: 3)
+- REDIS_CIRCUIT_BREAKER_THRESHOLD: Failures before circuit opens (default: 5)
+- REDIS_CIRCUIT_BREAKER_TIMEOUT: Seconds before retry after circuit opens (default: 30)
 """
 
 from __future__ import annotations
 
 import os
+import time
 import asyncio
-from typing import Optional, Any
+from dataclasses import dataclass, field
+from typing import Optional, Any, Dict, Callable, TypeVar
+from functools import wraps
 from contextlib import asynccontextmanager
+import threading
+import inspect
 
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
-# Lazy import to avoid hard dependency
-_redis_module: Optional[Any] = None
-_redis_client: Optional[Any] = None
-_redis_available: Optional[bool] = None
+# Type variable for generic retry decorator
+T = TypeVar("T")
 
 
-def _get_redis_module():
-    """Lazy import of redis module."""
-    global _redis_module
-    if _redis_module is None:
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+@dataclass
+class RedisConfig:
+    """Redis configuration with sensible defaults."""
+    url: str = field(default_factory=lambda: os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    enabled: bool = field(default_factory=lambda: os.getenv("REDIS_ENABLED", "1").lower() not in ("0", "false", "no"))
+
+    # Connection pool settings
+    pool_size: int = field(default_factory=lambda: int(os.getenv("REDIS_POOL_SIZE", "10")))
+    socket_timeout: float = 2.0
+    socket_connect_timeout: float = 2.0
+
+    # Retry settings
+    retry_attempts: int = field(default_factory=lambda: int(os.getenv("REDIS_RETRY_ATTEMPTS", "3")))
+    retry_base_delay: float = 0.1  # Base delay in seconds
+    retry_max_delay: float = 2.0   # Max delay after backoff
+
+    # Circuit breaker settings
+    circuit_breaker_threshold: int = field(default_factory=lambda: int(os.getenv("REDIS_CIRCUIT_BREAKER_THRESHOLD", "5")))
+    circuit_breaker_timeout: float = field(default_factory=lambda: float(os.getenv("REDIS_CIRCUIT_BREAKER_TIMEOUT", "30")))
+
+    # Sentinel settings (for HA)
+    sentinel_hosts: Optional[str] = field(default_factory=lambda: os.getenv("REDIS_SENTINEL_HOSTS"))
+    sentinel_master: str = field(default_factory=lambda: os.getenv("REDIS_SENTINEL_MASTER", "mymaster"))
+
+    # Health check settings
+    health_check_interval: float = 30.0  # Seconds between health checks
+
+
+# =============================================================================
+# CIRCUIT BREAKER
+# =============================================================================
+
+class CircuitBreaker:
+    """
+    Circuit breaker pattern to prevent cascading failures.
+
+    States:
+    - CLOSED: Normal operation, requests pass through
+    - OPEN: Failing, requests are rejected immediately
+    - HALF_OPEN: Testing if service recovered
+    """
+
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+    def __init__(self, threshold: int = 5, timeout: float = 30.0):
+        self.threshold = threshold
+        self.timeout = timeout
+        self._state = self.CLOSED
+        self._failure_count = 0
+        self._last_failure_time: Optional[float] = None
+        self._lock = threading.Lock()
+
+    @property
+    def state(self) -> str:
+        """Get current circuit state, auto-transitioning if needed."""
+        with self._lock:
+            if self._state == self.OPEN:
+                # Check if timeout has passed, transition to half-open
+                if self._last_failure_time and (time.time() - self._last_failure_time) >= self.timeout:
+                    self._state = self.HALF_OPEN
+                    logger.info("Circuit breaker: OPEN -> HALF_OPEN (testing recovery)")
+            return self._state
+
+    def record_success(self) -> None:
+        """Record successful operation, potentially closing circuit."""
+        with self._lock:
+            if self._state == self.HALF_OPEN:
+                logger.info("Circuit breaker: HALF_OPEN -> CLOSED (service recovered)")
+            self._state = self.CLOSED
+            self._failure_count = 0
+
+    def record_failure(self) -> None:
+        """Record failed operation, potentially opening circuit."""
+        with self._lock:
+            self._failure_count += 1
+            self._last_failure_time = time.time()
+
+            if self._state == self.HALF_OPEN:
+                # Failed during test, back to open
+                self._state = self.OPEN
+                logger.warning("Circuit breaker: HALF_OPEN -> OPEN (recovery failed)")
+            elif self._failure_count >= self.threshold:
+                if self._state != self.OPEN:
+                    logger.warning(f"Circuit breaker: CLOSED -> OPEN (threshold {self.threshold} reached)")
+                self._state = self.OPEN
+
+    def is_available(self) -> bool:
+        """Check if requests should be allowed through."""
+        return self.state != self.OPEN
+
+    def reset(self) -> None:
+        """Reset circuit breaker to closed state."""
+        with self._lock:
+            self._state = self.CLOSED
+            self._failure_count = 0
+            self._last_failure_time = None
+
+
+# =============================================================================
+# FALLBACK METRICS
+# =============================================================================
+
+@dataclass
+class RedisMetrics:
+    """Metrics for Redis operations and fallback events."""
+
+    # Operation counts
+    operations_total: int = 0
+    operations_success: int = 0
+    operations_failed: int = 0
+    operations_fallback: int = 0
+
+    # Retry stats
+    retries_total: int = 0
+    retries_success: int = 0
+
+    # Circuit breaker stats
+    circuit_opens: int = 0
+    circuit_half_opens: int = 0
+
+    # Connection stats
+    connections_created: int = 0
+    connections_failed: int = 0
+    reconnections: int = 0
+
+    # Health check stats
+    health_checks_total: int = 0
+    health_checks_failed: int = 0
+    last_health_check: Optional[float] = None
+    last_healthy: Optional[float] = None
+
+    # Timing
+    _start_time: float = field(default_factory=time.time)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Export metrics as dict."""
+        uptime = time.time() - self._start_time
+        return {
+            "uptime_seconds": round(uptime, 1),
+            "operations": {
+                "total": self.operations_total,
+                "success": self.operations_success,
+                "failed": self.operations_failed,
+                "fallback": self.operations_fallback,
+                "success_rate": round(self.operations_success / max(self.operations_total, 1) * 100, 1),
+            },
+            "retries": {
+                "total": self.retries_total,
+                "success": self.retries_success,
+            },
+            "circuit_breaker": {
+                "opens": self.circuit_opens,
+                "half_opens": self.circuit_half_opens,
+            },
+            "connections": {
+                "created": self.connections_created,
+                "failed": self.connections_failed,
+                "reconnections": self.reconnections,
+            },
+            "health": {
+                "checks_total": self.health_checks_total,
+                "checks_failed": self.health_checks_failed,
+                "last_check": self.last_health_check,
+                "last_healthy": self.last_healthy,
+            },
+        }
+
+
+# =============================================================================
+# REDIS CLIENT WITH RESILIENCE
+# =============================================================================
+
+class ResilientRedisClient:
+    """
+    Redis client with production-grade resilience features.
+
+    Thread-safe singleton with:
+    - Circuit breaker for fast failure
+    - Connection pooling for efficiency
+    - Retry with exponential backoff
+    - Periodic health checks
+    - Comprehensive metrics
+    """
+
+    def __init__(self, config: Optional[RedisConfig] = None):
+        self.config = config or RedisConfig()
+        self._redis: Optional[Any] = None
+        self._redis_module: Optional[Any] = None
+        self._available: Optional[bool] = None
+        self._lock = asyncio.Lock()
+        self._init_lock = threading.Lock()
+
+        # Circuit breaker
+        self.circuit_breaker = CircuitBreaker(
+            threshold=self.config.circuit_breaker_threshold,
+            timeout=self.config.circuit_breaker_timeout,
+        )
+
+        # Metrics
+        self.metrics = RedisMetrics()
+
+        # Health check task
+        self._health_check_task: Optional[asyncio.Task] = None
+        self._shutdown = False
+
+    def _get_redis_module(self):
+        """Lazy import of redis module."""
+        if self._redis_module is None:
+            with self._init_lock:
+                if self._redis_module is None:
+                    try:
+                        import redis.asyncio as redis
+                        self._redis_module = redis
+                    except ImportError:
+                        logger.warning("redis package not installed - using fallback mode")
+                        self._redis_module = False
+        return self._redis_module if self._redis_module else None
+
+    async def _create_connection(self) -> Optional[Any]:
+        """Create Redis connection with pooling and optional Sentinel support."""
+        redis_mod = self._get_redis_module()
+        if redis_mod is None:
+            return None
+
         try:
-            import redis.asyncio as redis
-            _redis_module = redis
-        except ImportError:
-            logger.warning("redis package not installed - using fallback mode")
-            _redis_module = False
-    return _redis_module if _redis_module else None
+            # Check for Sentinel configuration
+            if self.config.sentinel_hosts:
+                return await self._create_sentinel_connection(redis_mod)
+
+            # Standard connection with pool
+            self._redis = redis_mod.from_url(
+                self.config.url,
+                decode_responses=True,
+                socket_connect_timeout=self.config.socket_connect_timeout,
+                socket_timeout=self.config.socket_timeout,
+                max_connections=self.config.pool_size,
+                health_check_interval=30,  # Built-in health check
+            )
+
+            # Verify connection
+            await self._redis.ping()
+            self.metrics.connections_created += 1
+            self._available = True
+            logger.info(f"Redis connected: {self.config.url} (pool_size={self.config.pool_size})")
+            return self._redis
+
+        except Exception as e:
+            self.metrics.connections_failed += 1
+            logger.warning(f"Redis connection failed: {e}")
+            self._available = False
+            return None
+
+    async def _create_sentinel_connection(self, redis_mod) -> Optional[Any]:
+        """Create connection through Redis Sentinel for HA."""
+        try:
+            # Parse sentinel hosts
+            sentinel_hosts = []
+            for host_port in self.config.sentinel_hosts.split(","):
+                host_port = host_port.strip()
+                if ":" in host_port:
+                    host, port = host_port.rsplit(":", 1)
+                    sentinel_hosts.append((host, int(port)))
+                else:
+                    sentinel_hosts.append((host_port, 26379))
+
+            # Create Sentinel client
+            sentinel = redis_mod.Sentinel(
+                sentinel_hosts,
+                socket_timeout=self.config.socket_timeout,
+                socket_connect_timeout=self.config.socket_connect_timeout,
+            )
+
+            # Get master connection
+            self._redis = sentinel.master_for(
+                self.config.sentinel_master,
+                decode_responses=True,
+            )
+
+            # Verify connection
+            await self._redis.ping()
+            self.metrics.connections_created += 1
+            self._available = True
+            logger.info(f"Redis Sentinel connected: master={self.config.sentinel_master}, sentinels={sentinel_hosts}")
+            return self._redis
+
+        except Exception as e:
+            self.metrics.connections_failed += 1
+            logger.warning(f"Redis Sentinel connection failed: {e}")
+            self._available = False
+            return None
+
+    async def get(self) -> Optional[Any]:
+        """
+        Get Redis client instance with resilience checks.
+
+        Returns:
+            Redis client if available, None if disabled/unavailable.
+        """
+        # Check if explicitly disabled
+        if not self.config.enabled:
+            return None
+
+        # Check circuit breaker
+        if not self.circuit_breaker.is_available():
+            self.metrics.operations_fallback += 1
+            return None
+
+        # Return existing healthy connection
+        if self._redis is not None and self._available:
+            return self._redis
+
+        # Create new connection (with lock to prevent race)
+        async with self._lock:
+            # Double-check after acquiring lock
+            if self._redis is not None and self._available:
+                return self._redis
+
+            # Try to connect with retry
+            for attempt in range(self.config.retry_attempts):
+                try:
+                    result = await self._create_connection()
+                    if result is not None:
+                        self.circuit_breaker.record_success()
+                        # Start health check task if not running
+                        self._ensure_health_check_running()
+                        return result
+                except Exception as e:
+                    self.metrics.retries_total += 1
+                    if attempt < self.config.retry_attempts - 1:
+                        delay = min(
+                            self.config.retry_base_delay * (2 ** attempt),
+                            self.config.retry_max_delay
+                        )
+                        logger.debug(f"Redis connection attempt {attempt + 1} failed, retrying in {delay:.1f}s: {e}")
+                        await asyncio.sleep(delay)
+
+            # All attempts failed
+            self.circuit_breaker.record_failure()
+            self._available = False
+            return None
+
+    async def execute_with_retry(
+        self,
+        operation: Callable,
+        *args,
+        fallback: Optional[Callable] = None,
+        **kwargs,
+    ) -> Any:
+        """
+        Execute Redis operation with retry and fallback.
+
+        Args:
+            operation: Async callable to execute
+            fallback: Optional fallback callable if Redis fails
+            *args, **kwargs: Arguments to pass to operation
+
+        Returns:
+            Operation result, or fallback result if Redis fails
+        """
+        self.metrics.operations_total += 1
+
+        # Check circuit breaker first
+        if not self.circuit_breaker.is_available():
+            self.metrics.operations_fallback += 1
+            if fallback:
+                return await fallback(*args, **kwargs) if inspect.iscoroutinefunction(fallback) else fallback(*args, **kwargs)
+            return None
+
+        redis = await self.get()
+        if redis is None:
+            self.metrics.operations_fallback += 1
+            if fallback:
+                return await fallback(*args, **kwargs) if inspect.iscoroutinefunction(fallback) else fallback(*args, **kwargs)
+            return None
+
+        last_error = None
+        for attempt in range(self.config.retry_attempts):
+            try:
+                result = await operation(redis, *args, **kwargs)
+                self.metrics.operations_success += 1
+                self.circuit_breaker.record_success()
+                if attempt > 0:
+                    self.metrics.retries_success += 1
+                return result
+            except Exception as e:
+                last_error = e
+                self.metrics.retries_total += 1
+
+                # Check if connection is dead
+                if self._is_connection_error(e):
+                    self._available = False
+                    self._redis = None
+                    self.metrics.reconnections += 1
+                    redis = await self.get()
+                    if redis is None:
+                        break
+
+                if attempt < self.config.retry_attempts - 1:
+                    delay = min(
+                        self.config.retry_base_delay * (2 ** attempt),
+                        self.config.retry_max_delay
+                    )
+                    await asyncio.sleep(delay)
+
+        # All retries failed
+        self.metrics.operations_failed += 1
+        self.circuit_breaker.record_failure()
+        logger.warning(f"Redis operation failed after {self.config.retry_attempts} attempts: {last_error}")
+
+        if fallback:
+            self.metrics.operations_fallback += 1
+            return await fallback(*args, **kwargs) if inspect.iscoroutinefunction(fallback) else fallback(*args, **kwargs)
+        return None
+
+    def _is_connection_error(self, error: Exception) -> bool:
+        """Check if error indicates connection is dead."""
+        error_str = str(error).lower()
+        connection_errors = [
+            "connection",
+            "timeout",
+            "closed",
+            "reset",
+            "refused",
+            "unavailable",
+        ]
+        return any(err in error_str for err in connection_errors)
+
+    def _ensure_health_check_running(self) -> None:
+        """Start health check background task if not running."""
+        if self._health_check_task is None or self._health_check_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+                self._health_check_task = loop.create_task(self._health_check_loop())
+            except RuntimeError:
+                pass  # No running loop
+
+    async def _health_check_loop(self) -> None:
+        """Periodic health check to detect failures proactively."""
+        while not self._shutdown:
+            try:
+                await asyncio.sleep(self.config.health_check_interval)
+
+                if self._redis is not None:
+                    self.metrics.health_checks_total += 1
+                    self.metrics.last_health_check = time.time()
+
+                    try:
+                        await asyncio.wait_for(
+                            self._redis.ping(),
+                            timeout=self.config.socket_timeout
+                        )
+                        self.metrics.last_healthy = time.time()
+                        self.circuit_breaker.record_success()
+                    except Exception as e:
+                        self.metrics.health_checks_failed += 1
+                        logger.warning(f"Redis health check failed: {e}")
+                        self._available = False
+                        self._redis = None
+                        self.circuit_breaker.record_failure()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Health check loop error: {e}")
+
+    async def close(self) -> None:
+        """Close Redis connection and cleanup."""
+        self._shutdown = True
+
+        if self._health_check_task is not None:
+            self._health_check_task.cancel()
+            try:
+                await self._health_check_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._redis is not None:
+            try:
+                await self._redis.close()
+            except Exception:
+                pass
+            self._redis = None
+
+        self._available = None
+
+    def is_available(self) -> bool:
+        """
+        Check if Redis is likely available (non-blocking).
+
+        Uses cached state and circuit breaker - doesn't actually ping.
+        """
+        if not self.config.enabled:
+            return False
+        if not self.circuit_breaker.is_available():
+            return False
+        if self._available is not None:
+            return self._available
+        return True  # Optimistic before first connection
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Get comprehensive health status."""
+        status = {
+            "enabled": self.config.enabled,
+            "circuit_breaker": self.circuit_breaker.state,
+            "available": self._available,
+            "metrics": self.metrics.to_dict(),
+        }
+
+        if self._redis is not None:
+            try:
+                await asyncio.wait_for(self._redis.ping(), timeout=2.0)
+                status["ping"] = "ok"
+                status["connected"] = True
+            except Exception as e:
+                status["ping"] = f"failed: {e}"
+                status["connected"] = False
+        else:
+            status["connected"] = False
+
+        # Add config info
+        status["config"] = {
+            "url": self.config.url.replace(self.config.url.split("@")[-1].split("/")[0], "***") if "@" in self.config.url else self.config.url,
+            "pool_size": self.config.pool_size,
+            "retry_attempts": self.config.retry_attempts,
+            "circuit_breaker_threshold": self.config.circuit_breaker_threshold,
+            "sentinel_enabled": bool(self.config.sentinel_hosts),
+        }
+
+        return status
+
+    def reset(self) -> None:
+        """Reset client state (for testing)."""
+        self._redis = None
+        self._available = None
+        self.circuit_breaker.reset()
+        self.metrics = RedisMetrics()
+
+
+# =============================================================================
+# GLOBAL SINGLETON
+# =============================================================================
+
+_client: Optional[ResilientRedisClient] = None
+_client_lock = threading.Lock()
+
+
+def _get_client() -> ResilientRedisClient:
+    """Get or create singleton client."""
+    global _client
+    if _client is None:
+        with _client_lock:
+            if _client is None:
+                _client = ResilientRedisClient()
+    return _client
 
 
 async def get_redis() -> Optional[Any]:
@@ -46,92 +607,68 @@ async def get_redis() -> Optional[Any]:
     Get async Redis client instance.
 
     Returns:
-        Redis client if available, None if Redis is disabled or unavailable.
+        Redis client if available, None if disabled/unavailable.
 
-    Thread-safe: Uses module-level singleton with lazy initialization.
+    Thread-safe with circuit breaker and automatic reconnection.
     """
-    global _redis_client, _redis_available
-
-    # Check if Redis is explicitly disabled
-    if os.getenv("REDIS_ENABLED", "1").lower() in ("0", "false", "no"):
-        return None
-
-    # Check if we already know Redis is unavailable
-    if _redis_available is False:
-        return None
-
-    # Return existing client if available
-    if _redis_client is not None:
-        try:
-            # Quick health check
-            await _redis_client.ping()
-            return _redis_client
-        except Exception:
-            # Connection lost, try to reconnect
-            _redis_client = None
-
-    # Get redis module (lazy import)
-    redis_mod = _get_redis_module()
-    if redis_mod is None:
-        _redis_available = False
-        return None
-
-    # Connect to Redis
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    try:
-        _redis_client = redis_mod.from_url(
-            redis_url,
-            decode_responses=True,
-            socket_connect_timeout=2.0,
-            socket_timeout=2.0,
-        )
-        # Verify connection
-        await _redis_client.ping()
-        _redis_available = True
-        logger.info(f"Redis connected: {redis_url}")
-        return _redis_client
-    except Exception as e:
-        logger.warning(f"Redis unavailable ({redis_url}): {e} - using fallback mode")
-        _redis_available = False
-        _redis_client = None
-        return None
+    return await _get_client().get()
 
 
 def is_redis_available() -> bool:
     """
     Check if Redis is available (non-blocking).
 
-    Returns cached availability status. Use get_redis() to trigger
-    actual connection attempt.
+    Uses cached availability status and circuit breaker state.
     """
-    global _redis_available
-
-    # If explicitly disabled, return False
-    if os.getenv("REDIS_ENABLED", "1").lower() in ("0", "false", "no"):
-        return False
-
-    # Return cached status if known
-    if _redis_available is not None:
-        return _redis_available
-
-    # Status unknown - we haven't tried to connect yet
-    # Return True optimistically; actual check happens on first use
-    return True
+    return _get_client().is_available()
 
 
 async def close_redis() -> None:
     """Close Redis connection (call on shutdown)."""
-    global _redis_client
-    if _redis_client is not None:
-        try:
-            await _redis_client.close()
-        except Exception:
-            pass
-        _redis_client = None
+    if _client is not None:
+        await _client.close()
 
 
 def reset_redis_state() -> None:
     """Reset Redis state (for testing)."""
-    global _redis_client, _redis_available
-    _redis_client = None
-    _redis_available = None
+    if _client is not None:
+        _client.reset()
+
+
+async def get_redis_metrics() -> Dict[str, Any]:
+    """Get Redis resilience metrics."""
+    return await _get_client().health_check()
+
+
+def get_circuit_breaker() -> CircuitBreaker:
+    """Get circuit breaker instance (for testing/monitoring)."""
+    return _get_client().circuit_breaker
+
+
+# =============================================================================
+# CONVENIENCE DECORATORS
+# =============================================================================
+
+def with_redis_fallback(fallback_value: Any = None):
+    """
+    Decorator for Redis operations with automatic fallback.
+
+    Usage:
+        @with_redis_fallback(fallback_value=[])
+        async def get_cached_items(redis, key):
+            return await redis.lrange(key, 0, -1)
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            client = _get_client()
+
+            async def operation(redis, *a, **kw):
+                return await func(redis, *a, **kw)
+
+            async def fallback(*a, **kw):
+                return fallback_value
+
+            return await client.execute_with_retry(operation, *args, fallback=fallback, **kwargs)
+        return wrapper
+    return decorator
