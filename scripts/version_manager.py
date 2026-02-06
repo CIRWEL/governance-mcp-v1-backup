@@ -57,29 +57,28 @@ def bump_version(part: str) -> str:
 
 
 # Files and patterns to check/update
+# NOTE: admin.py health_check now uses dynamic SERVER_VERSION, no longer hardcoded.
 VERSION_REFERENCES = [
-    # README.md
+    # README.md - title and footer
     ("README.md", [
         (r'# UNITARES Governance Framework v([\d.]+)', r'# UNITARES Governance Framework v{version}'),
-        (r'\*\*Status: ✅ PRODUCTION READY v([\d.]+)\*\*', r'**Status: ✅ PRODUCTION READY v{version}**'),
-        (r'## \[(\d+\.\d+\.\d+)\]', r'## [{version}]'),  # CHANGELOG sections
+        (r'\*\*Version:\*\* ([\d.]+)', r'**Version:** {version}'),
     ]),
-    # CHANGELOG.md
-    ("CHANGELOG.md", [
-        (r'## \[(\d+\.\d+\.\d+)\] - Unreleased', r'## [{version}] - Unreleased'),
+    # Server code - fallback versions
+    ("src/mcp_server.py", [
+        (r'return "([\d.]+)"  # Fallback if VERSION file missing', r'return "{version}"  # Fallback if VERSION file missing'),
     ]),
-    # Server code - SERVER_VERSION constant
     ("src/mcp_server_std.py", [
-        (r'SERVER_VERSION = "([\d.]+)"', r'SERVER_VERSION = "{version}"'),
-        (r'# UNITARES v([\d.]+):', r'# UNITARES v{version}:'),
+        (r'return "([\d.]+)"  # Fallback if VERSION file missing', r'return "{version}"  # Fallback if VERSION file missing'),
     ]),
-    # Admin handler - hardcoded version in health_check
-    ("src/mcp_handlers/admin.py", [
+    # Tool schemas - example response versions
+    ("src/tool_schemas.py", [
         (r'"version": "([\d.]+)"', r'"version": "{version}"'),
+        (r'"server_version": "([\d.]+)"', r'"server_version": "{version}"'),
     ]),
-    # Python package files (if you create them later)
-    ("setup.py", [
-        (r'version=["\'](\d+\.\d+\.\d+)["\']', r'version="{version}"'),
+    # Docs
+    ("docs/guides/MCP_SETUP.md", [
+        (r'MCP Server v([\d.]+)', r'MCP Server v{version}'),
     ]),
 ]
 
