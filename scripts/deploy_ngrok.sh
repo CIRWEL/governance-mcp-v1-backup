@@ -13,9 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Default port for MCP server (Streamable HTTP)
-# NOTE: 8767 is the standard port for unitares governance on Mac
-#       8766 is used by anima (tunneled from Pi)
-#       8765 was the old default but caused conflicts
+# 8767 = governance (Mac), 8766 = anima (Pi)
 MCP_PORT="${MCP_PORT:-8767}"
 
 # Domain (optional - pass your reserved ngrok domain as first argument)

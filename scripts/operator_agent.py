@@ -24,11 +24,11 @@ Usage:
 
 Environment Variables:
     GOVERNANCE_TOOL_MODE=operator_recovery  # Set automatically when --enable-recovery
-    MCP_SERVER_URL=http://127.0.0.1:8767/sse  # Override default (uses legacy SSE transport)
+    MCP_SERVER_URL=http://127.0.0.1:8767/sse  # Override default
     OPERATOR_LABEL=Operator  # Override operator label
 
-Note: This script uses the legacy SSE transport. Consider using mcp_agent.py for
-      Streamable HTTP (/mcp/) support.
+Note: Uses legacy SSE transport (/sse). The server still supports it.
+      For new scripts, prefer mcp_agent.py which uses Streamable HTTP (/mcp/).
 """
 
 import asyncio
