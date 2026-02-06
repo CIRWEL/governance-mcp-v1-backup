@@ -2083,16 +2083,23 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                         "_raw_available": "Use response_mode='full' to see complete metrics"
                     }
 
-                # MINIMAL MODE: Bare essentials - action + proprioceptive margin
+                # MINIMAL MODE: Bare essentials - action + proprioceptive margin + EISV snapshot
                 elif response_mode == "minimal":
                     decision = response_data.get("decision", {}) if isinstance(response_data.get("decision"), dict) else {}
+                    metrics = response_data.get("metrics", {}) if isinstance(response_data.get("metrics"), dict) else {}
                     action = decision.get("action", "continue")
                     margin = decision.get("margin")  # comfortable/tight/critical
                     nearest_edge = decision.get("nearest_edge")  # risk/coherence/void
 
                     response_data = {
                         "action": action,
-                        "_mode": "minimal"
+                        "_mode": "minimal",
+                        "E": metrics.get("E"),
+                        "I": metrics.get("I"),
+                        "S": metrics.get("S"),
+                        "V": metrics.get("V"),
+                        "coherence": metrics.get("coherence"),
+                        "risk_score": metrics.get("latest_risk_score") or metrics.get("risk_score"),
                     }
                     # Include margin for proprioceptive awareness (not noise - actionable signal)
                     if margin:

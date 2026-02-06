@@ -33,9 +33,9 @@
 
 ---
 
-## Tool Count: 34 Registered Tools
+## Tool Count: 31 Registered Tools
 
-v2.6.1 has 34 tools (including 4 aliases: status, list_agents, observe_agent, checkin). Use `list_tools()` or read [SKILL.md](../skills/unitares-governance/SKILL.md).
+v2.6.1 has 31 tools + aliases (status, list_agents, observe_agent, checkin, etc.). Use `list_tools()` or read [SKILL.md](../skills/unitares-governance/SKILL.md).
 
 ## Test Coverage
 

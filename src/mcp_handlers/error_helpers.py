@@ -555,7 +555,7 @@ def tool_not_found_error(
     # Categorize tools for discovery
     common_tools = [t for t in available_tools if t in {
         'process_agent_update', 'status', 'search_knowledge_graph',
-        'list_agents', 'health_check', 'list_tools', 'get_agent_api_key'
+        'list_agents', 'health_check', 'list_tools', 'describe_tool'
     }]
 
     return [error_response(

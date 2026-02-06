@@ -336,6 +336,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
             details=raw_details,
             tags=arguments.get("tags", []),
             severity=severity,
+            status=arguments.get("status", "open"),
             response_to=response_to,
             references_files=arguments.get("related_files", []),
             provenance=provenance
