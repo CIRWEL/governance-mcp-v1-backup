@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.6.0] - 2026-02-05
+
+### Major Cleanup & Consolidation
+
+This release removes ~4,200 lines of dead code, migrates dialectic sessions fully to PostgreSQL,
+and expands test coverage from ~25% to 40% (1,798 tests passing).
+
+### Removed - Dead Code (~4,200 lines)
+- `identity.py` (v1) — Replaced by `identity_v2.py`
+- `oauth_identity.py` — Never imported
+- `governance_db.py` — Old SQLite backend, replaced by `postgres_backend.py`
+- `knowledge_db_postgres.py` — Old PG backend, replaced by AGE graph
+- `agent_id_manager.py`, `api_key_manager.py` — Unused
+- `ai_behavior_analysis.py`, `ai_knowledge_search.py`, `ai_synthesis.py` — Replaced by `call_model`
+- `mcp_server_compat.py`, `monitoring/`, `dual_log/INTEGRATION.py` — Unused
+
+### Changed - Handler Refactoring
+- **Tool surface reduced**: 49 → 29 registered tools (admin/internal tools hidden)
+- **Dialectic backend**: Fully migrated from SQLite to PostgreSQL
+- **Reviewer selection**: Simplified to random selection (user-facilitated model)
+- **Consolidated handlers**: New `export()` and `observe()` unified tools
+- **Deprecation**: `direct_resume_if_safe` → `quick_resume`/`self_recovery`
+- **Tool schemas**: Added `client_session_id` parameter support
+
+### Added - Dashboard & Infrastructure
+- `dashboard/styles.css` — Extracted CSS for dashboard
+- `scripts/migrate_dialectic_to_postgres.py` — Migration script (72 sessions migrated)
+- `skills/unitares-governance/SKILL.md` — Agent onboarding guide
+- System audit documentation
+
+### Tests
+- **43 new test files** covering pure logic, validators, helpers, integrations
+- **1,798 tests passing**, 40% coverage (up from 458 tests, 25%)
+- Cleanup fixture for `test_kwargs_unwrapping` to prevent ghost agent proliferation
+
+### Fixed
+- Dashboard `styles.css` now served (added to static file allowlist)
+- Dialectic session listing uses PostgreSQL instead of stale SQLite
+- Lumen governance check-ins restored (ngrok basic auth support in bridge)
+- `_resolve_dialectic_backend()` now recognizes `postgres` as valid value
+
+---
+
 ## [2.5.9] - 2026-02-05
 
 ### Added - Agent Circuit Breaker Enforcement
