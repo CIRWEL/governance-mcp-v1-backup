@@ -8,21 +8,8 @@
 
 | You are... | Start here |
 |------------|------------|
-| **New agent** | [GETTING_STARTED_SIMPLE](guides/GETTING_STARTED_SIMPLE.md) — 3 tools, 3 steps |
-| **MCP client** | [START_HERE](guides/START_HERE.md) — Full onboarding |
-
----
-
-## Essential Guides
-
-| Guide | Description |
-|-------|-------------|
-| [GETTING_STARTED_SIMPLE](guides/GETTING_STARTED_SIMPLE.md) | Fastest path - 3 tools |
-| [START_HERE](guides/START_HERE.md) | Full onboarding guide |
-| [LLM_DELEGATION](guides/LLM_DELEGATION.md) | LLM calls + dialectic recovery |
-| [DEPLOYMENT](guides/DEPLOYMENT.md) | Installation & setup (includes [ngrok](guides/NGROK_DEPLOYMENT.md)) |
-| [MCP_SETUP](guides/MCP_SETUP.md) | MCP client configuration |
-| [TROUBLESHOOTING](guides/TROUBLESHOOTING.md) | Common issues & fixes |
+| **New agent** | [SKILL.md](../skills/unitares-governance/SKILL.md) — Framework concepts + tool reference |
+| **Developer** | [TOOL_REGISTRATION](dev/TOOL_REGISTRATION.md) — How to add new MCP tools |
 
 ---
 
@@ -46,9 +33,9 @@
 
 ---
 
-## Tool Count: 29 Registered Tools
+## Tool Count: 34 Registered Tools
 
-v2.6.0 reduced the public surface from 49 to 29 tools. Use `list_tools()` or read [SKILL.md](../skills/unitares-governance/SKILL.md).
+v2.6.1 has 34 tools (including 4 aliases: status, list_agents, observe_agent, checkin). Use `list_tools()` or read [SKILL.md](../skills/unitares-governance/SKILL.md).
 
 ## Test Coverage
 
