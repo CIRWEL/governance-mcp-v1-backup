@@ -20,12 +20,57 @@ mcp_server = get_mcp_server()
 @mcp_tool("observe_agent", timeout=15.0, register=False)
 async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Observe another agent's governance state with pattern analysis"""
-    # PROACTIVE GATE: Require target agent to be registered before observing
-    # Note: This checks if the TARGET agent exists, not the caller.
-    # This allows unregistered rescue agents to observe registered agents.
-    agent_id, error = require_registered_agent(arguments)
-    if error:
-        return [error]  # Returns onboarding guidance if not registered
+    # Resolve the TARGET agent to observe.
+    # Accept "target_agent_id" (preferred) or "agent_id" (legacy, only if it
+    # doesn't match the caller's session-bound UUID — avoids self-observe).
+    target = arguments.get("target_agent_id")
+    if not target:
+        # Legacy fallback: use agent_id only if it differs from session-bound caller
+        explicit_id = arguments.get("agent_id")
+        try:
+            from .context import get_context_agent_id
+            caller_uuid = get_context_agent_id()
+            if explicit_id and explicit_id != caller_uuid:
+                target = explicit_id
+        except Exception:
+            target = explicit_id
+    if not target:
+        return [error_response(
+            "target_agent_id required: specify which agent to observe",
+            recovery={
+                "action": "Provide target_agent_id (UUID or label) of the agent to observe",
+                "related_tools": ["list_agents"],
+                "example": "observe(action='agent', target_agent_id='Lumen')"
+            }
+        )]
+    # Resolve label to UUID if needed
+    agent_id = target
+    try:
+        if not (len(target) == 36 and target.count('-') == 4):
+            # Looks like a label, resolve to UUID
+            from src.mcp_handlers.identity_v2 import _find_agent_by_label
+            resolved = await _find_agent_by_label(target)
+            if resolved:
+                agent_id = resolved
+            else:
+                return [error_response(
+                    f"Agent '{target}' not found. Use list_agents to see available agents.",
+                    recovery={"related_tools": ["list_agents"]}
+                )]
+    except Exception:
+        pass  # Use target as-is
+    # Verify agent exists in metadata
+    try:
+        if agent_id not in mcp_server.agent_metadata:
+            # Try loading from disk
+            mcp_server.load_metadata()
+            if agent_id not in mcp_server.agent_metadata:
+                return [error_response(
+                    f"Agent '{target}' not found in active metadata. They may need to check in first.",
+                    recovery={"related_tools": ["list_agents"]}
+                )]
+    except Exception:
+        pass
     
     # Reload metadata to get latest state (handles multi-process sync) - non-blocking
     import asyncio
