@@ -895,6 +895,10 @@ DEPENDENCIES:
                         "description": "Optional task type context. Valid values: \"convergent\" | \"divergent\" | \"mixed\". 'convergent' (standardization, formatting) vs 'divergent' (creative exploration). System interprets S=0 differently: convergent S=0 is healthy compliance, divergent S=0 may indicate lack of exploration. Prevents false positives on 'compliance vs health'.",
                         "default": "mixed"
                     },
+                    "trajectory_signature": {
+                        "type": "object",
+                        "description": "Trajectory identity signature from anima-mcp. Behavioral fingerprint used for lineage tracking and trust tier computation. Sent automatically by the unitares bridge."
+                    },
                 },
                 "required": []  # agent_id optional - injected from MCP session binding
             }
