@@ -137,7 +137,10 @@ TOOL_TIERS: dict[str, Set[str]] = {
         "detect_anomalies",
         "aggregate_metrics",
         "delete_agent",
-        "get_dialectic_session",
+        "dialectic",  # Consolidated: get/list dialectic sessions
+        "submit_thesis",
+        "submit_antithesis",
+        "submit_synthesis",
         "mark_response_complete",
         "compare_agents",
         "get_workspace_health",
@@ -239,7 +242,11 @@ TOOL_OPERATIONS: dict[str, str] = {
     "get_connection_status": "read",      # Verify MCP connection and tool availability
 
     # Dialectic
-    "get_dialectic_session": "read",      # View session
+    "request_dialectic_review": "write",  # Create dialectic session
+    "submit_thesis": "write",             # Submit thesis phase
+    "submit_antithesis": "write",         # Submit antithesis phase
+    "submit_synthesis": "write",          # Submit synthesis phase
+    "dialectic": "read",                  # Consolidated: get/list sessions
 
     # SSE-only
     "get_connected_clients": "read",      # List connected clients
@@ -302,10 +309,11 @@ TOOL_CATEGORIES = {
         "get_lifecycle_stats",       # Lifecycle statistics (Dec 2025)
     },
     "dialectic": {
-        "start_interactive_dialectic",   # Primary: start discussion
-        "resolve_interactive_dialectic", # Complete discussion
-        "list_pending_dialectics",       # See pending sessions
-        "get_dialectic_session",         # Check session status
+        "request_dialectic_review",      # Create dialectic session
+        "submit_thesis",                 # Paused agent explains reasoning
+        "submit_antithesis",             # Reviewer raises concerns
+        "submit_synthesis",              # Negotiate resolution
+        "dialectic",                     # Consolidated: get/list sessions
     },
 }
 

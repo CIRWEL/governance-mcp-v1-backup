@@ -217,7 +217,7 @@ EXAMPLE RESPONSE:
 }
 
 DEPENDENCIES:
-- Dialectic sessions are SQLite-first (`data/dialectic.db`) with optional JSON snapshots in `data/dialectic_sessions/`.
+- Dialectic sessions are stored in PostgreSQL (`core.dialectic_sessions`).
 - Workflow: 1. Call backfill_calibration_from_dialectic 2. Call check_calibration to verify""",
             inputSchema={
                 "type": "object",
@@ -1691,7 +1691,7 @@ RETURNS:
 
 RELATED TOOLS:
 - direct_resume_if_safe: Use for simple recovery
-- get_dialectic_session: View session status
+- dialectic(action='get'): View session status
 - mark_response_complete: Use if just waiting for input
 
 EXAMPLE REQUEST:
@@ -1702,7 +1702,7 @@ EXAMPLE REQUEST:
 
 DEPENDENCIES:
 - Requires: agent_id (auto-injected from session binding)
-- Optional: reviewer_mode ("auto" | "self")
+- Optional: reviewer_mode ("auto" | "self" | "llm")
 - Then use: submit_thesis, submit_antithesis, submit_synthesis""",
             inputSchema={
                 "type": "object",
@@ -1721,8 +1721,8 @@ DEPENDENCIES:
                     },
                     "reviewer_mode": {
                         "type": "string",
-                        "description": "Reviewer selection: auto (random from eligible, self fallback) | self (self-review only)",
-                        "enum": ["auto", "self"]
+                        "description": "Reviewer selection: auto (random eligible agent) | self (self-review) | llm (local LLM as synthetic reviewer)",
+                        "enum": ["auto", "self", "llm"]
                     },
                     "session_type": {
                         "type": "string",
@@ -3276,153 +3276,12 @@ DEPENDENCIES:
             }
         ),
         # ========================================================================
-        # DIALECTIC TOOLS - Dec 2025: Most handlers archived
-        # Restored: request_dialectic_review (lite recovery entry point)
-        # Removed: request_exploration_session, submit_thesis, submit_antithesis, submit_synthesis
+        # DIALECTIC TOOLS - Feb 2026: Full protocol restored
+        # Active: request_dialectic_review, submit_thesis, submit_antithesis, submit_synthesis
+        # Consolidated: get_dialectic_session, list_dialectic_sessions → dialectic(action=get/list)
+        # Hidden: llm_assisted_dialectic (reachable via reviewer_mode='llm')
+        # Removed: request_exploration_session (aliased to dialectic)
         # ========================================================================
-        Tool(
-            name="get_dialectic_session",
-            description="""Get current state of a dialectic session. Can find by session_id OR by agent_id.
-
-USE CASES:
-- Check session status (by session_id)
-- Find sessions for an agent (by agent_id)
-- Review negotiation history
-- Debug dialectic process
-- View resolution details
-
-RETURNS:
-If session_id provided:
-{
-  "success": true,
-  "session_id": "string",
-  "paused_agent_id": "string",
-  "reviewer_agent_id": "string",
-  "phase": "thesis" | "antithesis" | "synthesis" | "resolved" | "escalated" | "failed",
-  "created_at": "ISO timestamp",
-  "transcript": [...],
-  "synthesis_round": int,
-  "resolution": {...} (if resolved),
-  "max_synthesis_rounds": int
-}
-
-VALID ENUM VALUES:
-- phase: "thesis" | "antithesis" | "synthesis" | "resolved" | "escalated" | "failed"
-
-If agent_id provided (finds all sessions for agent):
-{
-  "success": true,
-  "agent_id": "string",
-  "session_count": int,
-  "sessions": [session_dict, ...]
-}
-
-RELATED TOOLS:
-- request_dialectic_review: Start session
-- submit_thesis/antithesis/synthesis: Progress session
-
-EXAMPLE REQUESTS:
-{"session_id": "abc123"}  # Get specific session
-{"agent_id": "my_agent"}  # Find all sessions for agent
-
-DEPENDENCIES:
-- Requires: session_id OR agent_id (at least one)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "client_session_id": {
-                        "type": "string",
-                        "description": "Session continuity token from onboard(). Include in all calls."
-                    },
-
-                    "session_id": {
-                        "type": "string",
-                        "description": "Dialectic session ID (optional if agent_id provided)"
-                    },
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent ID to find sessions for (optional if session_id provided). Finds sessions where agent is paused_agent_id or reviewer_agent_id"
-                    }
-                },
-                "required": []
-            }
-        ),
-        Tool(
-            name="list_dialectic_sessions",
-            description="""List all dialectic sessions with optional filtering.
-
-Browse historical dialectic sessions to learn from past negotiations and recoveries.
-Returns summaries by default for efficiency; use include_transcript for full details.
-
-USE CASES:
-- Browse past recovery negotiations
-- Learn from resolved dialectics
-- Find sessions by phase (resolved, failed, thesis)
-- Review an agent's dialectic history
-
-RETURNS:
-{
-  "success": true,
-  "session_count": int,
-  "sessions": [
-    {
-      "session_id": "string",
-      "phase": "thesis" | "antithesis" | "synthesis" | "resolved" | "escalated" | "failed",
-      "session_type": "recovery" | "exploration",
-      "requestor": "agent_id",
-      "reviewer": "agent_id" | null,
-      "topic": "string",
-      "created": "ISO timestamp",
-      "message_count": int
-    }, ...
-  ],
-  "filters_applied": {...}
-}
-
-VALID ENUM VALUES:
-- status (filter): "thesis", "antithesis", "synthesis", "resolved", "escalated", "failed"
-
-RELATED TOOLS:
-- get_dialectic_session: Get full session by ID
-- request_dialectic_review: Start a new session
-- search_knowledge_graph: Search discoveries from sessions
-
-EXAMPLE REQUESTS:
-{}  # List all sessions (up to 50)
-{"status": "resolved"}  # Only resolved sessions
-{"agent_id": "scout", "limit": 10}  # Scout's last 10 sessions
-{"include_transcript": true, "limit": 5}  # With full transcripts
-
-DEPENDENCIES:
-- Optional: agent_id, status, limit, include_transcript""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "client_session_id": {
-                        "type": "string",
-                        "description": "Session continuity token from onboard(). Include in all calls."
-                    },
-
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Filter by agent (either requestor or reviewer)"
-                    },
-                    "status": {
-                        "type": "string",
-                        "description": "Filter by phase (e.g., 'resolved', 'failed', 'thesis')"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max sessions to return (default 50, max 200)"
-                    },
-                    "include_transcript": {
-                        "type": "boolean",
-                        "description": "Include full transcript in results (default false for performance)"
-                    }
-                },
-                "required": []
-            }
-        ),
         # ========================================================================
         # KNOWLEDGE GRAPH TOOLS - Dec 2025
         # Removed: nudge_dialectic_session, start_interactive_dialectic,
@@ -5277,15 +5136,65 @@ EXAMPLE: observe(action="agent", target_agent_id="Lumen")
                 "required": ["action"]
             }
         ),
+        Tool(
+            name="dialectic",
+            description="""Dialectic session queries: get (by ID/agent), list (with filters).
+
+Replaces 2 separate tools: get_dialectic_session, list_dialectic_sessions.
+
+ACTIONS:
+- get: Get a specific dialectic session by session_id or find sessions for an agent_id
+- list: List all dialectic sessions with optional filtering (default)
+
+EXAMPLE: dialectic(action="list", status="resolved")
+EXAMPLE: dialectic(action="get", session_id="abc123")
+""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "client_session_id": {
+                        "type": "string",
+                        "description": "Session continuity token from onboard(). Include in all calls."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["get", "list"],
+                        "description": "Operation to perform (default: list)"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Dialectic session ID (for action=get)"
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Filter by agent (for action=get or list)"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by phase: thesis, antithesis, synthesis, resolved, escalated, failed (for action=list)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max sessions to return (for action=list, default 50)"
+                    },
+                    "include_transcript": {
+                        "type": "boolean",
+                        "description": "Include full transcript (for action=list, default false)"
+                    }
+                },
+                "required": ["action"]
+            }
+        ),
     ]
 
     # ========================================================================
     # DEPRECATED TOOLS - Dec 2025 cleanup
     # These tool schemas have been deleted (not just filtered). Delete don't comment.
     # - Identity: bind_identity, recall_identity, hello, who_am_i, quick_start
-    # - Dialectic: request_dialectic_review, request_exploration_session, submit_thesis,
-    #              submit_antithesis, submit_synthesis, nudge_dialectic_session,
+    # - Dialectic (truly removed): request_exploration_session, nudge_dialectic_session,
     #              start_interactive_dialectic, resolve_interactive_dialectic, list_pending_dialectics
+    # - Dialectic (restored Feb 2026): request_dialectic_review, submit_thesis,
+    #              submit_antithesis, submit_synthesis, get_dialectic_session, list_dialectic_sessions
     # - Knowledge graph: find_similar_discoveries_graph, get_related_discoveries_graph,
     #                    get_response_chain_graph, reply_to_question
     # ========================================================================

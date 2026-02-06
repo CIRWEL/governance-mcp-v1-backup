@@ -138,6 +138,10 @@ Request a dialectic review with `request_dialectic_review()` when:
 - You've found something that contradicts the knowledge graph
 - You want peer verification on a high-stakes decision
 
+Reviewer modes: `auto` (random peer), `self` (self-review), `llm` (local LLM as synthetic reviewer).
+
+Query sessions with `dialectic(action='list')` or `dialectic(action='get', session_id='...')`.
+
 ### Identity
 
 Your identity persists across sessions via UUID. The server resolves your identity
@@ -214,6 +218,8 @@ Use `list_tools()` for the full catalog with schemas. Here's the mental model:
 - `submit_thesis()` — Explain your reasoning
 - `submit_antithesis()` — Raise concerns as reviewer
 - `submit_synthesis()` — Negotiate resolution
+- `dialectic(action='get', session_id='...')` — View session details
+- `dialectic(action='list')` — List all sessions with filters
 
 ### System
 - `health_check()` — System component status

@@ -4,8 +4,8 @@ Dialectic Reviewer Selection
 Handles selecting appropriate reviewer agents for dialectic sessions.
 Implements collusion prevention and expertise matching.
 
-NOTE: Cross-process visibility is now provided by SQLite (dialectic_db.py).
-The in-memory ACTIVE_SESSIONS dict is kept for backward compat but SQLite
+NOTE: Cross-process visibility is now provided by PostgreSQL (dialectic_db.py).
+The in-memory ACTIVE_SESSIONS dict is kept for backward compat but PostgreSQL
 is the source of truth for queries that need cross-process visibility.
 """
 
@@ -24,10 +24,10 @@ from .dialectic_session import (
     _CACHE_TTL
 )
 
-# Import SQLite async functions for cross-process visibility
+# Import PostgreSQL async functions for cross-process visibility
 from src.dialectic_db import (
-    is_agent_in_active_session_async as sqlite_is_agent_in_active_session,
-    has_recently_reviewed_async as sqlite_has_recently_reviewed,
+    is_agent_in_active_session_async as pg_is_agent_in_active_session,
+    has_recently_reviewed_async as pg_has_recently_reviewed,
 )
 
 logger = get_logger(__name__)
@@ -51,7 +51,7 @@ async def _has_recently_reviewed(reviewer_id: str, paused_agent_id: str, hours: 
     """
     # PRIMARY: Use SQLite for cross-process visibility
     try:
-        return await sqlite_has_recently_reviewed(reviewer_id, paused_agent_id, hours)
+        return await pg_has_recently_reviewed(reviewer_id, paused_agent_id, hours)
     except Exception as e:
         logger.warning(f"SQLite check failed for _has_recently_reviewed, falling back to disk: {e}")
 
@@ -134,7 +134,7 @@ async def is_agent_in_active_session(agent_id: str) -> bool:
     # PRIMARY: Use SQLite for cross-process visibility
     # This is the key fix - CLI and SSE processes now share session state
     try:
-        result = await sqlite_is_agent_in_active_session(agent_id)
+        result = await pg_is_agent_in_active_session(agent_id)
         if result:
             # Update local cache for faster repeated lookups
             _SESSION_METADATA_CACHE[agent_id] = {

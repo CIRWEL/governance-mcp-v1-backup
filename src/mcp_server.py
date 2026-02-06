@@ -717,7 +717,7 @@ TOOLS_NEEDING_SESSION_INJECTION = {
     "direct_resume_if_safe",
     "update_discovery_status_graph",
     "get_discovery_details",
-    "get_dialectic_session",
+    "dialectic",
     "get_knowledge_graph",
     "compare_me_to_similar",
 }

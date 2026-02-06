@@ -257,7 +257,7 @@ async def inject_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCon
                 # Browsable data tools should NOT auto-filter by agent
                 browsable_data_tools = {
                     "search_knowledge_graph", "query_knowledge_graph", "list_knowledge_graph",
-                    "list_dialectic_sessions", "get_dialectic_session"
+                    "list_dialectic_sessions", "get_dialectic_session", "dialectic"
                 }
                 logger.info(
                     f"[DISPATCH] name={name}, in browsable_data_tools={name in browsable_data_tools}, "
