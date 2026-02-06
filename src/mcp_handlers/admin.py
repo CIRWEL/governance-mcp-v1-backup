@@ -516,7 +516,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
 
     return success_response({
         "status": overall_status,
-        "version": server_version,
+        "version": getattr(mcp_server, "SERVER_VERSION", "unknown"),
         "status_breakdown": status_breakdown,
         "checks": checks,
         "timestamp": datetime.now().isoformat()
