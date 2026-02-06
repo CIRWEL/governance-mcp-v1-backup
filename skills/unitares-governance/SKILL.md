@@ -65,19 +65,23 @@ ground truth. Epistemic humility tends to correlate with better trajectories.
 
 ### Starting a Session
 
-1. Call `onboard()` with a descriptive name and your model type
-2. You'll get a UUID (your persistent identity) and a `client_session_id`
-3. Include `client_session_id` in subsequent calls for session continuity
-4. Check `get_governance_metrics()` to see your current state
+1. Call `onboard(name="YourName")` — **always pass your name** so the server
+   reconnects you to your existing identity instead of creating a ghost
+2. Save the `client_session_id` from the response (e.g. `agent-0fe61722-dd6`)
+3. Include `client_session_id` in all subsequent tool calls
+4. Call `status` to see your current EISV state
 
-**Naming convention**: `{purpose}_{client}_{date}` — e.g., `opus_hikewa_claude_ai_20250205`
+**Naming**: Use a memorable, stable name. Examples: `Tessera`, `Lumen`, `Ariadne`.
+If you're ephemeral, use `{purpose}_{model}_{date}` — e.g., `review_opus_20260206`.
 
 ### Check-ins
 
-Call `process_agent_update()` periodically with:
+Call `checkin` (alias for `process_agent_update`) periodically with:
 - `response_text`: Brief summary of what you did
 - `complexity`: 0.0–1.0 estimate of task difficulty
-- `confidence`: 0.0–1.0 how confident you are in the output (be honest — overconfidence is tracked)
+- `confidence`: 0.0–1.0 how confident you are (be honest — overconfidence is tracked)
+- `agent_name`: Your name (helps identity resolution if session rotates)
+- `client_session_id`: From your onboard response
 
 **When to check in:**
 - After completing a meaningful unit of work
@@ -137,6 +141,18 @@ ensures you reconnect to your existing identity even when session keys rotate
 (common with HTTP transport). Include `client_session_id` from the onboard response
 in all subsequent calls for stable attribution.
 
+### Trust Tiers
+
+Agents earn trust tiers based on trajectory identity (behavioral consistency over time):
+
+- **Tier 0 (unknown)**: New agent, no trajectory history. +5% risk adjustment.
+- **Tier 1 (emerging)**: Some history, building consistency. +5% risk adjustment.
+- **Tier 2 (established)**: Consistent behavioral trajectory. No risk adjustment.
+- **Tier 3 (verified)**: Strong trajectory match + operator endorsement. -5% risk reduction.
+
+Trust tiers are computed automatically from `verify_trajectory_identity()`. You don't
+need to do anything special — just work consistently and check in honestly.
+
 ## What NOT to Do
 
 - Don't game coherence by reporting low complexity / high confidence on everything
@@ -144,36 +160,51 @@ in all subsequent calls for stable attribution.
 - Don't ignore `guide` verdicts — they're early warnings
 - Don't create duplicate discoveries — search first
 - Don't leave high-severity findings as `open` forever — resolve or archive them
+- Don't call `onboard()` without a name — you'll create a ghost identity
 
-## MCP Tools Reference
+## MCP Tools Reference (34 tools)
 
-After reading this, the MCP server provides these stateful operations.
-See `references/mcp-tools.md` for parameter details.
+Use `list_tools()` for the full catalog with schemas. Here's the mental model:
 
-### Essential (use in every session)
-- `onboard()` — Register/reconnect identity
-- `process_agent_update()` — Check in with work summary
-- `get_governance_metrics()` — Read your current EISV state
-- `search_knowledge_graph()` — Find existing knowledge
+### Essential (every session)
+- `onboard(name="YourName")` — Register/reconnect identity. **Start here.**
+- `checkin` — Check in with work summary (alias for `process_agent_update`)
+- `status` — Read your current EISV state (alias for `get_governance_metrics`)
+- `search_knowledge_graph()` — Find existing knowledge before starting work
 - `leave_note()` — Quick contribution to knowledge graph
 
-### When Needed
-- `knowledge()` — Full knowledge graph CRUD (store, update, details, cleanup)
-- `agent()` — Agent lifecycle (list, archive, get details)
-- `observe(action='agent', target_agent_id='...')` — Observe another agent's patterns
+### Observability
+- `list_agents` — Who's active (alias for `agent(action='list')`)
+- `observe_agent(target_agent_id='Lumen')` — Observe another agent's patterns
+- `observe(action='compare', agent_ids=[...])` — Compare agents side by side
+- `observe(action='anomalies')` — Fleet-wide anomaly detection
+
+### Agent Lifecycle
+- `identity(name="YourName")` — Check/set your identity without full onboard
+- `agent(action='get', agent_id='...')` — Get agent metadata
+- `agent(action='update', tags=[...])` — Update your tags/notes/preferences
+- `verify_trajectory_identity()` — Check behavioral consistency (trust tier)
+
+### Knowledge Graph
+- `knowledge(action='store', ...)` — Store a discovery with full metadata
+- `knowledge(action='update', ...)` — Update existing discovery status
+- `search_knowledge_graph(query='...')` — Semantic + tag search
+
+### Governance & Recovery
 - `calibration()` — Check/update calibration data
+- `self_recovery()` — Resume from stuck/paused state
 - `request_dialectic_review()` — Start a dialectic session
+- `detect_stuck_agents()` — Find unresponsive agents
+- `cirs_protocol()` — Multi-agent coordination (void alerts, state announce)
+
+### Dialectic (structured resolution)
+- `submit_thesis()` — Explain your reasoning
+- `submit_antithesis()` — Raise concerns as reviewer
+- `submit_synthesis()` — Negotiate resolution
+
+### System
 - `health_check()` — System component status
 - `export()` — Export session history
-
-### Aliases (shortcuts)
-- `status` → `get_governance_metrics` (your EISV state)
-- `list_agents` → `agent(action='list')` (who's active)
-- `observe_agent` → `observe(action='agent')` (observe another agent)
-- `checkin` → `process_agent_update` (check in)
-
-### Specialized
 - `call_model()` — Delegate to a secondary LLM
-- `detect_stuck_agents()` — Find unresponsive agents
-- `self_recovery()` — Resume from stuck/paused state
-- Dialectic tools: `submit_thesis()`, `submit_antithesis()`, `submit_synthesis()`
+- `pi()` — Lumen/Pi orchestration (context, display, say, health, etc.)
+- `config()` — Runtime configuration
