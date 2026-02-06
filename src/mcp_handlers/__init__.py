@@ -267,11 +267,24 @@ async def dispatch_tool(name: str, arguments: Optional[Dict[str, Any]]) -> Seque
     from .identity_v2 import resolve_session_identity
     from .context import set_session_context, reset_session_context
 
-    # Resolve identity using identity_v2's 3-path architecture (Redis → PostgreSQL → Create)
-    # This is the SINGLE source of truth for session → UUID mapping
+    # Extract agent name hint for identity resolution (PATH 2.5: name-based claim)
+    # "agent_name" for check-in tool, "name" for identity/onboard tools
+    agent_name_hint = None
+    if arguments:
+        agent_name_hint = arguments.get("agent_name") or (
+            arguments.get("name") if name in ("identity", "onboard") else None
+        )
+    trajectory_sig = arguments.get("trajectory_signature") if arguments else None
+
+    # Resolve identity using identity_v2's 3+1 path architecture
+    # (Redis → PostgreSQL → Name Claim → Create)
     bound_agent_id = None
     try:
-        identity_result = await resolve_session_identity(session_key)
+        identity_result = await resolve_session_identity(
+            session_key,
+            agent_name=agent_name_hint,
+            trajectory_signature=trajectory_sig,
+        )
         bound_agent_id = identity_result.get("agent_uuid")
 
         # LAZY CREATION (Feb 2026 revert): Do NOT eagerly persist new identities.

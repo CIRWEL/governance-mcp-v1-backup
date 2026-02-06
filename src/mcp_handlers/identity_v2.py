@@ -199,7 +199,11 @@ async def resolve_session_identity(
 
     client_hint: Optional[str] = None,
 
-    force_new: bool = False
+    force_new: bool = False,
+
+    agent_name: Optional[str] = None,
+
+    trajectory_signature: Optional[dict] = None,
 
 ) -> Dict[str, Any]:
 
@@ -469,6 +473,16 @@ async def resolve_session_identity(
 
 
 
+    # PATH 2.5: Name-based identity claim
+    # If agent provides a name, try to resolve to existing identity by label.
+    # This enables reconnection even when session keys rotate.
+    if agent_name:
+        name_result = await resolve_by_name_claim(
+            agent_name, session_key, trajectory_signature
+        )
+        if name_result:
+            return name_result
+
     # PATH 3: Create new agent
 
 
@@ -707,6 +721,77 @@ async def _find_agent_by_label(label: str) -> Optional[str]:
         return None
 
 
+async def resolve_by_name_claim(
+    agent_name: str,
+    session_key: str,
+    trajectory_signature: Optional[dict] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    PATH 2.5: Resolve identity by name claim.
+
+    If an agent provides its name, look up the existing identity by label
+    in PostgreSQL. If found, bind this session to that identity.
+    Optional trajectory verification prevents impersonation.
+    """
+    if not agent_name or len(agent_name) < 2:
+        return None
+
+    # Look up existing agent by label
+    agent_uuid = await _find_agent_by_label(agent_name)
+    if not agent_uuid:
+        logger.debug(f"[NAME_CLAIM] No agent found with label '{agent_name}'")
+        return None
+
+    # Optional: trajectory verification (anti-impersonation)
+    if trajectory_signature and isinstance(trajectory_signature, dict):
+        try:
+            from src.trajectory_identity import verify_trajectory_identity
+            verification = await verify_trajectory_identity(agent_uuid, trajectory_signature)
+            if verification and not verification.get("verified", True):
+                lineage_sim = verification.get("tiers", {}).get("lineage", {}).get("similarity", 1.0)
+                if lineage_sim < 0.6:
+                    logger.warning(
+                        f"[NAME_CLAIM] Trajectory mismatch for '{agent_name}' "
+                        f"(lineage={lineage_sim:.3f}) - rejecting claim"
+                    )
+                    return None
+        except Exception as e:
+            logger.debug(f"[NAME_CLAIM] Trajectory verification skipped: {e}")
+
+    # Fetch display metadata
+    agent_id = await _get_agent_id_from_metadata(agent_uuid) or agent_uuid
+    label = await _get_agent_label(agent_uuid) or agent_name
+
+    # Bind this session to the existing identity (Redis + PG)
+    await _cache_session(session_key, agent_uuid, display_agent_id=agent_id)
+    try:
+        db = get_db()
+        identity = await db.get_identity(agent_uuid)
+        if identity:
+            await db.create_session(
+                session_id=session_key,
+                identity_id=identity.identity_id,
+                expires_at=datetime.now() + timedelta(hours=GovernanceConfig.SESSION_TTL_HOURS),
+                client_type="mcp",
+                client_info={"agent_uuid": agent_uuid, "resumed_by_name": True}
+            )
+    except Exception as e:
+        logger.debug(f"[NAME_CLAIM] Session persist failed (non-fatal): {e}")
+
+    logger.info(f"[NAME_CLAIM] Resolved '{agent_name}' -> {agent_uuid[:8]}... via name claim")
+
+    return {
+        "agent_id": agent_id,
+        "agent_uuid": agent_uuid,
+        "display_name": label,
+        "label": label,
+        "created": False,
+        "persisted": True,
+        "source": "name_claim",
+        "resumed_by_name": True,
+    }
+
+
 async def _cache_session(session_key: str, agent_uuid: str, display_agent_id: str = None) -> None:
     """Cache session→UUID mapping in Redis, with optional display agent_id."""
     session_cache = _get_redis()
@@ -829,6 +914,35 @@ async def handle_identity_v2(
     This tool does NOT look up other agents. Use get_agent_metadata for that.
     """
     # Resolve session to identity (lazy - doesn't persist yet)
+    # Try name-based resolution first (PATH 2.5)
+    name = arguments.get("name")
+    if name:
+        name_result = await resolve_by_name_claim(name, session_key)
+        if name_result:
+            agent_uuid = name_result["agent_uuid"]
+            agent_id = name_result["agent_id"]
+            display_name = name_result.get("label")
+            from .identity_shared import make_client_session_id
+            stable_session_id = make_client_session_id(agent_uuid)
+            return {
+                "success": True,
+                "agent_id": agent_id,
+                "agent_uuid": agent_uuid,
+                "display_name": display_name,
+                "label": display_name,
+                "bound": True,
+                "persisted": True,
+                "source": "name_claim",
+                "created": False,
+                "resumed_by_name": True,
+                "client_session_id": stable_session_id,
+                "message": f"Resumed identity: {display_name or agent_id}",
+                "session_continuity": {
+                    "client_session_id": stable_session_id,
+                    "instruction": "Include client_session_id in ALL future tool calls for stable identity",
+                },
+            }
+
     # Pass model_type to generate proper agent_id (model+date format)
     identity = await resolve_session_identity(
         session_key,
@@ -840,7 +954,6 @@ async def handle_identity_v2(
     persisted = identity.get("persisted", False)
 
     # Set label if requested (this will persist the agent)
-    name = arguments.get("name")
     if name:
         success = await set_agent_label(agent_uuid, name, session_key=session_key)
         if success:
@@ -1079,10 +1192,38 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
     force_new = arguments.get("force_new", False)
     resume = arguments.get("resume", False)
     model_type = arguments.get("model_type")
-    
+
     # Derive base session key
     base_session_key = _derive_session_key(arguments)
     normalized_model = None
+
+    # PATH 2.5: Name-based identity claim (before any session resolution)
+    # If the caller provides name= and isn't forcing new, try to reconnect to existing identity
+    name = arguments.get("name")
+    if name and not force_new:
+        name_result = await resolve_by_name_claim(name, base_session_key)
+        if name_result:
+            agent_uuid = name_result["agent_uuid"]
+            agent_id = name_result["agent_id"]
+            label = name_result.get("label")
+            logger.info(f"[IDENTITY] Resolved '{name}' via name claim -> {agent_uuid[:8]}...")
+
+            # Update request context so signature matches
+            try:
+                from .context import update_context_agent_id
+                update_context_agent_id(agent_uuid)
+            except Exception:
+                pass
+
+            return success_response({
+                "uuid": agent_uuid,
+                "agent_id": agent_id,
+                "display_name": label,
+                "resumed": True,
+                "resumed_by_name": True,
+                "message": f"Welcome back! Resumed identity '{label or agent_id}'",
+                "hint": "Use force_new=true to create a new identity instead"
+            })
 
     # STEP 1: Check for existing identity under BASE key first (unless force_new)
     # This prevents identity bifurcation when model_type is passed inconsistently
@@ -1375,7 +1516,20 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     existing_identity = None
     created_fresh_identity = False  # Track if we got a fresh identity to persist
     if not force_new:
-        existing_identity = await resolve_session_identity(base_session_key, persist=False)
+        # Try name-based resolution first (PATH 2.5) — allows reconnection by name
+        if name:
+            existing_by_name = await resolve_by_name_claim(name, base_session_key)
+            if existing_by_name:
+                existing_identity = existing_by_name
+                agent_uuid = existing_by_name["agent_uuid"]
+                agent_id = existing_by_name["agent_id"]
+                label = existing_by_name.get("label")
+                resume = True
+                logger.info(f"[ONBOARD] Resumed '{name}' via name claim -> {agent_uuid[:8]}...")
+            else:
+                existing_identity = await resolve_session_identity(base_session_key, persist=False)
+        else:
+            existing_identity = await resolve_session_identity(base_session_key, persist=False)
         if not existing_identity.get("created"):
             # EXISTING AGENT FOUND - auto-resume
             agent_uuid = existing_identity.get("agent_uuid")

@@ -899,6 +899,10 @@ DEPENDENCIES:
                         "type": "object",
                         "description": "Trajectory identity signature from anima-mcp. Behavioral fingerprint used for lineage tracking and trust tier computation. Sent automatically by the unitares bridge."
                     },
+                    "agent_name": {
+                        "type": "string",
+                        "description": "Your display name for identity reconnection. If your session is new, providing agent_name lets the server bind you to your existing identity instead of creating a new one. Example: 'Tessera' or 'Lumen'."
+                    },
                 },
                 "required": []  # agent_id optional - injected from MCP session binding
             }
@@ -2558,9 +2562,9 @@ DEPENDENCIES:
                         "type": "string",
                         "description": "Session continuity token from identity(). Include in all calls to maintain identity."
                     },
-                    "agent_id": {
+                    "target_agent_id": {
                         "type": "string",
-                        "description": "Agent identifier to observe"
+                        "description": "Agent to observe — UUID or label. Use list_agents to find."
                     },
                     "include_history": {
                         "type": ["boolean", "string", "null"],
@@ -2573,7 +2577,7 @@ DEPENDENCIES:
                         "default": True
                     }
                 },
-                "required": []  # agent_id optional - injected from MCP session binding
+                "required": []
             }
         ),
         Tool(
@@ -5208,6 +5212,66 @@ RETURNS:
                     "confirm": {
                         "type": "boolean",
                         "description": "Must be true to actually reboot/shutdown (for power action, safety)"
+                    }
+                },
+                "required": ["action"]
+            }
+        ),
+        Tool(
+            name="observe",
+            description="""Unified observability operations: agent, compare, similar, anomalies, aggregate.
+
+Replaces 5 separate tools: observe_agent, compare_agents, compare_me_to_similar,
+detect_anomalies, aggregate_metrics.
+
+ACTIONS:
+- agent: Observe a specific agent's patterns and behavior
+- compare: Compare two or more agents' behavior patterns
+- similar: Find agents similar to you
+- anomalies: Detect anomalies in agent behavior
+- aggregate: Get fleet-level health overview
+
+EXAMPLE: observe(action="agent", target_agent_id="Lumen")
+""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "client_session_id": {
+                        "type": "string",
+                        "description": "Session continuity token from onboard(). Include in all calls."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["agent", "compare", "similar", "anomalies", "aggregate"],
+                        "description": "Operation to perform"
+                    },
+                    "target_agent_id": {
+                        "type": "string",
+                        "description": "Agent to observe — UUID or label (for action=agent). Use list_agents to find."
+                    },
+                    "agent_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Agent identifiers to compare (for action=compare, min 2)"
+                    },
+                    "include_history": {
+                        "type": ["boolean", "string", "null"],
+                        "description": "Include recent history (for action=agent). Default true.",
+                        "default": True
+                    },
+                    "analyze_patterns": {
+                        "type": ["boolean", "string", "null"],
+                        "description": "Perform pattern analysis (for action=agent). Default true.",
+                        "default": True
+                    },
+                    "compare_metrics": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Metrics to compare (for action=compare). Default: risk_score, coherence, E, I, S, V"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (for action=similar, anomalies)"
                     }
                 },
                 "required": ["action"]
