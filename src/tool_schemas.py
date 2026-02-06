@@ -5296,33 +5296,29 @@ EXAMPLE: observe(action="agent", target_agent_id="Lumen")
     # without needing to manually update this file.
     # ========================================================================
     try:
-        from src.mcp_handlers.decorators import (
-            _TOOL_REGISTRY,
-            _TOOL_DESCRIPTIONS,
-            _TOOL_METADATA
-        )
+        from src.mcp_handlers.decorators import _TOOL_DEFINITIONS
 
         # Get names of tools already defined above
         hardcoded_names = {t.name for t in all_tools}
 
         # Add any decorator-registered tools that aren't hardcoded
-        for tool_name in sorted(_TOOL_REGISTRY.keys()):
+        for tool_name in sorted(_TOOL_DEFINITIONS.keys()):
             if tool_name in hardcoded_names:
                 continue  # Already have detailed schema
 
+            td = _TOOL_DEFINITIONS[tool_name]
+
             # Skip hidden tools
-            meta = _TOOL_METADATA.get(tool_name, {})
-            if meta.get("hidden"):
+            if td.hidden:
                 continue
 
             # Get description from decorator registry
-            desc = _TOOL_DESCRIPTIONS.get(tool_name, f"Tool: {tool_name}")
+            desc = td.description or f"Tool: {tool_name}"
 
             # Add deprecation notice if applicable
-            if meta.get("deprecated"):
-                superseded = meta.get("superseded_by")
-                if superseded:
-                    desc = f"[DEPRECATED - use {superseded}] {desc}"
+            if td.deprecated:
+                if td.superseded_by:
+                    desc = f"[DEPRECATED - use {td.superseded_by}] {desc}"
                 else:
                     desc = f"[DEPRECATED] {desc}"
 

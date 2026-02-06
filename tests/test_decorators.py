@@ -21,31 +21,17 @@ from src.mcp_handlers.decorators import (
     is_tool_deprecated,
     is_tool_hidden,
     list_registered_tools,
-    _TOOL_REGISTRY,
-    _TOOL_TIMEOUTS,
-    _TOOL_DESCRIPTIONS,
-    _TOOL_METADATA,
+    _TOOL_DEFINITIONS,
 )
 
 
 @pytest.fixture(autouse=True)
 def clean_registry():
     """Clean up registry before/after each test to prevent cross-contamination."""
-    # Save original state
-    orig_reg = dict(_TOOL_REGISTRY)
-    orig_to = dict(_TOOL_TIMEOUTS)
-    orig_desc = dict(_TOOL_DESCRIPTIONS)
-    orig_meta = dict(_TOOL_METADATA)
+    orig = dict(_TOOL_DEFINITIONS)
     yield
-    # Restore
-    _TOOL_REGISTRY.clear()
-    _TOOL_REGISTRY.update(orig_reg)
-    _TOOL_TIMEOUTS.clear()
-    _TOOL_TIMEOUTS.update(orig_to)
-    _TOOL_DESCRIPTIONS.clear()
-    _TOOL_DESCRIPTIONS.update(orig_desc)
-    _TOOL_METADATA.clear()
-    _TOOL_METADATA.update(orig_meta)
+    _TOOL_DEFINITIONS.clear()
+    _TOOL_DEFINITIONS.update(orig)
 
 
 class TestMcpToolDecorator:
@@ -55,14 +41,14 @@ class TestMcpToolDecorator:
         async def handle_test_tool_alpha(arguments):
             return []
 
-        assert "test_tool_alpha" in _TOOL_REGISTRY
+        assert "test_tool_alpha" in _TOOL_DEFINITIONS
 
     def test_auto_name_from_function(self):
         @mcp_tool()
         async def handle_my_auto_tool(arguments):
             return []
 
-        assert "my_auto_tool" in _TOOL_REGISTRY
+        assert "my_auto_tool" in _TOOL_DEFINITIONS
 
     def test_custom_timeout(self):
         @mcp_tool("test_timeout_tool", timeout=120.0)
@@ -101,7 +87,7 @@ class TestMcpToolDecorator:
         async def handle_test_internal(arguments):
             return []
 
-        assert "test_internal" not in _TOOL_REGISTRY
+        assert "test_internal" not in _TOOL_DEFINITIONS
 
     def test_deprecated_metadata(self):
         @mcp_tool("test_old_tool", deprecated=True, superseded_by="test_new_tool")
