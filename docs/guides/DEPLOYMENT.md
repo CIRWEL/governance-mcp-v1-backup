@@ -1,251 +1,151 @@
 # Self-Hosted Deployment Guide
 
-**Created:** December 30, 2025
-**Last Updated:** February 4, 2026
-**Status:** Active
+**Last Updated:** February 2026
 **Transport:** Streamable HTTP (`/mcp/` endpoint)
 **Port:** 8767 (default)
 
 ---
 
-## Quick Start
+## Prerequisites
 
-**One-command installation:**
-```bash
-./install.sh
-```
-
-That's it! The script will:
-1. Check Docker installation
-2. Create `.env` file with secure password
-3. Build Docker images
-4. Start all services
-5. Verify health
-
-**Access:**
-- Dashboard: http://localhost:8767/dashboard
-- MCP Endpoint: http://localhost:8767/mcp/
-- Health Check: http://localhost:8767/health
+- **Python 3.11+**
+- **PostgreSQL 16** with [Apache AGE](https://age.apache.org/) extension
+- **macOS** (launchd) or **Linux** (systemd)
 
 ---
 
-## System Requirements
+## Quick Start (macOS)
 
-- **Docker** 20.10+ and **Docker Compose** 2.0+
-- **4GB RAM** minimum (8GB recommended)
-- **10GB disk space** for data
-- **Port 8767** available (configurable)
+### 1. Install Dependencies
 
----
-
-## Manual Installation
-
-### Step 1: Clone Repository
 ```bash
-git clone <repository-url>
-cd governance-mcp-v1
+brew install postgresql@16
+pip install -r requirements-full.txt
 ```
 
-### Step 2: Configure Environment
+### 2. Set Up PostgreSQL + AGE
+
+Use the AGE Docker image for the database:
+
 ```bash
-# Copy example .env (if exists) or create new
-cat > .env << EOF
-POSTGRES_PASSWORD=$(openssl rand -hex 16)
-HF_TOKEN=your_token_here  # Optional
-GOOGLE_AI_API_KEY=your_key_here  # Optional
-EOF
+docker compose -f scripts/age/docker-compose.age.yml up -d
 ```
 
-### Step 3: Start Services
+Or install AGE natively — see `db/postgres/README.md`.
+
+Then apply the schema:
+
 ```bash
-docker-compose up -d
+psql postgresql://postgres:postgres@localhost:5432/governance -f db/postgres/schema.sql
 ```
 
-### Step 4: Verify Installation
+### 3. Configure Environment
+
 ```bash
-curl http://localhost:8767/health
-# Should return: {"status": "ok", ...}
+cp .env.example .env
+# Edit .env with your values
 ```
 
----
+### 4. Run the Server
 
-## Configuration
+```bash
+# Foreground (for testing)
+python src/mcp_server.py --port 8767
 
-### Environment Variables
+# Or install as launchd service (persistent)
+cp config/com.unitares.governance-mcp.plist.example ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+# Edit the plist to match your paths and credentials
+launchctl load ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+```
 
-**Required:**
-- `POSTGRES_PASSWORD` - Database password (auto-generated if not set)
+### 5. Verify
 
-**Optional:**
-- `HF_TOKEN` - Hugging Face token for model inference
-- `GOOGLE_AI_API_KEY` - Google AI key for Gemini
-- `NGROK_API_KEY` - ngrok key for gateway
-- `SERVER_PORT` - Server port (default: 8767)
-- `SERVER_HOST` - Server host (default: 0.0.0.0)
-
-### Port Configuration
-
-To change the port, edit `docker-compose.yml`:
-```yaml
-ports:
-  - "YOUR_PORT:8767"  # Change YOUR_PORT
+```bash
+curl -s http://localhost:8767/mcp/ -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"health_check","arguments":{}},"id":1}'
 ```
 
 ---
 
-## Data Persistence
+## Environment Variables
 
-**Data is stored in Docker volumes:**
-- `postgres_data` - PostgreSQL database
-- `redis_data` - Redis cache
-- `./data` - Application data (mounted from host)
-- `./logs` - Application logs (mounted from host)
+See `.env.example` for the full list. Key variables:
 
-**Backup:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_BACKEND` | `postgres` | Database backend (`postgres` or `sqlite`) |
+| `DB_POSTGRES_URL` | — | PostgreSQL connection URL |
+| `DB_POSTGRES_MIN_CONN` | `2` | Min pool connections |
+| `DB_POSTGRES_MAX_CONN` | `10` | Max pool connections |
+| `UNITARES_KNOWLEDGE_BACKEND` | `auto` | Knowledge graph backend (`age`, `postgres`, `sqlite`, `auto`) |
+| `UNITARES_DIALECTIC_BACKEND` | `postgres` | Dialectic session backend |
+
+---
+
+## Service Management (macOS)
+
+```bash
+# Start/restart
+make restart
+
+# View logs
+make logs       # stdout
+make logs-err   # stderr
+
+# Or manually:
+launchctl unload ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+launchctl load ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
+```
+
+---
+
+## Public Access via ngrok
+
+For remote access, set up an ngrok tunnel:
+
+```bash
+ngrok http --url=your-domain.ngrok.io --basic-auth=user:pass 8767
+```
+
+Or install as a launchd service — see the ngrok plist example in `config/`.
+
+See also: [NGROK_DEPLOYMENT.md](NGROK_DEPLOYMENT.md)
+
+---
+
+## Production Checklist
+
+- [ ] Use a strong `POSTGRES_PASSWORD`
+- [ ] Use reverse proxy (nginx/traefik) with SSL for public access
+- [ ] Restrict port 8767 to internal network or use ngrok
+- [ ] Enable log rotation
+- [ ] Set up PostgreSQL backups
+- [ ] Monitor disk space
+
+---
+
+## Backup & Restore
+
 ```bash
 # Backup PostgreSQL
-docker-compose exec postgres pg_dump -U governance governance > backup.sql
+pg_dump -U postgres governance > backup.sql
 
-# Backup data directory
-tar -czf data-backup.tar.gz data/
-```
-
-**Restore:**
-```bash
-# Restore PostgreSQL
-docker-compose exec -T postgres psql -U governance governance < backup.sql
-
-# Restore data directory
-tar -xzf data-backup.tar.gz
-```
-
----
-
-## Updates
-
-### Update to Latest Version
-```bash
-# Pull latest code
-git pull
-
-# Rebuild and restart
-docker-compose build
-docker-compose up -d
-```
-
-### Update Docker Images Only
-```bash
-docker-compose pull
-docker-compose up -d
+# Restore
+psql -U postgres governance < backup.sql
 ```
 
 ---
 
 ## Troubleshooting
 
-### Server Won't Start
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues.
 
-**Check logs:**
 ```bash
-docker-compose logs server
+# Check server is running
+launchctl list | grep unitares
+
+# Check logs
+tail -f data/logs/mcp_server.log
+tail -f data/logs/mcp_server_error.log
 ```
-
-**Common issues:**
-- Port 8767 already in use → Change port in `docker-compose.yml`
-- PostgreSQL not ready → Wait 30 seconds, check `docker-compose logs postgres`
-- Missing .env → Run `./install.sh` again
-
-### Database Connection Errors
-
-**Check PostgreSQL:**
-```bash
-docker-compose exec postgres psql -U governance -d governance -c "SELECT 1;"
-```
-
-**Reset database (⚠️ deletes all data):**
-```bash
-docker-compose down -v
-docker-compose up -d
-```
-
-### Health Check Fails
-
-**Check server status:**
-```bash
-curl http://localhost:8767/health
-docker-compose logs server | tail -50
-```
-
----
-
-## Production Deployment
-
-### Security Checklist
-
-- [ ] Change `POSTGRES_PASSWORD` in `.env`
-- [ ] Use reverse proxy (nginx/traefik) with SSL
-- [ ] Restrict port 8767 to internal network
-- [ ] Set up firewall rules
-- [ ] Enable log rotation
-- [ ] Set up backups
-- [ ] Monitor disk space
-
-### Reverse Proxy (nginx)
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-    
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-    
-    location / {
-        proxy_pass http://localhost:8767;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
-### Monitoring
-
-**Health check endpoint:**
-```bash
-curl http://localhost:8767/health
-```
-
-**Metrics endpoint:**
-```bash
-curl http://localhost:8767/metrics
-```
-
----
-
-## Deployment Variants
-
-### Public Access via ngrok
-For ChatGPT OAuth, demos, and remote access:
-- **[NGROK_DEPLOYMENT.md](NGROK_DEPLOYMENT.md)** - ngrok tunnel setup with reserved domain
-
-### Headless/Pi Deployment (Advanced)
-For Raspberry Pi with screen sharing and CLDO keyring:
-- See archived guide: `docs/archive/2026-02/guides-advanced/HEADLESS_BROWSER_DEPLOYMENT.md`
-
-## Support
-
-**Documentation:**
-- [README.md](../../README.md) - Full documentation
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues
-
-**Logs:**
-```bash
-docker-compose logs -f server  # Follow server logs
-docker-compose logs postgres   # Database logs
-docker-compose logs redis      # Redis logs
-```
-
----
-
-**Status:** Ready for Production Deployment
-
