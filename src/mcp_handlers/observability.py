@@ -138,6 +138,16 @@ async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextConte
     # Get metrics for all agents
     agents_data = []
     for agent_id in agent_ids:
+        # Resolve label to UUID if needed (consistent with observe_agent)
+        try:
+            if not (len(agent_id) == 36 and agent_id.count('-') == 4):
+                from src.mcp_handlers.identity_v2 import _find_agent_by_label
+                resolved = await _find_agent_by_label(agent_id)
+                if resolved:
+                    agent_id = resolved
+        except Exception:
+            pass  # Use agent_id as-is
+
         monitor = mcp_server.monitors.get(agent_id)
         if monitor is None:
             # Load monitor state (non-blocking)

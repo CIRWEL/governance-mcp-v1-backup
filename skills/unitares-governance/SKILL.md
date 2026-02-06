@@ -76,7 +76,7 @@ If you're ephemeral, use `{purpose}_{model}_{date}` — e.g., `review_opus_20260
 
 ### Check-ins
 
-Call `checkin` (alias for `process_agent_update`) periodically with:
+Call `checkin` (alias for `process_agent_update()`) periodically with:
 - `response_text`: Brief summary of what you did
 - `complexity`: 0.0–1.0 estimate of task difficulty
 - `confidence`: 0.0–1.0 how confident you are (be honest — overconfidence is tracked)
@@ -162,13 +162,13 @@ need to do anything special — just work consistently and check in honestly.
 - Don't leave high-severity findings as `open` forever — resolve or archive them
 - Don't call `onboard()` without a name — you'll create a ghost identity
 
-## MCP Tools Reference (34 tools)
+## MCP Tools Reference (31 tools)
 
 Use `list_tools()` for the full catalog with schemas. Here's the mental model:
 
 ### Essential (every session)
 - `onboard(name="YourName")` — Register/reconnect identity. **Start here.**
-- `checkin` — Check in with work summary (alias for `process_agent_update`)
+- `checkin` — Check in with work summary (alias for `process_agent_update()`)
 - `status` — Read your current EISV state (alias for `get_governance_metrics`)
 - `search_knowledge_graph()` — Find existing knowledge before starting work
 - `leave_note()` — Quick contribution to knowledge graph
