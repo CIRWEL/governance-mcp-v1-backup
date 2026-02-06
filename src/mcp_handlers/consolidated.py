@@ -9,6 +9,7 @@ Reduces cognitive load for AI agents by consolidating related tools:
 - export: 2 actions → 1 tool (history, file)
 - observe: 5 actions → 1 tool (agent, compare, similar, anomalies, aggregate)
 - pi: 12 actions → 1 tool (tools, context, health, sync_eisv, display, say, message, qa, query, workflow, git_pull, power)
+- dialectic: 2 actions → 1 tool (get, list)
 
 Each consolidated tool uses an 'action' parameter to select the operation.
 Original tools remain available for backwards compatibility.
@@ -55,6 +56,10 @@ from .observability import (
     handle_compare_me_to_similar,
     handle_detect_anomalies,
     handle_aggregate_metrics,
+)
+from .dialectic import (
+    handle_get_dialectic_session,
+    handle_list_dialectic_sessions,
 )
 from .pi_orchestration import (
     handle_pi_list_tools,
@@ -241,5 +246,26 @@ handle_pi = action_router(
         "pi(action='context')",
         "pi(action='health')",
         "pi(action='say', text='Hello!')",
+    ],
+)
+
+
+# ============================================================
+# Consolidated Dialectic Tool
+# ============================================================
+
+handle_dialectic = action_router(
+    "dialectic",
+    actions={
+        "get": handle_get_dialectic_session,
+        "list": handle_list_dialectic_sessions,
+    },
+    timeout=15.0,
+    description="Dialectic session queries: get (by ID/agent), list (with filters)",
+    default_action="list",
+    examples=[
+        "dialectic(action='list')",
+        "dialectic(action='get', session_id='abc123')",
+        "dialectic(action='list', status='resolved')",
     ],
 )

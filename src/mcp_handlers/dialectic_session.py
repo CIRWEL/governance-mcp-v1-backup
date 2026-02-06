@@ -18,10 +18,10 @@ from .shared import get_mcp_server
 
 logger = get_logger(__name__)
 
-# Optional SQLite backend (cross-process shared state)
+# PostgreSQL backend (cross-process shared state)
 from src.dialectic_db import (
-    get_session_async as sqlite_get_session,
-    get_active_sessions_async as sqlite_get_active_sessions,
+    get_session_async as pg_get_session,
+    get_active_sessions_async as pg_get_active_sessions,
 )
 
 # Get project root for session storage
@@ -221,7 +221,7 @@ async def load_all_sessions() -> int:
         if backend in ("sqlite", "postgres"):
             # Load active sessions from PostgreSQL/SQLite (cross-process visibility).
             # We still keep ACTIVE_SESSIONS as a process-local cache for speed.
-            sessions = await sqlite_get_active_sessions(limit=500)
+            sessions = await pg_get_active_sessions(limit=500)
             for s in sessions:
                 session_id = s.get("session_id")
                 if not session_id:
@@ -229,7 +229,7 @@ async def load_all_sessions() -> int:
                 if session_id in ACTIVE_SESSIONS:
                     continue
                 # Prefer fully reconstructed session with messages
-                full = await sqlite_get_session(session_id)
+                full = await pg_get_session(session_id)
                 if not full:
                     continue
                 session = _reconstruct_session_from_dict(session_id, full)
@@ -310,7 +310,7 @@ async def load_session(session_id: str) -> Optional[DialecticSession]:
         backend = _resolve_dialectic_backend()
         if backend in ("sqlite", "postgres"):
             try:
-                session_data = await sqlite_get_session(session_id)
+                session_data = await pg_get_session(session_id)
                 if session_data:
                     # Normalize keys to match reconstruction function expectations
                     if "messages" in session_data and "transcript" not in session_data:

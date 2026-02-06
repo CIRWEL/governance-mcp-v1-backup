@@ -187,9 +187,10 @@ _TOOL_ALIASES: Dict[str, ToolAlias] = {
     # Dialectic tools - legacy creation remains archived (except request_dialectic_review restored)
     "request_exploration_session": ToolAlias(
         old_name="request_exploration_session",
-        new_name="get_dialectic_session",
+        new_name="dialectic",
         reason="consolidated",
-        migration_note="Use get_dialectic_session() to view/manage dialectic sessions"
+        migration_note="Use dialectic(action='get') to view sessions",
+        inject_action="get"
     ),
     # submit_thesis, submit_antithesis, submit_synthesis - RESTORED Feb 2026
     # These are now active tools, not aliases
@@ -262,11 +263,11 @@ _TOOL_ALIASES: Dict[str, ToolAlias] = {
     "aggregate_metrics": ToolAlias(old_name="aggregate_metrics", new_name="observe", reason="consolidated",
         migration_note="Use observe(action='aggregate')", inject_action="aggregate"),
 
-    # Dialectic tools - registered directly (register=True), NOT aliased
-    # NOTE: list_dialectic_sessions and get_dialectic_session registered directly for dashboard access
-    # llm_assisted_dialectic disabled for now
-    # "llm_assisted_dialectic": ToolAlias(old_name="llm_assisted_dialectic", new_name="dialectic", reason="consolidated",
-    #     migration_note="Use dialectic(action='llm')", inject_action="llm"),
+    # Dialectic tools → dialectic(action='...')
+    "get_dialectic_session": ToolAlias(old_name="get_dialectic_session", new_name="dialectic", reason="consolidated",
+        migration_note="Use dialectic(action='get', session_id='...')", inject_action="get"),
+    "list_dialectic_sessions": ToolAlias(old_name="list_dialectic_sessions", new_name="dialectic", reason="consolidated",
+        migration_note="Use dialectic(action='list')", inject_action="list"),
 
     # Config tools - registered directly (not aliased to avoid action parameter issues)
     # Use config(action='get') or config(action='set') for consolidated access
@@ -349,7 +350,7 @@ _TOOL_STABILITY: Dict[str, ToolStability] = {
     "check_recovery_options": ToolStability.STABLE,  # Diagnostic tool
 
     # BETA: Mostly stable, minor changes possible
-    "get_dialectic_session": ToolStability.BETA,  # Only active dialectic tool
+    "dialectic": ToolStability.BETA,  # Consolidated dialectic queries (get/list)
     "observe_agent": ToolStability.BETA,
     "compare_agents": ToolStability.BETA,
     "archive_agent": ToolStability.BETA,
@@ -357,9 +358,10 @@ _TOOL_STABILITY: Dict[str, ToolStability] = {
     "leave_note": ToolStability.BETA,
     "operator_resume_agent": ToolStability.BETA,  # Operator tool
     
+    "request_dialectic_review": ToolStability.BETA,  # Restored Feb 2026 - full protocol active
+
     # DEPRECATED: Will be removed in v2.0
     "direct_resume_if_safe": ToolStability.EXPERIMENTAL,  # Deprecated - use quick_resume or self_recovery_review
-    "request_dialectic_review": ToolStability.EXPERIMENTAL,  # Deprecated - use self_recovery_review
 
     # EXPERIMENTAL: WIP, may change/break
     "simulate_update": ToolStability.EXPERIMENTAL,

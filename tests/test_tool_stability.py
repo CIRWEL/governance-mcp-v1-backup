@@ -176,7 +176,7 @@ class TestGetToolStability:
         assert get_tool_stability("identity") == ToolStability.STABLE
 
     def test_beta_tool(self):
-        assert get_tool_stability("get_dialectic_session") == ToolStability.BETA
+        assert get_tool_stability("dialectic") == ToolStability.BETA
 
     def test_experimental_tool(self):
         assert get_tool_stability("simulate_update") == ToolStability.EXPERIMENTAL
@@ -289,7 +289,7 @@ class TestIsStableTool:
         assert is_stable_tool("identity") is True
 
     def test_beta_tool_returns_false(self):
-        assert is_stable_tool("get_dialectic_session") is False
+        assert is_stable_tool("dialectic") is False
 
     def test_experimental_tool_returns_false(self):
         assert is_stable_tool("simulate_update") is False
@@ -308,7 +308,7 @@ class TestIsExperimentalTool:
         assert is_experimental_tool("identity") is False
 
     def test_beta_tool_returns_false(self):
-        assert is_experimental_tool("get_dialectic_session") is False
+        assert is_experimental_tool("dialectic") is False
 
     def test_unknown_tool_returns_false(self):
         # Default is BETA, so not experimental

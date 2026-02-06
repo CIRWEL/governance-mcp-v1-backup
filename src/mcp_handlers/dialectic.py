@@ -73,15 +73,15 @@ from .dialectic_calibration import (
 from .dialectic_resolution import execute_resolution
 from .dialectic_reviewer import select_reviewer, is_agent_in_active_session
 
-# Import SQLite async functions for cross-process session storage
+# Import PostgreSQL async functions for dialectic session storage
 from src.dialectic_db import (
-    create_session_async as sqlite_create_session,
-    update_session_phase_async as sqlite_update_phase,
-    update_session_reviewer_async as sqlite_update_reviewer,
-    add_message_async as sqlite_add_message,
-    resolve_session_async as sqlite_resolve_session,
-    get_session_async as sqlite_get_session,
-    get_session_by_agent_async as sqlite_get_session_by_agent,
+    create_session_async as pg_create_session,
+    update_session_phase_async as pg_update_phase,
+    update_session_reviewer_async as pg_update_reviewer,
+    add_message_async as pg_add_message,
+    resolve_session_async as pg_resolve_session,
+    get_session_async as pg_get_session,
+    get_session_by_agent_async as pg_get_session_by_agent,
 )
 
 # Import database abstraction for dual-write (Phase 4 migration)
@@ -216,9 +216,21 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
     discovery_id = arguments.get("discovery_id")
     dispute_type = arguments.get("dispute_type")
     topic = arguments.get("topic")
-    reviewer_mode = arguments.get("reviewer_mode", "auto")  # auto: random selection, self fallback
+    reviewer_mode = arguments.get("reviewer_mode", "auto")  # auto|self|llm
     max_synthesis_rounds = arguments.get("max_synthesis_rounds", 5)
     auto_progress = bool(arguments.get("auto_progress", False))
+
+    # LLM-assisted dialectic: delegate to synthetic reviewer
+    if reviewer_mode == "llm":
+        llm_args = {
+            "root_cause": reason,
+            "proposed_conditions": arguments.get("proposed_conditions", []),
+            "reasoning": arguments.get("reasoning", ""),
+        }
+        for key in ("agent_id", "client_session_id", "api_key"):
+            if key in arguments:
+                llm_args[key] = arguments[key]
+        return await handle_llm_assisted_dialectic(llm_args)
 
     # Capture paused agent state snapshot if available
     paused_agent_state = {}
@@ -250,10 +262,10 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
         max_synthesis_rounds=int(max_synthesis_rounds or 5),
     )
 
-    # Persist to SQLite (single source of truth)
+    # Persist to PostgreSQL (single source of truth)
     # JSON snapshots removed - use export_dialectic_session() for debugging
     try:
-        await sqlite_create_session(
+        await pg_create_session(
             session_id=session.session_id,
             paused_agent_id=session.paused_agent_id,
             reviewer_agent_id=session.reviewer_agent_id,
@@ -301,7 +313,7 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
         "note": note
     })
 
-@mcp_tool("get_dialectic_session", timeout=10.0, rate_limit_exempt=True, register=True)
+@mcp_tool("get_dialectic_session", timeout=10.0, rate_limit_exempt=True, register=False)
 async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
     View historical dialectic sessions (archive).
@@ -357,8 +369,8 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                     session.transcript.append(timeout_msg)
                     # Persist to SQLite
                     try:
-                        await sqlite_add_message(session_id, timeout_msg.to_dict())
-                        await sqlite_update_phase(session_id, "failed")
+                        await pg_add_message(session_id, timeout_msg.to_dict())
+                        await pg_update_phase(session_id, "failed")
                     except Exception as e:
                         logger.error(f"Failed to persist timeout to SQLite: {e}")
                     # QUICK WIN B: Improved error message with actionable guidance
@@ -391,8 +403,8 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                     session.transcript.append(stuck_msg)
                     # Persist to SQLite
                     try:
-                        await sqlite_add_message(session_id, stuck_msg.to_dict())
-                        await sqlite_update_phase(session_id, "failed")
+                        await pg_add_message(session_id, stuck_msg.to_dict())
+                        await pg_update_phase(session_id, "failed")
                     except Exception as e:
                         logger.error(f"Failed to persist reviewer stuck to SQLite: {e}")
                     # QUICK WIN B: Improved error message with actionable guidance
@@ -519,7 +531,7 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
         )]
 
 
-@mcp_tool("list_dialectic_sessions", timeout=15.0, rate_limit_exempt=True, register=True)
+@mcp_tool("list_dialectic_sessions", timeout=15.0, rate_limit_exempt=True, register=False)
 async def handle_list_dialectic_sessions(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
     List all dialectic sessions with optional filtering.
@@ -658,7 +670,7 @@ async def handle_submit_thesis(arguments: Dict[str, Any]) -> Sequence[TextConten
 
             # Persist to SQLite
             try:
-                await sqlite_add_message(
+                await pg_add_message(
                     session_id=session_id,
                     agent_id=agent_id,
                     message_type="thesis",
@@ -666,7 +678,7 @@ async def handle_submit_thesis(arguments: Dict[str, Any]) -> Sequence[TextConten
                     proposed_conditions=arguments.get('proposed_conditions', []),
                     reasoning=arguments.get('reasoning'),
                 )
-                await sqlite_update_phase(session_id, session.phase.value)
+                await pg_update_phase(session_id, session.phase.value)
             except Exception as e:
                 logger.warning(f"Could not update SQLite after thesis: {e}")
 
@@ -754,7 +766,7 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
 
             # Persist to SQLite
             try:
-                await sqlite_add_message(
+                await pg_add_message(
                     session_id=session_id,
                     agent_id=agent_id,
                     message_type="antithesis",
@@ -762,7 +774,7 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
                     concerns=arguments.get('concerns', []),
                     reasoning=arguments.get('reasoning'),
                 )
-                await sqlite_update_phase(session_id, session.phase.value)
+                await pg_update_phase(session_id, session.phase.value)
             except Exception as e:
                 logger.warning(f"Could not update SQLite after antithesis: {e}")
 
@@ -850,7 +862,7 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
         if result.get("success"):
             # Persist to SQLite
             try:
-                await sqlite_add_message(
+                await pg_add_message(
                     session_id=session_id,
                     agent_id=agent_id,
                     message_type="synthesis",
@@ -859,7 +871,7 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
                     reasoning=arguments.get('reasoning'),
                     agrees=arguments.get('agrees', False),
                 )
-                await sqlite_update_phase(session_id, session.phase.value)
+                await pg_update_phase(session_id, session.phase.value)
             except Exception as e:
                 logger.warning(f"Could not update SQLite after synthesis: {e}")
 
@@ -897,7 +909,7 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
                 result["action"] = "block"
                 result["reason"] = f"Safety violation: {violation}"
                 try:
-                    await sqlite_resolve_session(session_id=session_id, resolution={"action": "block", "reason": violation}, status="failed")
+                    await pg_resolve_session(session_id=session_id, resolution={"action": "block", "reason": violation}, status="failed")
                 except Exception as e:
                     logger.warning(f"Could not resolve session in SQLite: {e}")
             else:
@@ -919,7 +931,7 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
                     result["next_step"] = f"Failed to execute resolution: {e}"
 
                 try:
-                    await sqlite_resolve_session(session_id=session_id, resolution=resolution.to_dict(), status="resolved")
+                    await pg_resolve_session(session_id=session_id, resolution=resolution.to_dict(), status="resolved")
                 except Exception as e:
                     logger.warning(f"Could not resolve session in SQLite: {e}")
 

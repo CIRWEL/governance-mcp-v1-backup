@@ -44,7 +44,7 @@ async def auto_resolve_stuck_sessions() -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
         threshold_time = now - STUCK_SESSION_THRESHOLD
 
-        # Get active sessions using the async backend (PostgreSQL or SQLite based on env)
+        # Get active sessions using the async backend (PostgreSQL)
         active_sessions = await get_active_sessions_async(limit=100)
 
         if not active_sessions:

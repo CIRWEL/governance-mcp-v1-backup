@@ -1053,7 +1053,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             "deprecated_since": "2026-01-29",
             "superseded_by": "self_recovery_review",
             "depends_on": ["get_agent_metadata"],
-            "related_to": ["self_recovery_review", "get_dialectic_session"],
+            "related_to": ["self_recovery_review", "dialectic"],
             "category": "lifecycle",
             "migration": "Use self_recovery_review(reflection='...') instead"
         },
@@ -1150,11 +1150,30 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             "related_to": ["health_check", "get_server_info"],
             "category": "workspace"
         },
-        # Dialectic tools - only get_dialectic_session remains (archive viewer)
-        # Other dialectic tools REMOVED - aliased to get_dialectic_session
-        "get_dialectic_session": {
+        # Dialectic tools - full protocol restored (Feb 2026)
+        "request_dialectic_review": {
             "depends_on": [],
-            "related_to": ["get_governance_metrics"],
+            "related_to": ["submit_thesis", "dialectic"],
+            "category": "dialectic"
+        },
+        "submit_thesis": {
+            "depends_on": ["request_dialectic_review"],
+            "related_to": ["submit_antithesis", "submit_synthesis"],
+            "category": "dialectic"
+        },
+        "submit_antithesis": {
+            "depends_on": ["submit_thesis"],
+            "related_to": ["submit_synthesis"],
+            "category": "dialectic"
+        },
+        "submit_synthesis": {
+            "depends_on": ["submit_antithesis"],
+            "related_to": ["dialectic"],
+            "category": "dialectic"
+        },
+        "dialectic": {
+            "depends_on": [],
+            "related_to": ["request_dialectic_review", "submit_thesis"],
             "category": "dialectic"
         },
         "cleanup_stale_locks": {
@@ -1244,10 +1263,10 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             "related_to": ["compare_agents", "observe_agent"],
             "category": "observability"
         },
-        # Dialectic Tools - Dec 2025: Only get_dialectic_session remains
-        "get_dialectic_session": {
+        # Dialectic Tools - Feb 2026: Consolidated into dialectic(action=get/list)
+        "dialectic": {
             "depends_on": [],
-            "related_to": ["process_agent_update"],
+            "related_to": ["request_dialectic_review", "process_agent_update"],
             "category": "dialectic"
         }
     }
@@ -1272,7 +1291,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             "get_governance_metrics"
         ],
         "recovery": [
-            "get_dialectic_session",  # View archived sessions
+            "dialectic",  # View dialectic sessions (action=get/list)
             "direct_resume_if_safe"  # Resume if state is safe
         ],
         "export_analysis": [
@@ -1317,7 +1336,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         "list_tools": "📚 Discover all available tools. Your guide to what's possible",
         "describe_tool": "📖 Get full details for a specific tool. Deep dive into any tool",
         "cleanup_stale_locks": "🧹 Clean up stale lock files from crashed/killed processes",
-        "get_dialectic_session": "📋 View archived dialectic sessions",
+        "dialectic": "📋 Query dialectic sessions (get by ID, list with filters)",
         "health_check": "🏥 Quick health check - system status and component health",
         "check_calibration": "📏 Check calibration of confidence estimates",
         "update_calibration_ground_truth": "📝 Record external truth signal for calibration (optional)",
@@ -1706,8 +1725,8 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             },
             "dialectic": {
                 "name": "💭 Dialectic",
-                "description": "View archived dialectic sessions",
-                "tools": ["get_dialectic_session"],
+                "description": "Structured peer review and recovery protocol",
+                "tools": ["request_dialectic_review", "submit_thesis", "submit_antithesis", "submit_synthesis", "dialectic"],
                 "priority": 10,
                 "for_new_agents": False
             }

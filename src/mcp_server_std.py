@@ -3128,6 +3128,7 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> Sequence[Tex
             "submit_antithesis",
             "submit_synthesis",
             "get_dialectic_session",
+            "dialectic",
         }
         if should_trigger and name not in lightweight_tools:
             try:
