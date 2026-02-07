@@ -352,27 +352,38 @@ async def call_pi_tool(tool_name: str, arguments: Dict[str, Any],
     return standardized_error
 
 
-def map_anima_to_eisv(anima: Dict[str, float]) -> Dict[str, float]:
+def map_anima_to_eisv(
+    anima: Dict[str, float],
+    pre_computed_eisv: Optional[Dict[str, float]] = None,
+) -> Dict[str, float]:
     """
     Map Anima state (Pi) to EISV governance metrics (Mac).
 
-    Mapping:
+    If ``pre_computed_eisv`` is supplied (e.g. from Pi's neural-weighted
+    ``eisv_mapper``), those values are used directly — they incorporate
+    neural band signals that this simple fallback cannot replicate.
+
+    Fallback mapping:
     - Warmth → Energy (E): Engagement/activity level
     - Clarity → Integrity (I): Information coherence
     - Stability → 1-Entropy (S): Low stability = high scatter
-    - Presence → 1-Void (V): Low presence = high void/disconnection
+    - Presence → (1-Presence)*0.3 → Void (V): Scaled to match Pi
 
     Args:
         anima: Dict with warmth, clarity, stability, presence (0-1 each)
+        pre_computed_eisv: Optional Pi-side EISV dict with E, I, S, V keys
 
     Returns:
         Dict with E, I, S, V values (0-1 each)
     """
+    if pre_computed_eisv and all(k in pre_computed_eisv for k in ("E", "I", "S", "V")):
+        return dict(pre_computed_eisv)  # Pi's neural-weighted EISV
+
     return {
         "E": anima.get("warmth", 0.5),
         "I": anima.get("clarity", 0.5),
         "S": 1.0 - anima.get("stability", 0.5),  # Stability inverts to entropy
-        "V": 1.0 - anima.get("presence", 0.5),   # Presence inverts to void
+        "V": (1.0 - anima.get("presence", 0.5)) * 0.3,  # Match Pi's scaling
     }
 
 
@@ -549,8 +560,8 @@ async def handle_pi_sync_eisv(arguments: Dict[str, Any]) -> Sequence[TextContent
     if anima_error:
         return error_response(f"Anima state unavailable: {anima_error}")
 
-    # Map to EISV
-    eisv = map_anima_to_eisv(anima)
+    # Map to EISV — prefer Pi's pre-computed EISV when available
+    eisv = map_anima_to_eisv(anima, pre_computed_eisv=context.get("eisv"))
 
     # Log the sync
     audit_logger.log_eisv_sync(
@@ -562,14 +573,16 @@ async def handle_pi_sync_eisv(arguments: Dict[str, Any]) -> Sequence[TextContent
         sync_direction="pi_to_mac"
     )
 
+    eisv_source = "pi (neural-weighted)" if context.get("eisv") else "mac (fallback)"
     result = {
         "anima": anima,
         "eisv": eisv,
+        "eisv_source": eisv_source,
         "mapping": {
             "warmth → E (Energy)": f"{anima.get('warmth', 0):.3f} → {eisv['E']:.3f}",
             "clarity → I (Integrity)": f"{anima.get('clarity', 0):.3f} → {eisv['I']:.3f}",
             "stability → S (Entropy)": f"{anima.get('stability', 0):.3f} → {eisv['S']:.3f} (inverted)",
-            "presence → V (Void)": f"{anima.get('presence', 0):.3f} → {eisv['V']:.3f} (inverted)",
+            "presence → V (Void)": f"{anima.get('presence', 0):.3f} → {eisv['V']:.3f} (scaled)",
         }
     }
 
@@ -1032,8 +1045,8 @@ async def sync_eisv_once(update_governance: bool = False) -> Dict[str, Any]:
         Dict with sync results or error
     """
     try:
-        # Get anima state from Pi
-        result = await call_pi_tool("get_state", {}, agent_id="eisv-sync-task")
+        # Get anima state from Pi (includes pre-computed EISV when available)
+        result = await call_pi_tool("get_lumen_context", {"include": ["anima"]}, agent_id="eisv-sync-task")
 
         error_msg = _extract_error_message(result)
         if error_msg:
@@ -1044,8 +1057,8 @@ async def sync_eisv_once(update_governance: bool = False) -> Dict[str, Any]:
         if not anima:
             return {"success": False, "error": "No anima state in Pi response"}
 
-        # Map to EISV
-        eisv = map_anima_to_eisv(anima)
+        # Map to EISV — prefer Pi's pre-computed EISV when available
+        eisv = map_anima_to_eisv(anima, pre_computed_eisv=result.get("eisv"))
 
         # Log the sync
         audit_logger.log_eisv_sync(

@@ -13,6 +13,7 @@ import json
 import pytest
 from unittest.mock import patch
 
+fakeredis = pytest.importorskip("fakeredis", reason="fakeredis not installed")
 import fakeredis.aioredis
 
 from src.cache.metadata_cache import (
