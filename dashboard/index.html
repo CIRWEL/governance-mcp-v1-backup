@@ -1031,6 +1031,7 @@
                 const result = await callTool('agent', {
                     action: 'list',
                     include_metrics: true,
+                    recent_days: 30,
                     limit: 100
                 });
 
