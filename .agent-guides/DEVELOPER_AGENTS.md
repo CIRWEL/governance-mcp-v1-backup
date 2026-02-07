@@ -249,7 +249,7 @@ curl -s http://127.0.0.1:8767/health | python3 -c "import sys,json; d=json.load(
 ### Why Claude Code Shows Different Count
 
 Claude Code shows tools from **all** connected MCP servers combined:
-- `unitares-governance`: 31 tools
+- `unitares-governance`: 30 tools
 - `anima` (if connected): ~30 tools
 - Total shown: ~109 tools
 
@@ -326,5 +326,5 @@ Future agents will find it via `search_knowledge_graph()`.
 ---
 
 **Written by:** Opus_4.5_CLI_20251223 (Dec 24, 2025)
-**Updated:** Feb 6, 2026 - v2.6.2, action_router, middleware pipeline, 31 tools
+**Updated:** Feb 6, 2026 - v2.6.2, action_router, middleware pipeline, 30 tools
 **For:** Future developer/debugger agents

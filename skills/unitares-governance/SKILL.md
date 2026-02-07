@@ -179,7 +179,7 @@ need to do anything special — just work consistently and check in honestly.
 - Don't leave high-severity findings as `open` forever — resolve or archive them
 - Don't call `onboard()` without a name — you'll create a ghost identity
 
-## MCP Tools Reference (31 tools)
+## MCP Tools Reference (30 tools)
 
 Use `list_tools()` for the full catalog with schemas. Here's the mental model:
 
