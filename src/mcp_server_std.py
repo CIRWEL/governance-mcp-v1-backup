@@ -2737,7 +2737,21 @@ async def process_update_authenticated_async(
         if len(meta.recent_update_timestamps) > 10:
             meta.recent_update_timestamps = meta.recent_update_timestamps[-10:]
             meta.recent_decisions = meta.recent_decisions[-10:]
-        
+
+        # Persist counters to PostgreSQL (in-memory is not enough — survives restarts)
+        try:
+            db_backend = os.environ.get("DB_BACKEND", "sqlite").strip().lower()
+            if db_backend == "postgres":
+                from src import agent_storage
+                db = agent_storage.get_db()
+                await db.update_identity_metadata(agent_id, {
+                    "total_updates": meta.total_updates,
+                    "recent_update_timestamps": meta.recent_update_timestamps,
+                    "recent_decisions": meta.recent_decisions,
+                }, merge=True)
+        except Exception as e:
+            logger.debug(f"Could not persist update counters for {agent_id[:8]}...: {e}")
+
         # Enforce pause decisions (circuit breaker)
         # SELF-GOVERNANCE: When paused, automatically initiate dialectic recovery
         # instead of waiting for human intervention
