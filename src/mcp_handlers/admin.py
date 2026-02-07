@@ -2,7 +2,7 @@
 Admin tool handlers.
 """
 
-from typing import Dict, Any, Sequence, Optional
+from typing import Dict, Any, List, Sequence, Optional
 from mcp.types import TextContent
 import json
 import sys
