@@ -579,10 +579,10 @@ async def handle_pi_sync_eisv(arguments: Dict[str, Any]) -> Sequence[TextContent
         "eisv": eisv,
         "eisv_source": eisv_source,
         "mapping": {
-            "warmth → E (Energy)": f"{anima.get('warmth', 0):.3f} → {eisv['E']:.3f}",
-            "clarity → I (Integrity)": f"{anima.get('clarity', 0):.3f} → {eisv['I']:.3f}",
-            "stability → S (Entropy)": f"{anima.get('stability', 0):.3f} → {eisv['S']:.3f} (inverted)",
-            "presence → V (Void)": f"{anima.get('presence', 0):.3f} → {eisv['V']:.3f} (scaled)",
+            "warmth → E (Energy)": f"{anima.get('warmth', 0):.6f} → {eisv['E']:.6f}",
+            "clarity → I (Integrity)": f"{anima.get('clarity', 0):.6f} → {eisv['I']:.6f}",
+            "stability → S (Entropy)": f"{anima.get('stability', 0):.6f} → {eisv['S']:.6f} (inverted)",
+            "presence → V (Void)": f"{anima.get('presence', 0):.6f} → {eisv['V']:.6f} (scaled)",
         }
     }
 
@@ -1104,8 +1104,8 @@ async def eisv_sync_task(interval_minutes: float = 5.0):
             if result.get("success"):
                 eisv = result.get("eisv", {})
                 logger.info(
-                    f"[EISV_SYNC] Synced: E={eisv.get('E', 0):.2f} "
-                    f"I={eisv.get('I', 0):.2f} S={eisv.get('S', 0):.2f} V={eisv.get('V', 0):.2f}"
+                    f"[EISV_SYNC] Synced: E={eisv.get('E', 0):.6f} "
+                    f"I={eisv.get('I', 0):.6f} S={eisv.get('S', 0):.6f} V={eisv.get('V', 0):.6f}"
                 )
             else:
                 logger.warning(f"[EISV_SYNC] Sync failed: {result.get('error')}")

@@ -138,18 +138,18 @@ class TestFormatEISVCompact:
     def test_basic(self):
         m = EISVMetrics(E=0.80, I=1.00, S=0.03, V=-0.07)
         result = format_eisv_compact(m)
-        assert result == "E=0.80 I=1.00 S=0.03 V=-0.07"
+        assert result == "E=0.800000 I=1.000000 S=0.030000 V=-0.070000"
 
     def test_zero_values(self):
         m = EISVMetrics(E=0.0, I=0.0, S=0.0, V=0.0)
         result = format_eisv_compact(m)
-        assert result == "E=0.00 I=0.00 S=0.00 V=0.00"
+        assert result == "E=0.000000 I=0.000000 S=0.000000 V=0.000000"
 
     def test_precision(self):
         m = EISVMetrics(E=0.1, I=0.2, S=0.3, V=0.4)
         result = format_eisv_compact(m)
-        assert "E=0.10" in result
-        assert "V=0.40" in result
+        assert "E=0.100000" in result
+        assert "V=0.400000" in result
 
 
 # ============================================================================
@@ -165,7 +165,7 @@ class TestFormatEISVDetailed:
         assert "Integrity" in result
         assert "Entropy" in result
         assert "Void" in result
-        assert "0.80" in result
+        assert "0.800000" in result
 
     def test_without_labels(self):
         m = EISVMetrics(E=0.80, I=1.00, S=0.03, V=-0.07)
@@ -291,7 +291,7 @@ class TestFormatEISV:
     def test_compact_style(self):
         m = EISVMetrics(E=0.5, I=0.5, S=0.5, V=0.0)
         result = format_eisv(m, style='compact')
-        assert "E=0.50" in result
+        assert "E=0.500000" in result
 
     def test_detailed_style(self):
         m = EISVMetrics(E=0.5, I=0.5, S=0.5, V=0.0)

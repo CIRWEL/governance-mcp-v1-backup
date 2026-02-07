@@ -441,11 +441,11 @@ async def handle_compare_me_to_similar(arguments: Dict[str, Any]) -> Sequence[Te
     for similar in top_similar:
         insights = []
         if similar["metrics"]["I"] > my_I + 0.05:
-            insights.append(f"Higher Information Integrity ({similar['metrics']['I']:.2f} vs {my_I:.2f})")
+            insights.append(f"Higher Information Integrity ({similar['metrics']['I']:.6f} vs {my_I:.6f})")
         if similar["metrics"]["S"] < my_S - 0.05:
-            insights.append(f"Lower Entropy ({similar['metrics']['S']:.2f} vs {my_S:.2f})")
+            insights.append(f"Lower Entropy ({similar['metrics']['S']:.6f} vs {my_S:.6f})")
         if similar["metrics"]["phi"] > my_phi + 0.05:
-            insights.append(f"Better phi score ({similar['metrics']['phi']:.2f} vs {my_phi:.2f}) - closer to 'safe' verdict")
+            insights.append(f"Better phi score ({similar['metrics']['phi']:.6f} vs {my_phi:.6f}) - closer to 'safe' verdict")
         if similar["metrics"]["verdict"] == "safe" and my_verdict != "safe":
             insights.append(f"Achieved 'safe' verdict (you're at '{my_verdict}')")
         

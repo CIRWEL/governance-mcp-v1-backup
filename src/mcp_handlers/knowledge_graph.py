@@ -314,9 +314,9 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
                     state = monitor.state
                     monitor_state = {
                         "regime": state.regime,
-                        "coherence": round(state.coherence, 3),
-                        "energy": round(state.E, 3),  # E, I, S, V are uppercase
-                        "entropy": round(state.S, 3),
+                        "coherence": round(state.coherence, 6),
+                        "energy": round(state.E, 6),  # E, I, S, V are uppercase
+                        "entropy": round(state.S, 6),
                         "void_active": state.void_active,
                     }
 
@@ -1028,15 +1028,14 @@ async def handle_update_discovery_status_graph(arguments: Dict[str, Any]) -> Seq
                     }
                 )]
             
-            # SECURITY: Check ownership - only discovery owner can update high-severity discoveries
-            if discovery.agent_id != agent_id:
+            # Ownership check: non-owners can resolve/close, but not reopen or modify
+            if discovery.agent_id != agent_id and status not in ("resolved", "closed", "wont_fix"):
                 return [error_response(
-                    f"Permission denied: Cannot update high-severity discovery '{discovery_id}'. "
-                    f"Discovery belongs to agent '{discovery.agent_id}', not '{agent_id}'.",
+                    f"Permission denied: Cannot set status '{status}' on high-severity discovery '{discovery_id}'. "
+                    f"Non-owners can only resolve/close high-severity discoveries.",
                     recovery={
-                        "action": "Only the discovery owner can update high-severity discoveries",
+                        "action": "Use status='resolved' or 'closed' to close another agent's discovery",
                         "related_tools": ["get_discovery_details", "search_knowledge_graph"],
-                        "workflow": "High-severity discoveries can only be updated by their creator for security."
                     }
                 )]
         

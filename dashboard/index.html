@@ -653,11 +653,11 @@
                 const vValue = metrics.V !== undefined && metrics.V !== null ? Number(metrics.V) : null;
                 const cValue = metrics.coherence !== undefined && metrics.coherence !== null ? Number(metrics.coherence) : null;
                 // EISV metrics - show all four core metrics
-                const e = eValue !== null && !Number.isNaN(eValue) ? eValue.toFixed(2) : '-';
-                const i = iValue !== null && !Number.isNaN(iValue) ? iValue.toFixed(2) : '-';
-                const s = sValue !== null && !Number.isNaN(sValue) ? sValue.toFixed(2) : '-';
-                const v = vValue !== null && !Number.isNaN(vValue) ? vValue.toFixed(2) : '-';
-                const coherence = cValue !== null && !Number.isNaN(cValue) ? cValue.toFixed(2) : '-';
+                const e = eValue !== null && !Number.isNaN(eValue) ? eValue.toFixed(6) : '-';
+                const i = iValue !== null && !Number.isNaN(iValue) ? iValue.toFixed(6) : '-';
+                const s = sValue !== null && !Number.isNaN(sValue) ? sValue.toFixed(6) : '-';
+                const v = vValue !== null && !Number.isNaN(vValue) ? vValue.toFixed(6) : '-';
+                const coherence = cValue !== null && !Number.isNaN(cValue) ? cValue.toFixed(6) : '-';
                 const clampPercent = value => {
                     if (value === null || Number.isNaN(value)) return 0;
                     return Math.max(0, Math.min(100, value * 100));
@@ -1861,7 +1861,7 @@
                 if (val === undefined || val === null) return '';
                 const formatted = typeof DataProcessor !== 'undefined'
                     ? DataProcessor.formatEISVMetric(Number(val), name)
-                    : { display: Number(val).toFixed(3), interpretation: '', color: 'var(--text-primary)' };
+                    : { display: Number(val).toFixed(6), interpretation: '', color: 'var(--text-primary)' };
                 return `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
                         <div>
