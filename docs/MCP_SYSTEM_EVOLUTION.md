@@ -25,7 +25,7 @@ The MCP system has evolved from a simple governance monitor to a comprehensive m
 - **v2.5.9** (Feb 2026) - Agent circuit breaker enforcement (paused agents actually blocked)
 - **v2.6.0** (Feb 2026) - Major cleanup: ~4,200 lines dead code removed, tool surface 49→29, PostgreSQL dialectic, 1,798 tests at 40% coverage
 - **v2.6.1** (Feb 2026) - Name-based identity (PATH 2.5), observe tool fix, dashboard overhaul, trust tiers
-- **v2.6.2** (Feb 2026) - Architecture refactoring: ToolDefinition dataclass, action_router, dispatch middleware, response formatter. 31 tools, 2,194 tests at 43% coverage
+- **v2.6.2** (Feb 2026) - Architecture refactoring: ToolDefinition dataclass, action_router, dispatch middleware, response formatter. 30 tools, 2,194 tests at 43% coverage
 
 ---
 
@@ -388,7 +388,7 @@ v2.5.6:  SSH-based Pi restart, 310+ tests
 v2.5.7:  Identity persistence fix
 v2.6.0:  Major cleanup, 49→29 tools, 1,798 tests
 v2.6.1:  Name-based identity (PATH 2.5), dashboard overhaul
-v2.6.2:  Architecture refactoring, 31 tools, 2,194 tests
+v2.6.2:  Architecture refactoring, 30 tools, 2,194 tests
 ```
 
 ### Tool Count Evolution
@@ -401,7 +401,7 @@ v2.6.2:  Architecture refactoring, 31 tools, 2,194 tests
 - **v2.4.0:** 43 tools (refinements)
 - **v2.5.5:** 85+ tools (+42 tools: Pi orchestration, trajectory, recovery, unified tools)
 - **v2.6.0:** 29 tools (85+ consolidated to 29 public, admin/internal hidden)
-- **v2.6.2:** 31 tools (+ 2 new registered tools, 49 consolidated sub-handlers)
+- **v2.6.2:** 30 tools (+ 2 new registered tools, 49 consolidated sub-handlers)
 
 ### Performance Improvements
 

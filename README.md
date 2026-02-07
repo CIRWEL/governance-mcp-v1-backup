@@ -110,7 +110,7 @@ For REST clients, include an `X-Session-ID` header to maintain identity across c
 
 ## Key Concepts
 
-**31 registered tools** — v2.6.2 reduced the public surface from 49 to 31 tools via consolidation (`action_router`). Use `list_tools()` or read [SKILL.md](skills/unitares-governance/SKILL.md) for the full catalog.
+**30 registered tools** — v2.6.2 reduced the public surface from 49 to 30 tools via consolidation (`action_router`). Use `list_tools()` or read [SKILL.md](skills/unitares-governance/SKILL.md) for the full catalog.
 
 **Three-tier identity:**
 

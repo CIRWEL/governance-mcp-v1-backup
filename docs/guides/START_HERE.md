@@ -45,7 +45,7 @@ export GOVERNANCE_TOOL_MODE=minimal
 
 **Other modes:**
 - **Lite mode** (`GOVERNANCE_TOOL_MODE=lite`): 10 essential tools - for local models
-- **Full mode** (`GOVERNANCE_TOOL_MODE=full`): All 31 tools - for cloud models (default)
+- **Full mode** (`GOVERNANCE_TOOL_MODE=full`): All 30 tools - for cloud models (default)
 
 **Note:** `list_tools` is always available in any mode to enable tool discovery.
 
@@ -394,4 +394,4 @@ Governance should be **informative, not restrictive**. Agents log activity, rece
 
 ---
 
-**Last Updated:** 2026-02-06 (v2.6.2: 31 tools, action_router, middleware pipeline, 2,194 tests)
+**Last Updated:** 2026-02-06 (v2.6.2: 30 tools, action_router, middleware pipeline, 2,194 tests)

@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed — Architecture Refactoring (4 Refactors)
 
 Four internal refactors to reduce boilerplate, improve clarity, and make the tool system
-more maintainable. No breaking changes — all 31 tools, aliases, and behaviors preserved.
+more maintainable. No breaking changes — all 30 tools, aliases, and behaviors preserved.
 
 #### Refactor 1: Unified ToolDefinition Registry
 - **Replaced 4 separate dicts** (`_TOOL_REGISTRY`, `_TOOL_TIMEOUTS`, `_TOOL_DESCRIPTIONS`,

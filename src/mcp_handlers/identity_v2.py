@@ -995,7 +995,7 @@ def _extract_stable_identifier(session_key: str) -> Optional[str]:
     This allows recovery even when IP changes.
     
     Args:
-        session_key: Full session key (e.g., "217.216.112.229:8765:6d79c4")
+        session_key: Full session key (e.g., "217.216.112.229:8767:6d79c4")
     
     Returns:
         Stable identifier (e.g., "6d79c4") or None if not extractable
