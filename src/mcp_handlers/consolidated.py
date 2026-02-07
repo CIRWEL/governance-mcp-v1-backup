@@ -41,6 +41,10 @@ from .admin import (
     handle_update_calibration_ground_truth,
     handle_backfill_calibration_from_dialectic,
     handle_rebuild_calibration,
+    handle_get_telemetry_metrics,
+)
+from .roi_metrics import (
+    handle_get_roi_metrics,
 )
 from .config import (
     handle_get_thresholds,
@@ -206,15 +210,19 @@ handle_observe = action_router(
         "similar": handle_compare_me_to_similar,
         "anomalies": handle_detect_anomalies,
         "aggregate": handle_aggregate_metrics,
+        "telemetry": handle_get_telemetry_metrics,
+        "roi": handle_get_roi_metrics,
     },
     timeout=15.0,
-    description="Unified observability operations: agent, compare, similar, anomalies, aggregate",
+    description="Unified observability operations: agent, compare, similar, anomalies, aggregate, telemetry, roi",
     examples=[
         "observe(action='agent', agent_id='claude-opus-20251215')",
         "observe(action='compare', agent_ids=['agent1', 'agent2'])",
         "observe(action='similar')",
         "observe(action='anomalies')",
         "observe(action='aggregate')",
+        "observe(action='telemetry')",
+        "observe(action='roi')",
     ],
 )
 
