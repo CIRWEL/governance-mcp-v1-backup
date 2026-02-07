@@ -573,11 +573,50 @@ async def handle_pi_sync_eisv(arguments: Dict[str, Any]) -> Sequence[TextContent
         }
     }
 
-    # Optionally update governance state
+    # Optionally update governance state with sensor-derived check-in
     if update_governance:
-        # TODO: Call process_agent_update with derived EISV
-        result["governance_updated"] = False
-        result["governance_note"] = "Governance update not yet implemented"
+        try:
+            import numpy as np
+            from src import mcp_server
+
+            # Derive complexity and confidence from anima readings:
+            # - Low stability → high complexity (turbulent state is harder to work in)
+            # - Clarity maps directly to confidence (clear sensors = reliable reading)
+            stability = anima.get("stability", 0.5)
+            clarity = anima.get("clarity", 0.5)
+            sensor_complexity = round(1.0 - stability, 3)
+            sensor_confidence = round(clarity, 3)
+
+            sensor_state = {
+                "parameters": np.array([]),
+                "ethical_drift": np.array([0.0]),
+                "response_text": (
+                    f"EISV sync from Pi anima sensors — "
+                    f"warmth={anima.get('warmth', 0):.2f}, "
+                    f"clarity={clarity:.2f}, "
+                    f"stability={stability:.2f}, "
+                    f"presence={anima.get('presence', 0):.2f}"
+                ),
+                "complexity": sensor_complexity,
+            }
+
+            gov_result = await mcp_server.process_update_authenticated_async(
+                agent_id=agent_id,
+                api_key=None,
+                agent_state=sensor_state,
+                auto_save=True,
+                confidence=sensor_confidence,
+                session_bound=True,
+            )
+
+            result["governance_updated"] = True
+            result["governance_verdict"] = gov_result.get("decision", {}).get("action", "unknown")
+            result["governance_risk"] = gov_result.get("metrics", {}).get("risk_score")
+            result["governance_coherence"] = gov_result.get("metrics", {}).get("coherence")
+        except Exception as e:
+            logger.warning(f"[pi_sync_eisv] Governance update failed: {e}", exc_info=True)
+            result["governance_updated"] = False
+            result["governance_error"] = str(e)
 
     return success_response(result)
 

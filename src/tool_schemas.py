@@ -4787,7 +4787,7 @@ RETURNS:
         ),
         Tool(
             name="pi_sync_eisv",
-            description="Sync Lumen's anima state to EISV governance metrics. Maps warmth→E, clarity→I, stability→S, presence→V.",
+            description="Sync Lumen's anima state to EISV governance metrics. Maps warmth→E, clarity→I, stability→S(inv), presence→V(inv). Set update_governance=true to feed sensor state into governance engine.",
             inputSchema={
                 "type": "object",
                 "properties": {
