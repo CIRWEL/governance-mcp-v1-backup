@@ -71,7 +71,7 @@ def format_eisv_compact(metrics: EISVMetrics) -> str:
     Returns:
         Formatted string with all four metrics
     """
-    return f"E={metrics.E:.2f} I={metrics.I:.2f} S={metrics.S:.2f} V={metrics.V:.2f}"
+    return f"E={metrics.E:.6f} I={metrics.I:.6f} S={metrics.S:.6f} V={metrics.V:.6f}"
 
 
 def format_eisv_detailed(
@@ -115,9 +115,9 @@ def format_eisv_detailed(
         value = getattr(metrics, key)
         if include_labels:
             label = f" ({labels[key]})" if include_labels else ""
-            line = f"{key}{label}: {value:.2f}"
+            line = f"{key}{label}: {value:.6f}"
         else:
-            line = f"{key}: {value:.2f}"
+            line = f"{key}: {value:.6f}"
 
         if include_user_friendly:
             line += f"  # {user_friendly[key]}"
@@ -176,7 +176,7 @@ def format_eisv_trajectory(trajectory: EISVTrajectory) -> str:
         else:
             pct_str = f"({pct:+.1f}%)"
 
-        line = f"{key} ({labels[key]}): {start_val:.2f} → {end_val:.2f} {pct_str}"
+        line = f"{key} ({labels[key]}): {start_val:.6f} → {end_val:.6f} {pct_str}"
         lines.append(line)
 
     return '\n'.join(lines)
