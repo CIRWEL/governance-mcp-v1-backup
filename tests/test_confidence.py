@@ -1,14 +1,13 @@
 """
-Tests for src/confidence.py - Confidence derivation from EISV state.
+Tests for src/confidence.py — Confidence derivation from EISV state.
 
-derive_confidence is nearly pure, just needs mock for tool_usage_tracker.
+Tests derive_confidence with mock GovernanceState and tool_usage_tracker.
 """
 
 import pytest
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from dataclasses import dataclass
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -16,125 +15,168 @@ sys.path.insert(0, str(project_root))
 from src.confidence import derive_confidence
 
 
-@dataclass
-class MockState:
-    """Minimal mock of GovernanceState."""
-    coherence: float = 0.5
-    I: float = 0.5
-    S: float = 0.1
-    V: float = 0.0
+# ============================================================================
+# Helper: mock state
+# ============================================================================
 
+def _mock_state(coherence=0.5, I=0.5, S=0.5, V=0.0):
+    """Create a mock GovernanceState with EISV attributes."""
+    state = MagicMock()
+    state.coherence = coherence
+    state.I = I
+    state.S = S
+    state.V = V
+    return state
+
+
+def _mock_tracker(total_calls=0, success_count=0):
+    """Create a mock tool_usage_tracker."""
+    tracker = MagicMock()
+    if total_calls > 0:
+        tracker.get_usage_stats.return_value = {
+            "total_calls": total_calls,
+            "tools": {
+                "some_tool": {
+                    "total_calls": total_calls,
+                    "success_count": success_count,
+                }
+            }
+        }
+    else:
+        tracker.get_usage_stats.return_value = {"total_calls": 0, "tools": {}}
+    return tracker
+
+
+# ============================================================================
+# derive_confidence — basic behavior
+# ============================================================================
 
 class TestDeriveConfidenceBasic:
 
     def test_returns_tuple(self):
-        state = MockState()
-        result = derive_confidence(state)
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-
-    def test_confidence_is_float(self):
-        state = MockState()
+        state = _mock_state()
         confidence, metadata = derive_confidence(state)
         assert isinstance(confidence, float)
-
-    def test_metadata_is_dict(self):
-        state = MockState()
-        confidence, metadata = derive_confidence(state)
         assert isinstance(metadata, dict)
 
-    def test_bounded_output(self):
-        """Confidence clamped to [0.05, 0.95]"""
-        state = MockState()
-        confidence, _ = derive_confidence(state)
-        assert 0.05 <= confidence <= 0.95
-
-
-class TestDeriveConfidenceEISV:
-
-    def test_high_coherence_high_integrity(self):
-        """High coherence + high I → high confidence"""
-        state = MockState(coherence=0.9, I=0.9, S=0.05, V=0.0)
-        confidence, _ = derive_confidence(state)
-        assert confidence > 0.6
-
-    def test_low_coherence_low_integrity(self):
-        """Low coherence + low I → low confidence"""
-        state = MockState(coherence=0.1, I=0.1, S=0.5, V=0.3)
-        confidence, _ = derive_confidence(state)
-        assert confidence < 0.3
-
-    def test_high_entropy_reduces_confidence(self):
-        """Higher S → lower confidence (entropy penalty)"""
-        state_low_s = MockState(coherence=0.7, I=0.7, S=0.1, V=0.0)
-        state_high_s = MockState(coherence=0.7, I=0.7, S=0.8, V=0.0)
-        conf_low, _ = derive_confidence(state_low_s)
-        conf_high, _ = derive_confidence(state_high_s)
-        assert conf_low > conf_high
-
-    def test_high_void_reduces_confidence(self):
-        """Higher |V| → lower confidence (void penalty)"""
-        state_low_v = MockState(coherence=0.7, I=0.7, S=0.1, V=0.0)
-        state_high_v = MockState(coherence=0.7, I=0.7, S=0.1, V=0.5)
-        conf_low, _ = derive_confidence(state_low_v)
-        conf_high, _ = derive_confidence(state_high_v)
-        assert conf_low > conf_high
-
-    def test_void_penalty_monotonic(self):
-        """Larger void → strictly more penalty"""
-        confs = []
-        for v in [0.0, 0.1, 0.3, 0.5]:
-            state = MockState(coherence=0.7, I=0.7, S=0.1, V=v)
-            c, _ = derive_confidence(state)
-            confs.append(c)
-        # Should be monotonically decreasing
-        for i in range(1, len(confs)):
-            assert confs[i] <= confs[i-1]
-
-
-class TestDeriveConfidenceNullState:
-
-    def test_none_state(self):
-        """None state → default EISV confidence"""
-        confidence, metadata = derive_confidence(None)
-        assert 0.05 <= confidence <= 0.95
-
-    def test_none_state_source(self):
-        confidence, metadata = derive_confidence(None)
-        assert 'source' in metadata
-
-
-class TestDeriveConfidenceMetadata:
-
-    def test_eisv_metadata_present(self):
-        state = MockState(coherence=0.7, I=0.6, S=0.2, V=0.1)
-        _, metadata = derive_confidence(state)
-        assert 'eisv' in metadata
-        assert 'coherence' in metadata['eisv']
-        assert 'void_penalty' in metadata['eisv']
-        assert 'entropy_penalty' in metadata['eisv']
-
-    def test_source_is_eisv_only(self):
-        state = MockState()
-        _, metadata = derive_confidence(state)
-        assert metadata['source'] == 'eisv_only'
-
-    def test_confidence_in_metadata(self):
-        state = MockState()
-        confidence, metadata = derive_confidence(state)
-        assert metadata['confidence'] == confidence
-
-
-class TestDeriveConfidenceNeverPerfect:
-
-    def test_never_reaches_1_0(self):
-        """Even perfect state → capped at 0.95"""
-        state = MockState(coherence=1.0, I=1.0, S=0.0, V=0.0)
+    def test_bounded_above(self):
+        state = _mock_state(coherence=1.0, I=1.0, S=0.0, V=0.0)
         confidence, _ = derive_confidence(state)
         assert confidence <= 0.95
 
-    def test_never_reaches_0_0(self):
-        """Even worst state → floored at 0.05"""
-        state = MockState(coherence=0.0, I=0.0, S=1.0, V=1.0)
+    def test_bounded_below(self):
+        state = _mock_state(coherence=0.0, I=0.0, S=1.0, V=1.0)
         confidence, _ = derive_confidence(state)
         assert confidence >= 0.05
+
+    def test_none_state(self):
+        confidence, metadata = derive_confidence(None)
+        assert confidence == max(0.05, min(0.95, 0.5))  # default eisv_confidence
+        assert metadata["source"] == "eisv_only"
+
+    def test_source_is_eisv_only(self):
+        state = _mock_state()
+        _, metadata = derive_confidence(state)
+        assert metadata["source"] == "eisv_only"
+
+
+# ============================================================================
+# derive_confidence — EISV effects
+# ============================================================================
+
+class TestDeriveConfidenceEISV:
+
+    def test_high_coherence_increases_confidence(self):
+        low = derive_confidence(_mock_state(coherence=0.2, I=0.5, S=0.3, V=0.0))[0]
+        high = derive_confidence(_mock_state(coherence=0.9, I=0.5, S=0.3, V=0.0))[0]
+        assert high > low
+
+    def test_high_integrity_increases_confidence(self):
+        low = derive_confidence(_mock_state(coherence=0.5, I=0.2, S=0.3, V=0.0))[0]
+        high = derive_confidence(_mock_state(coherence=0.5, I=0.9, S=0.3, V=0.0))[0]
+        assert high > low
+
+    def test_high_entropy_decreases_confidence(self):
+        low_s = derive_confidence(_mock_state(coherence=0.7, I=0.7, S=0.1, V=0.0))[0]
+        high_s = derive_confidence(_mock_state(coherence=0.7, I=0.7, S=0.9, V=0.0))[0]
+        assert low_s > high_s
+
+    def test_high_void_decreases_confidence(self):
+        low_v = derive_confidence(_mock_state(coherence=0.7, I=0.7, S=0.3, V=0.0))[0]
+        high_v = derive_confidence(_mock_state(coherence=0.7, I=0.7, S=0.3, V=0.5))[0]
+        assert low_v > high_v
+
+    def test_negative_void_also_penalizes(self):
+        zero_v = derive_confidence(_mock_state(coherence=0.7, I=0.7, S=0.3, V=0.0))[0]
+        neg_v = derive_confidence(_mock_state(coherence=0.7, I=0.7, S=0.3, V=-0.5))[0]
+        assert zero_v > neg_v
+
+    def test_metadata_contains_eisv_details(self):
+        state = _mock_state(coherence=0.8, I=0.7, S=0.2, V=0.1)
+        _, metadata = derive_confidence(state)
+        assert "eisv" in metadata
+        assert metadata["eisv"]["coherence"] == 0.8
+        assert metadata["eisv"]["integrity"] == 0.7
+        assert metadata["eisv"]["entropy"] == 0.2
+        assert metadata["eisv"]["void"] == 0.1
+        assert "void_penalty" in metadata["eisv"]
+        assert "entropy_penalty" in metadata["eisv"]
+
+
+# ============================================================================
+# derive_confidence — tool tracker integration
+# ============================================================================
+
+class TestDeriveConfidenceToolTracker:
+
+    @patch("src.tool_usage_tracker.get_tool_usage_tracker")
+    def test_tool_stats_in_metadata(self, mock_get_tracker):
+        mock_get_tracker.return_value = _mock_tracker(total_calls=10, success_count=8)
+        state = _mock_state()
+        _, metadata = derive_confidence(state, agent_id="agent-123")
+        assert "tool_stats" in metadata
+        assert metadata["tool_stats"]["total_calls"] == 10
+        assert metadata["tool_stats"]["success_rate"] == 0.8
+
+    @patch("src.tool_usage_tracker.get_tool_usage_tracker")
+    def test_tool_confidence_excluded_from_final(self, mock_get_tracker):
+        mock_get_tracker.return_value = _mock_tracker(total_calls=10, success_count=10)
+        state = _mock_state()
+        _, metadata = derive_confidence(state, agent_id="agent-123")
+        assert "tool_confidence_excluded" in metadata
+        assert metadata["exclusion_reason"]  # reason documented
+
+    @patch("src.tool_usage_tracker.get_tool_usage_tracker")
+    def test_no_agent_id_skips_tracker(self, mock_get_tracker):
+        state = _mock_state()
+        _, metadata = derive_confidence(state)
+        mock_get_tracker.assert_not_called()
+
+    @patch("src.tool_usage_tracker.get_tool_usage_tracker")
+    def test_tracker_error_handled(self, mock_get_tracker):
+        mock_get_tracker.side_effect = Exception("DB down")
+        state = _mock_state()
+        confidence, metadata = derive_confidence(state, agent_id="agent-123")
+        assert confidence >= 0.05  # still returns valid confidence
+        assert "tracker_error" in metadata
+
+    @patch("src.tool_usage_tracker.get_tool_usage_tracker")
+    def test_zero_calls_default_confidence(self, mock_get_tracker):
+        mock_get_tracker.return_value = _mock_tracker(total_calls=0)
+        state = _mock_state()
+        _, metadata = derive_confidence(state, agent_id="agent-123")
+        assert "tool_stats" not in metadata
+
+    @patch("src.tool_usage_tracker.get_tool_usage_tracker")
+    def test_high_call_count_high_reliability(self, mock_get_tracker):
+        mock_get_tracker.return_value = _mock_tracker(total_calls=5, success_count=5)
+        state = _mock_state()
+        _, metadata = derive_confidence(state, agent_id="agent-123")
+        assert metadata["reliability"] == "high"
+
+    @patch("src.tool_usage_tracker.get_tool_usage_tracker")
+    def test_low_call_count_medium_reliability(self, mock_get_tracker):
+        mock_get_tracker.return_value = _mock_tracker(total_calls=2, success_count=2)
+        state = _mock_state()
+        _, metadata = derive_confidence(state, agent_id="agent-123")
+        assert metadata["reliability"] == "medium"

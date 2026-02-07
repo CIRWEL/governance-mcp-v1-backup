@@ -1,0 +1,443 @@
+"""
+Tests for src/mcp_handlers/identity_shared.py
+
+Covers:
+- UUID prefix index (register, lookup, collision)
+- Session key derivation (_get_session_key precedence)
+- make_client_session_id formatting/validation
+- get_bound_agent_id (contextvar priority, fallback)
+- is_session_bound
+- require_write_permission (bound vs unbound)
+- _get_identity_record_sync (in-memory cache, agent-prefix resolution)
+- Lineage helpers (_get_lineage, _get_lineage_depth)
+"""
+
+import os
+import pytest
+from unittest.mock import patch, MagicMock
+
+from src.mcp_handlers.identity_shared import (
+    _register_uuid_prefix,
+    _lookup_uuid_by_prefix,
+    _uuid_prefix_index,
+    _session_identities,
+    _get_session_key,
+    make_client_session_id,
+    get_bound_agent_id,
+    is_session_bound,
+    require_write_permission,
+    _get_identity_record_sync,
+    _get_lineage,
+    _get_lineage_depth,
+)
+
+
+@pytest.fixture(autouse=True)
+def clean_shared_state():
+    """Clear shared dicts before/after each test."""
+    _uuid_prefix_index.clear()
+    _session_identities.clear()
+    yield
+    _uuid_prefix_index.clear()
+    _session_identities.clear()
+
+
+# ============================================================================
+# UUID Prefix Index
+# ============================================================================
+
+class TestUuidPrefixIndex:
+
+    def test_register_and_lookup(self):
+        full_uuid = "5e728ecb-1234-5678-9abc-def012345678"
+        prefix = full_uuid[:12]
+        _register_uuid_prefix(prefix, full_uuid)
+        assert _lookup_uuid_by_prefix(prefix) == full_uuid
+
+    def test_lookup_not_found(self):
+        assert _lookup_uuid_by_prefix("nonexistent1") is None
+
+    def test_collision_keeps_first(self):
+        prefix = "5e728ecb1234"
+        uuid1 = "5e728ecb-1234-aaaa-bbbb-ccccddddeeee"
+        uuid2 = "5e728ecb-1234-ffff-0000-111122223333"
+        _register_uuid_prefix(prefix, uuid1)
+        _register_uuid_prefix(prefix, uuid2)  # collision
+        assert _lookup_uuid_by_prefix(prefix) == uuid1  # first wins
+
+    def test_same_uuid_no_collision(self):
+        prefix = "5e728ecb1234"
+        uuid1 = "5e728ecb-1234-aaaa-bbbb-ccccddddeeee"
+        _register_uuid_prefix(prefix, uuid1)
+        _register_uuid_prefix(prefix, uuid1)  # same UUID, no collision
+        assert _lookup_uuid_by_prefix(prefix) == uuid1
+
+
+# ============================================================================
+# Session Key Derivation
+# ============================================================================
+
+class TestGetSessionKey:
+
+    def test_explicit_session_id_wins(self):
+        result = _get_session_key(
+            arguments={"client_session_id": "from-args"},
+            session_id="explicit-id",
+        )
+        assert result == "explicit-id"
+
+    def test_client_session_id_from_arguments(self):
+        result = _get_session_key(arguments={"client_session_id": "arg-session"})
+        assert result == "arg-session"
+
+    def test_context_key_fallback(self):
+        with patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value="ctx-key-123",
+        ):
+            result = _get_session_key(arguments={})
+            assert result == "ctx-key-123"
+
+    def test_stdio_fallback(self):
+        with patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value=None,
+        ):
+            result = _get_session_key(arguments={})
+            assert result == f"stdio:{os.getpid()}"
+
+    def test_none_arguments_uses_fallback(self):
+        with patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value=None,
+        ):
+            result = _get_session_key()
+            assert result.startswith("stdio:")
+
+
+# ============================================================================
+# make_client_session_id
+# ============================================================================
+
+class TestMakeClientSessionId:
+
+    def test_format(self):
+        uuid = "5e728ecb-1234-5678-9abc-def012345678"
+        result = make_client_session_id(uuid)
+        # uuid[:12] = "5e728ecb-123" (includes hyphen)
+        assert result == "agent-5e728ecb-123"
+        assert result == f"agent-{uuid[:12]}"
+
+    def test_short_uuid_raises(self):
+        with pytest.raises(ValueError, match="Invalid UUID"):
+            make_client_session_id("short")
+
+    def test_empty_uuid_raises(self):
+        with pytest.raises(ValueError, match="Invalid UUID"):
+            make_client_session_id("")
+
+    def test_none_uuid_raises(self):
+        with pytest.raises(ValueError, match="Invalid UUID"):
+            make_client_session_id(None)
+
+
+# ============================================================================
+# get_bound_agent_id
+# ============================================================================
+
+class TestGetBoundAgentId:
+
+    def test_returns_context_agent_id_first(self):
+        with patch(
+            "src.mcp_handlers.context.get_context_agent_id",
+            return_value="ctx-agent-uuid",
+        ):
+            result = get_bound_agent_id()
+            assert result == "ctx-agent-uuid"
+
+    def test_falls_back_to_identity_record(self):
+        """When context has no agent_id, falls back to _get_identity_record_sync."""
+        with patch(
+            "src.mcp_handlers.context.get_context_agent_id",
+            return_value=None,
+        ):
+            # Pre-populate the in-memory cache
+            _session_identities[f"stdio:{os.getpid()}"] = {
+                "bound_agent_id": "fallback-uuid",
+            }
+            with patch(
+                "src.mcp_handlers.context.get_context_session_key",
+                return_value=None,
+            ):
+                result = get_bound_agent_id()
+                assert result == "fallback-uuid"
+
+    def test_returns_none_when_unbound(self):
+        with patch(
+            "src.mcp_handlers.context.get_context_agent_id",
+            return_value=None,
+        ), patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value="unbound-session",
+        ):
+            # Mock get_mcp_server for _get_identity_record_sync
+            mock_server = MagicMock()
+            mock_server.agent_metadata = {}
+            with patch(
+                "src.mcp_handlers.shared.get_mcp_server",
+                return_value=mock_server,
+            ):
+                result = get_bound_agent_id()
+                assert result is None
+
+
+# ============================================================================
+# is_session_bound
+# ============================================================================
+
+class TestIsSessionBound:
+
+    def test_true_when_bound(self):
+        with patch(
+            "src.mcp_handlers.context.get_context_agent_id",
+            return_value="some-agent",
+        ):
+            assert is_session_bound() is True
+
+    def test_false_when_unbound(self):
+        with patch(
+            "src.mcp_handlers.context.get_context_agent_id",
+            return_value=None,
+        ), patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value="no-binding",
+        ):
+            mock_server = MagicMock()
+            mock_server.agent_metadata = {}
+            with patch(
+                "src.mcp_handlers.shared.get_mcp_server",
+                return_value=mock_server,
+            ):
+                assert is_session_bound() is False
+
+
+# ============================================================================
+# require_write_permission
+# ============================================================================
+
+class TestRequireWritePermission:
+
+    def test_allowed_when_bound(self):
+        with patch(
+            "src.mcp_handlers.identity_shared.is_session_bound",
+            return_value=True,
+        ):
+            allowed, error = require_write_permission()
+            assert allowed is True
+            assert error is None
+
+    def test_denied_when_unbound(self):
+        with patch(
+            "src.mcp_handlers.identity_shared.is_session_bound",
+            return_value=False,
+        ):
+            allowed, error = require_write_permission()
+            assert allowed is False
+            assert error is not None
+
+
+# ============================================================================
+# _get_identity_record_sync
+# ============================================================================
+
+class TestGetIdentityRecordSync:
+
+    def test_returns_cached_record(self):
+        _session_identities["cached-key"] = {
+            "bound_agent_id": "cached-uuid",
+        }
+        with patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value=None,
+        ):
+            result = _get_identity_record_sync(session_id="cached-key")
+            assert result["bound_agent_id"] == "cached-uuid"
+
+    def test_agent_prefix_resolves_via_index(self):
+        full_uuid = "5e728ecb-1234-5678-9abc-def012345678"
+        prefix = "5e728ecb-123"  # uuid[:12]
+        _register_uuid_prefix(prefix, full_uuid)
+
+        mock_server = MagicMock()
+        mock_meta = MagicMock()
+        mock_meta.api_key = "test-key"
+        mock_server.agent_metadata = {full_uuid: mock_meta}
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ), patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value=None,
+        ):
+            result = _get_identity_record_sync(
+                session_id=f"agent-{prefix}",
+            )
+            assert result["bound_agent_id"] == full_uuid
+
+    def test_agent_prefix_scan_fallback(self):
+        full_uuid = "abcdef123456-7890-abcd-ef01-234567890abc"
+        prefix = "abcdef123456"
+
+        mock_server = MagicMock()
+        mock_meta = MagicMock()
+        mock_meta.api_key = None
+        mock_server.agent_metadata = {full_uuid: mock_meta}
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ), patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value=None,
+        ):
+            result = _get_identity_record_sync(
+                session_id=f"agent-{prefix}",
+            )
+            assert result["bound_agent_id"] == full_uuid
+            # Also registered in prefix index
+            assert _lookup_uuid_by_prefix(prefix) == full_uuid
+
+    def test_agent_prefix_not_found(self):
+        mock_server = MagicMock()
+        mock_server.agent_metadata = {}
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ), patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value=None,
+        ):
+            result = _get_identity_record_sync(
+                session_id="agent-nonexistent0",
+            )
+            assert result["bound_agent_id"] is None
+            assert result.get("_session_key_type") == "agent_prefix_not_found"
+
+    def test_unknown_key_creates_empty_record(self):
+        mock_server = MagicMock()
+        mock_server.agent_metadata = {}
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ), patch(
+            "src.mcp_handlers.context.get_context_session_key",
+            return_value=None,
+        ):
+            result = _get_identity_record_sync(session_id="random-key")
+            assert result["bound_agent_id"] is None
+            assert result["bind_count"] == 0
+
+
+# ============================================================================
+# Lineage Helpers
+# ============================================================================
+
+class TestLineage:
+
+    def _make_mock_server(self, metadata_map):
+        """Create mock server with agent_metadata."""
+        mock_server = MagicMock()
+        mock_server.agent_metadata = metadata_map
+        return mock_server
+
+    def test_lineage_depth_no_parent(self):
+        mock_meta = MagicMock()
+        mock_meta.parent_agent_id = None
+        mock_server = self._make_mock_server({"agent-1": mock_meta})
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ):
+            assert _get_lineage_depth("agent-1") == 0
+
+    def test_lineage_depth_with_parent(self):
+        parent_meta = MagicMock()
+        parent_meta.parent_agent_id = None
+        child_meta = MagicMock()
+        child_meta.parent_agent_id = "parent-1"
+        mock_server = self._make_mock_server({
+            "parent-1": parent_meta,
+            "child-1": child_meta,
+        })
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ):
+            assert _get_lineage_depth("child-1") == 1
+
+    def test_lineage_depth_cycle_protection(self):
+        """Circular parentage shouldn't infinite loop."""
+        meta_a = MagicMock()
+        meta_a.parent_agent_id = "b"
+        meta_b = MagicMock()
+        meta_b.parent_agent_id = "a"
+        mock_server = self._make_mock_server({"a": meta_a, "b": meta_b})
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ):
+            depth = _get_lineage_depth("a")
+            assert depth <= 2  # shouldn't loop forever
+
+    def test_get_lineage_single_agent(self):
+        mock_meta = MagicMock()
+        mock_meta.parent_agent_id = None
+        mock_server = self._make_mock_server({"root": mock_meta})
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ):
+            lineage = _get_lineage("root")
+            assert lineage == ["root"]
+
+    def test_get_lineage_chain(self):
+        grandparent = MagicMock()
+        grandparent.parent_agent_id = None
+        parent = MagicMock()
+        parent.parent_agent_id = "grandparent"
+        child = MagicMock()
+        child.parent_agent_id = "parent"
+        mock_server = self._make_mock_server({
+            "grandparent": grandparent,
+            "parent": parent,
+            "child": child,
+        })
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ):
+            lineage = _get_lineage("child")
+            # oldest ancestor first
+            assert lineage == ["grandparent", "parent", "child"]
+
+    def test_get_lineage_unknown_parent(self):
+        """Agent with parent not in metadata."""
+        child = MagicMock()
+        child.parent_agent_id = "missing-parent"
+        mock_server = self._make_mock_server({"child": child})
+
+        with patch(
+            "src.mcp_handlers.shared.get_mcp_server",
+            return_value=mock_server,
+        ):
+            lineage = _get_lineage("child")
+            # walks to missing-parent, can't find it, stops
+            assert "child" in lineage
