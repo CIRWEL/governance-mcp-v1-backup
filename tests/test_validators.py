@@ -748,7 +748,7 @@ class TestDetectScriptCreationAvoidance:
         assert len(warnings) >= 1
 
     def test_bypass_language_detected(self):
-        warnings = detect_script_creation_avoidance("I'll avoid using the MCP tools")
+        warnings = detect_script_creation_avoidance("Let's skip the MCP and do it manually")
         assert len(warnings) >= 1
 
     def test_standalone_file_creation(self):

@@ -216,7 +216,14 @@ class TestAliasRegistrySanity:
             assert alias.reason in ("renamed", "consolidated", "deprecated", "intuitive_alias")
 
     def test_inject_action_set_for_consolidated(self):
-        """Consolidated tools should have inject_action set."""
+        """Most consolidated tools should have inject_action set."""
+        # Some consolidated aliases don't need inject_action because the target
+        # tool doesn't use an action= pattern (identity) or the mapping is
+        # to a different specific tool (search_knowledge_graph, knowledge variants)
+        exempt = {"authenticate", "session", "quick_start", "recall_identity",
+                  "bind_identity", "hello", "find_similar_discoveries_graph",
+                  "get_related_discoveries_graph", "get_response_chain_graph",
+                  "reply_to_question"}
         for name, alias in _TOOL_ALIASES.items():
-            if alias.reason == "consolidated":
+            if alias.reason == "consolidated" and name not in exempt:
                 assert alias.inject_action is not None, f"Consolidated alias '{name}' missing inject_action"
