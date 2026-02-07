@@ -22,7 +22,7 @@ from typing import Dict, Any
 from unittest.mock import patch, AsyncMock
 
 import pytest
-import httpx
+httpx = pytest.importorskip("httpx", reason="httpx not installed")
 
 # Skip all tests in this module - these are integration tests requiring running servers
 pytestmark = pytest.mark.skip(reason="Integration tests require running governance server")

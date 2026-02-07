@@ -1,6 +1,6 @@
 # MCP Server Setup Guide
 
-**UNITARES Governance MCP Server v2.6.0**
+**UNITARES Governance MCP Server v2.6.3**
 
 This guide shows you how to set up the custom MCP server for governance monitoring.
 

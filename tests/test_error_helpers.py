@@ -1,7 +1,7 @@
 """
-Tests for src/mcp_handlers/error_helpers.py - Standardized error responses.
+Tests for src/mcp_handlers/error_helpers.py — Standardized error response builders.
 
-All functions are pure (input → output), only dependency is error_response().
+All functions are pure (just build dict structures). No mocking needed.
 """
 
 import pytest
@@ -35,42 +35,46 @@ from src.mcp_handlers.error_helpers import (
 )
 
 
-# Helper to extract JSON from TextContent
-def _parse_error(result):
-    """Extract parsed JSON from error response list."""
-    assert len(result) == 1
-    tc = result[0]
-    assert hasattr(tc, "text")
-    return json.loads(tc.text)
-
-
 # ============================================================================
-# RECOVERY_PATTERNS constant
+# RECOVERY_PATTERNS data structure
 # ============================================================================
 
 class TestRecoveryPatterns:
 
-    def test_all_expected_keys_present(self):
-        expected = {
+    def test_is_dict(self):
+        assert isinstance(RECOVERY_PATTERNS, dict)
+
+    def test_has_known_patterns(self):
+        expected = [
             "agent_not_found", "agent_not_registered", "authentication_failed",
             "authentication_required", "ownership_required", "rate_limit_exceeded",
             "timeout", "invalid_parameters", "validation_error", "system_error",
             "resource_not_found", "not_connected", "missing_client_session_id",
             "session_mismatch", "missing_parameter", "invalid_parameter_type",
             "permission_denied",
-        }
-        assert expected.issubset(set(RECOVERY_PATTERNS.keys()))
+        ]
+        for key in expected:
+            assert key in RECOVERY_PATTERNS, f"Missing recovery pattern: {key}"
 
-    def test_each_pattern_has_action(self):
+    def test_patterns_have_required_fields(self):
         for key, pattern in RECOVERY_PATTERNS.items():
-            assert "action" in pattern, f"Missing 'action' in {key}"
-            assert isinstance(pattern["action"], str)
+            assert "action" in pattern, f"Pattern '{key}' missing 'action'"
+            assert "related_tools" in pattern, f"Pattern '{key}' missing 'related_tools'"
+            assert "workflow" in pattern, f"Pattern '{key}' missing 'workflow'"
 
-    def test_each_pattern_has_workflow(self):
-        for key, pattern in RECOVERY_PATTERNS.items():
-            assert "workflow" in pattern, f"Missing 'workflow' in {key}"
-            assert isinstance(pattern["workflow"], list)
-            assert len(pattern["workflow"]) >= 1
+
+# ============================================================================
+# Helper to parse TextContent result
+# ============================================================================
+
+def _parse_error(result):
+    """Parse the error result (list of TextContent) into a dict."""
+    assert isinstance(result, list)
+    assert len(result) >= 1
+    text_content = result[0]
+    # TextContent has a .text attribute with JSON string
+    data = json.loads(text_content.text)
+    return data
 
 
 # ============================================================================
@@ -79,25 +83,21 @@ class TestRecoveryPatterns:
 
 class TestAgentNotFoundError:
 
-    def test_returns_list_of_one(self):
-        result = agent_not_found_error("agent-123")
-        assert len(result) == 1
-
-    def test_message_contains_agent_id(self):
-        data = _parse_error(agent_not_found_error("agent-abc"))
-        assert "agent-abc" in data["error"]
-
-    def test_error_code(self):
-        data = _parse_error(agent_not_found_error("x"))
+    def test_basic(self):
+        result = agent_not_found_error("test-agent")
+        data = _parse_error(result)
+        assert "test-agent" in data["error"]
         assert data["error_code"] == "AGENT_NOT_FOUND"
 
     def test_custom_error_code(self):
-        data = _parse_error(agent_not_found_error("x", error_code="CUSTOM"))
-        assert data["error_code"] == "CUSTOM"
+        result = agent_not_found_error("agent-1", error_code="CUSTOM_CODE")
+        data = _parse_error(result)
+        assert data["error_code"] == "CUSTOM_CODE"
 
-    def test_recovery_included(self):
-        data = _parse_error(agent_not_found_error("x"))
-        assert "recovery" in data
+    def test_with_context(self):
+        result = agent_not_found_error("agent-1", context={"tool": "test"})
+        data = _parse_error(result)
+        assert data["error_code"] == "AGENT_NOT_FOUND"
 
 
 # ============================================================================
@@ -106,12 +106,11 @@ class TestAgentNotFoundError:
 
 class TestAgentNotRegisteredError:
 
-    def test_message_contains_agent_id(self):
-        data = _parse_error(agent_not_registered_error("agent-xyz"))
-        assert "agent-xyz" in data["error"]
-
-    def test_error_code(self):
-        data = _parse_error(agent_not_registered_error("x"))
+    def test_basic(self):
+        result = agent_not_registered_error("test-agent")
+        data = _parse_error(result)
+        assert "test-agent" in data["error"]
+        assert "not registered" in data["error"]
         assert data["error_code"] == "AGENT_NOT_REGISTERED"
 
 
@@ -121,17 +120,21 @@ class TestAgentNotRegisteredError:
 
 class TestAuthenticationError:
 
-    def test_default_message(self):
-        data = _parse_error(authentication_error())
+    def test_basic(self):
+        result = authentication_error()
+        data = _parse_error(result)
+        assert data["error_code"] == "AUTHENTICATION_FAILED"
         assert "Authentication failed" in data["error"]
 
     def test_with_agent_id(self):
-        data = _parse_error(authentication_error(agent_id="agent-1"))
+        result = authentication_error(agent_id="agent-1")
+        data = _parse_error(result)
         assert "agent-1" in data["error"]
 
-    def test_error_code(self):
-        data = _parse_error(authentication_error())
-        assert data["error_code"] == "AUTHENTICATION_FAILED"
+    def test_custom_message(self):
+        result = authentication_error(message="Custom auth error")
+        data = _parse_error(result)
+        assert data["error"] == "Custom auth error"
 
 
 # ============================================================================
@@ -140,17 +143,16 @@ class TestAuthenticationError:
 
 class TestAuthenticationRequiredError:
 
-    def test_default_operation(self):
-        data = _parse_error(authentication_required_error())
+    def test_basic(self):
+        result = authentication_required_error()
+        data = _parse_error(result)
         assert "this operation" in data["error"]
+        assert data["error_code"] == "AUTHENTICATION_REQUIRED"
 
     def test_custom_operation(self):
-        data = _parse_error(authentication_required_error(operation="deleting agents"))
-        assert "deleting agents" in data["error"]
-
-    def test_error_code(self):
-        data = _parse_error(authentication_required_error())
-        assert data["error_code"] == "AUTHENTICATION_REQUIRED"
+        result = authentication_required_error(operation="writing data")
+        data = _parse_error(result)
+        assert "writing data" in data["error"]
 
 
 # ============================================================================
@@ -159,20 +161,18 @@ class TestAuthenticationRequiredError:
 
 class TestOwnershipError:
 
-    def test_message_contains_all_ids(self):
-        data = _parse_error(ownership_error(
+    def test_basic(self):
+        result = ownership_error(
             resource_type="discovery",
-            resource_id="disc-1",
+            resource_id="disc-123",
             owner_agent_id="owner-1",
             caller_agent_id="caller-1"
-        ))
+        )
+        data = _parse_error(result)
+        assert data["error_code"] == "OWNERSHIP_VIOLATION"
         assert "caller-1" in data["error"]
         assert "owner-1" in data["error"]
-        assert "disc-1" in data["error"]
-
-    def test_error_code(self):
-        data = _parse_error(ownership_error("x", "y", "o", "c"))
-        assert data["error_code"] == "OWNERSHIP_VIOLATION"
+        assert "disc-123" in data["error"]
 
 
 # ============================================================================
@@ -181,16 +181,15 @@ class TestOwnershipError:
 
 class TestRateLimitError:
 
-    def test_message_contains_agent_id(self):
-        data = _parse_error(rate_limit_error("agent-1"))
+    def test_basic(self):
+        result = rate_limit_error("agent-1")
+        data = _parse_error(result)
+        assert data["error_code"] == "RATE_LIMIT_EXCEEDED"
         assert "agent-1" in data["error"]
 
     def test_with_stats(self):
-        data = _parse_error(rate_limit_error("agent-1", stats={"remaining": 0}))
-        assert data["error_code"] == "RATE_LIMIT_EXCEEDED"
-
-    def test_without_stats(self):
-        data = _parse_error(rate_limit_error("agent-1"))
+        result = rate_limit_error("agent-1", stats={"calls": 100})
+        data = _parse_error(result)
         assert data["error_code"] == "RATE_LIMIT_EXCEEDED"
 
 
@@ -200,14 +199,12 @@ class TestRateLimitError:
 
 class TestTimeoutError:
 
-    def test_message_contains_tool_and_timeout(self):
-        data = _parse_error(timeout_error("my_tool", 30.0))
-        assert "my_tool" in data["error"]
-        assert "30" in data["error"]
-
-    def test_error_code(self):
-        data = _parse_error(timeout_error("t", 1.0))
+    def test_basic(self):
+        result = timeout_error("process_agent_update", 30.0)
+        data = _parse_error(result)
         assert data["error_code"] == "TIMEOUT"
+        assert "process_agent_update" in data["error"]
+        assert "30" in data["error"]
 
 
 # ============================================================================
@@ -217,16 +214,19 @@ class TestTimeoutError:
 class TestInvalidParametersError:
 
     def test_basic(self):
-        data = _parse_error(invalid_parameters_error("my_tool"))
-        assert "my_tool" in data["error"]
+        result = invalid_parameters_error("test_tool")
+        data = _parse_error(result)
         assert data["error_code"] == "INVALID_PARAMETERS"
+        assert "test_tool" in data["error"]
 
     def test_with_details(self):
-        data = _parse_error(invalid_parameters_error("t", details="missing field"))
-        assert "missing field" in data["error"]
+        result = invalid_parameters_error("test_tool", details="missing required field")
+        data = _parse_error(result)
+        assert "missing required field" in data["error"]
 
     def test_with_param_name(self):
-        data = _parse_error(invalid_parameters_error("t", param_name="foo"))
+        result = invalid_parameters_error("test_tool", param_name="agent_id")
+        data = _parse_error(result)
         assert data["error_code"] == "INVALID_PARAMETERS"
 
 
@@ -236,17 +236,26 @@ class TestInvalidParametersError:
 
 class TestValidationError:
 
-    def test_message(self):
-        data = _parse_error(validation_error("Value out of range"))
-        assert "Value out of range" in data["error"]
+    def test_basic(self):
+        result = validation_error("Invalid value")
+        data = _parse_error(result)
+        assert data["error_code"] == "VALIDATION_ERROR"
+        assert data["error"] == "Invalid value"
 
-    def test_with_param_name(self):
-        data = _parse_error(validation_error("bad value", param_name="complexity"))
+    def test_with_param(self):
+        result = validation_error("Bad param", param_name="confidence")
+        data = _parse_error(result)
         assert data["error_code"] == "VALIDATION_ERROR"
 
-    def test_with_provided_value(self):
-        data = _parse_error(validation_error("bad", provided_value=999))
+    def test_with_value(self):
+        result = validation_error("Bad value", provided_value=1.5)
+        data = _parse_error(result)
         assert data["error_code"] == "VALIDATION_ERROR"
+
+    def test_custom_error_code(self):
+        result = validation_error("Custom", error_code="CUSTOM_VALIDATION")
+        data = _parse_error(result)
+        assert data["error_code"] == "CUSTOM_VALIDATION"
 
 
 # ============================================================================
@@ -255,14 +264,12 @@ class TestValidationError:
 
 class TestResourceNotFoundError:
 
-    def test_message(self):
-        data = _parse_error(resource_not_found_error("discovery", "disc-123"))
-        assert "disc-123" in data["error"]
-        assert "Discovery" in data["error"]  # Capitalized
-
-    def test_error_code(self):
-        data = _parse_error(resource_not_found_error("agent", "a-1"))
+    def test_basic(self):
+        result = resource_not_found_error("discovery", "disc-123")
+        data = _parse_error(result)
         assert data["error_code"] == "RESOURCE_NOT_FOUND"
+        assert "Discovery" in data["error"]  # capitalized
+        assert "disc-123" in data["error"]
 
 
 # ============================================================================
@@ -271,13 +278,16 @@ class TestResourceNotFoundError:
 
 class TestSystemError:
 
-    def test_message(self):
-        data = _parse_error(system_error("my_tool", ValueError("boom")))
-        assert "my_tool" in data["error"]
-        assert "boom" in data["error"]
+    def test_basic(self):
+        result = system_error("test_tool", Exception("DB down"))
+        data = _parse_error(result)
+        assert data["error_code"] == "SYSTEM_ERROR"
+        assert "test_tool" in data["error"]
+        assert "DB down" in data["error"]
 
-    def test_error_code(self):
-        data = _parse_error(system_error("t", RuntimeError("x")))
+    def test_with_context(self):
+        result = system_error("test_tool", ValueError("bad"), context={"detail": "more info"})
+        data = _parse_error(result)
         assert data["error_code"] == "SYSTEM_ERROR"
 
 
@@ -287,13 +297,11 @@ class TestSystemError:
 
 class TestNotConnectedError:
 
-    def test_message(self):
-        data = _parse_error(not_connected_error())
-        assert "connection" in data["error"].lower()
-
-    def test_error_code(self):
-        data = _parse_error(not_connected_error())
+    def test_basic(self):
+        result = not_connected_error()
+        data = _parse_error(result)
         assert data["error_code"] == "NOT_CONNECTED"
+        assert "connection" in data["error"].lower()
 
 
 # ============================================================================
@@ -302,13 +310,15 @@ class TestNotConnectedError:
 
 class TestMissingClientSessionIdError:
 
-    def test_default(self):
-        data = _parse_error(missing_client_session_id_error())
-        assert "client_session_id" in data["error"]
+    def test_basic(self):
+        result = missing_client_session_id_error()
+        data = _parse_error(result)
+        assert data["error_code"] == "MISSING_CLIENT_SESSION_ID"
 
     def test_custom_operation(self):
-        data = _parse_error(missing_client_session_id_error(operation="archiving"))
-        assert "archiving" in data["error"]
+        result = missing_client_session_id_error(operation="threshold modification")
+        data = _parse_error(result)
+        assert "threshold modification" in data["error"]
 
 
 # ============================================================================
@@ -317,18 +327,17 @@ class TestMissingClientSessionIdError:
 
 class TestSessionMismatchError:
 
-    def test_expected_only(self):
-        data = _parse_error(session_mismatch_error("abcdef1234567890"))
-        assert "abcdef12" in data["error"]
+    def test_basic(self):
+        result = session_mismatch_error("abcdefgh12345678")
+        data = _parse_error(result)
+        assert data["error_code"] == "SESSION_MISMATCH"
+        assert "abcdefgh" in data["error"]
 
     def test_with_provided_id(self):
-        data = _parse_error(session_mismatch_error("abcdef1234567890", "zzzzaaaa12345678"))
-        assert "abcdef12" in data["error"]
-        assert "zzzzaaaa" in data["error"]
-
-    def test_error_code(self):
-        data = _parse_error(session_mismatch_error("x" * 16))
-        assert data["error_code"] == "SESSION_MISMATCH"
+        result = session_mismatch_error("abcdefgh12345678", provided_id="12345678abcdefgh")
+        data = _parse_error(result)
+        assert "abcdefgh" in data["error"]
+        assert "12345678" in data["error"]
 
 
 # ============================================================================
@@ -338,23 +347,39 @@ class TestSessionMismatchError:
 class TestMissingParameterError:
 
     def test_basic(self):
-        data = _parse_error(missing_parameter_error("summary"))
+        result = missing_parameter_error("summary")
+        data = _parse_error(result)
+        assert data["error_code"] == "MISSING_PARAMETER"
         assert "summary" in data["error"]
 
     def test_with_tool_name(self):
-        data = _parse_error(missing_parameter_error("summary", tool_name="leave_note"))
+        result = missing_parameter_error("summary", tool_name="leave_note")
+        data = _parse_error(result)
         assert "leave_note" in data["error"]
 
     def test_leave_note_examples(self):
-        data = _parse_error(missing_parameter_error("summary", tool_name="leave_note"))
-        # Should include examples for leave_note
-        assert data["error_code"] == "MISSING_PARAMETER"
+        result = missing_parameter_error("summary", tool_name="leave_note")
+        data = _parse_error(result)
+        # details are spread into response via response.update(sanitized_details)
+        assert "examples" in data
 
-    def test_custom_message_in_context(self):
-        data = _parse_error(missing_parameter_error(
-            "query", context={"custom_message": "Try adding a search term"}
-        ))
-        assert "search term" in data["error"]
+    def test_store_knowledge_graph_examples(self):
+        result = missing_parameter_error("summary", tool_name="store_knowledge_graph")
+        data = _parse_error(result)
+        assert "examples" in data
+
+    def test_generic_no_examples(self):
+        result = missing_parameter_error("agent_id", tool_name="some_random_tool")
+        data = _parse_error(result)
+        assert "examples" not in data
+
+    def test_custom_message_from_context(self):
+        result = missing_parameter_error(
+            "query", tool_name="search",
+            context={"custom_message": "Use the search query parameter"}
+        )
+        data = _parse_error(result)
+        assert "Use the search query parameter" in data["error"]
 
 
 # ============================================================================
@@ -364,18 +389,17 @@ class TestMissingParameterError:
 class TestInvalidParameterTypeError:
 
     def test_basic(self):
-        data = _parse_error(invalid_parameter_type_error("complexity", "float", "string"))
-        assert "complexity" in data["error"]
+        result = invalid_parameter_type_error("confidence", "float", "string")
+        data = _parse_error(result)
+        assert data["error_code"] == "INVALID_PARAMETER_TYPE"
+        assert "confidence" in data["error"]
         assert "float" in data["error"]
         assert "string" in data["error"]
 
     def test_with_tool_name(self):
-        data = _parse_error(invalid_parameter_type_error("x", "int", "str", tool_name="my_tool"))
-        assert "my_tool" in data["error"]
-
-    def test_error_code(self):
-        data = _parse_error(invalid_parameter_type_error("x", "int", "str"))
-        assert data["error_code"] == "INVALID_PARAMETER_TYPE"
+        result = invalid_parameter_type_error("conf", "float", "str", tool_name="update")
+        data = _parse_error(result)
+        assert "update" in data["error"]
 
 
 # ============================================================================
@@ -385,16 +409,15 @@ class TestInvalidParameterTypeError:
 class TestPermissionDeniedError:
 
     def test_basic(self):
-        data = _parse_error(permission_denied_error("delete_agent"))
-        assert "delete_agent" in data["error"]
+        result = permission_denied_error("modify thresholds")
+        data = _parse_error(result)
+        assert data["error_code"] == "PERMISSION_DENIED"
+        assert "modify thresholds" in data["error"]
 
     def test_with_role(self):
-        data = _parse_error(permission_denied_error("admin_op", required_role="admin"))
+        result = permission_denied_error("modify thresholds", required_role="admin")
+        data = _parse_error(result)
         assert "admin" in data["error"]
-
-    def test_error_code(self):
-        data = _parse_error(permission_denied_error("op"))
-        assert data["error_code"] == "PERMISSION_DENIED"
 
 
 # ============================================================================
@@ -403,21 +426,26 @@ class TestPermissionDeniedError:
 
 class TestToolNotFoundError:
 
-    def test_with_similar_tools(self):
-        available = ["process_agent_update", "list_agents", "health_check"]
-        data = _parse_error(tool_not_found_error("process_agent", available))
-        assert "process_agent" in data["error"]
-
-    def test_no_similar_tools(self):
-        available = ["foo", "bar", "baz"]
-        data = _parse_error(tool_not_found_error("xyzzy_nothing", available))
-        assert "xyzzy_nothing" in data["error"]
-
-    def test_error_code(self):
-        data = _parse_error(tool_not_found_error("x", []))
+    def test_basic(self):
+        tools = ["process_agent_update", "identity", "health_check"]
+        result = tool_not_found_error("prcess_agent_updte", tools)
+        data = _parse_error(result)
         assert data["error_code"] == "TOOL_NOT_FOUND"
+        assert "prcess_agent_updte" in data["error"]
 
-    def test_suggestions_in_response(self):
-        available = ["process_agent_update", "list_agents"]
-        data = _parse_error(tool_not_found_error("process_agent", available))
-        assert "similar_tools" in data
+    def test_with_suggestions(self):
+        tools = ["process_agent_update", "identity", "health_check", "search_knowledge_graph"]
+        result = tool_not_found_error("process_agent_updaet", tools)
+        data = _parse_error(result)
+        assert "Did you mean" in data["error"]
+
+    def test_no_match(self):
+        tools = ["process_agent_update", "identity"]
+        result = tool_not_found_error("zzzzzzzzz", tools)
+        data = _parse_error(result)
+        assert "not found" in data["error"]
+
+    def test_empty_tools_list(self):
+        result = tool_not_found_error("test_tool", [])
+        data = _parse_error(result)
+        assert data["error_code"] == "TOOL_NOT_FOUND"

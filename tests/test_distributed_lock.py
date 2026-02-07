@@ -16,6 +16,7 @@ import os
 import pytest
 from unittest.mock import patch, AsyncMock
 
+fakeredis = pytest.importorskip("fakeredis", reason="fakeredis not installed")
 import fakeredis.aioredis
 
 from src.cache.distributed_lock import (

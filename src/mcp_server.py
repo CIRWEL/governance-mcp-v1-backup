@@ -564,7 +564,7 @@ def _load_version():
     version_file = project_root / "VERSION"
     if version_file.exists():
         return version_file.read_text().strip()
-    return "2.6.0"  # Fallback if VERSION file missing
+    return "2.6.3"  # Fallback if VERSION file missing
 
 SERVER_VERSION = _load_version()
 
@@ -1822,7 +1822,15 @@ async def main():
             logger.info(f"[WARMUP] Server ready to accept requests (warmup complete)")
         
         asyncio.create_task(server_warmup_task())
-        
+
+        # === Periodic EISV sync from Pi ===
+        try:
+            from src.mcp_handlers.pi_orchestration import eisv_sync_task
+            asyncio.create_task(eisv_sync_task(interval_minutes=5.0))
+            logger.info("[EISV_SYNC] Started periodic Pi EISV sync")
+        except Exception as e:
+            logger.warning(f"[EISV_SYNC] Could not start: {e}")
+
         # === HTTP REST endpoints for non-MCP clients (Llama, Mistral, etc.) ===
         # Any model that can make HTTP calls can use governance
         HTTP_API_TOKEN = os.getenv("UNITARES_HTTP_API_TOKEN")
