@@ -77,7 +77,7 @@ def mcp_tool(
     """
     def decorator(func: Callable) -> Callable:
         tool_name = name or func.__name__.replace('handle_', '')
-        tool_description = description or (func.__doc__ and func.__doc__.split('\n')[0].strip()) or ""
+        tool_description = description or (func.__doc__ and func.__doc__.strip().split('\n')[0].strip()) or ""
 
         # Attach metadata to function for introspection
         func._mcp_tool_name = tool_name
