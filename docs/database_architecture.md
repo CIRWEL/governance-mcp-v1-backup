@@ -1,14 +1,13 @@
 # Database Architecture
 
-**Last Updated**: 2026-01-15
+**Last Updated**: 2026-02-07
 **Status**: Production-ready PostgreSQL + AGE architecture
 
 ## Overview
 
-The governance MCP uses a **three-database hybrid architecture** optimized for:
-- **Durability**: PostgreSQL for persistent data
-- **Performance**: Redis for ephemeral session data
-- **Compatibility**: SQLite read-only fallback (legacy)
+The governance MCP uses a **two-database architecture**:
+- **Durability**: PostgreSQL + Apache AGE for all persistent data
+- **Performance**: Redis for ephemeral session cache
 
 ---
 
@@ -21,7 +20,7 @@ The governance MCP uses a **three-database hybrid architecture** optimized for:
 **Purpose**: Single source of truth for all persistent data
 
 **What's Stored:**
-- **Agent Metadata** (652 agents)
+- **Agent Metadata** (~1,800 identities)
   - Identity, API keys, status, tags, notes
   - Lifecycle events, creation/update timestamps
   - Parent/child agent relationships
@@ -85,45 +84,20 @@ The governance MCP uses a **three-database hybrid architecture** optimized for:
 
 ---
 
-### 3. SQLite (Read-Only Legacy)
-
-**File**: `data/governance.db` (20MB)
-**Status**: **Read-only** - no active writes
-**Purpose**: Legacy compatibility during migration
-
-**Current Usage:**
-- Server has file open (read-only mode)
-- No modifications during normal operations
-- Used for:
-  - Historical data reads (if PostgreSQL migration incomplete)
-  - Fallback if PostgreSQL connection fails (rare)
-
-**Archived Legacy Files** (5.6MB total):
-- `data/archive/legacy_dbs_20251213/` - Superseded subsystem DBs
-- `data/archive/legacy_individual_dbs_20251213/` - Pre-consolidation DBs
-- `data/archives/sqlite_backup_20251218/` - Backup snapshots
-
-**Safe to delete?** After 30 days of stable PostgreSQL operation, yes.
-
----
-
-## Database Selection Logic
+## Configuration
 
 **Environment Variable**: `DB_BACKEND`
 
 ```bash
-# Primary mode (default)
+# Production (default)
 export DB_BACKEND=postgres
 export DB_POSTGRES_URL="postgresql://postgres:postgres@localhost:5432/governance"
-
-# Fallback mode (dev/testing)
-export DB_BACKEND=sqlite
-
-# Migration mode (dual-write, deprecated)
-export DB_BACKEND=dual
 ```
 
 **Code Location**: `src/db/__init__.py`
+
+> **Note**: SQLite backend (`data/governance.db`) exists as legacy fallback for dev/testing
+> but is not used in production. All data lives in PostgreSQL.
 
 ---
 
@@ -141,29 +115,15 @@ export DB_BACKEND=dual
 - **Standard pattern**: Widely used for session management
 - **Automatic TTL**: Sessions expire without manual cleanup
 
-### SQLite Fallback
-- **Zero config**: Works without PostgreSQL setup
-- **Dev mode**: Quick local testing
-- **Migration safety**: Preserves historical data during transition
-
 ---
 
 ## Migration Status
 
-✅ **Completed Migrations:**
-- Agent metadata: SQLite → PostgreSQL
-- Agent state: SQLite → PostgreSQL
-- Knowledge graph: SQLite → PostgreSQL AGE (781 discoveries)
-- Session cache: File-based → Redis
-- Audit log: PostgreSQL primary
-- Dialectic sessions: PostgreSQL
-
-⬇️ **Deprecated (read-only):**
-- SQLite: Historical data only, scheduled for removal
-
-📊 **Current Stats:**
-- Knowledge graph backend: `KnowledgeGraphAGE`
-- Discoveries: 781
+All migrations complete (Dec 2025 - Feb 2026):
+- Agent metadata, state, audit log → PostgreSQL
+- Knowledge graph → PostgreSQL AGE (~1,063 discoveries, 5,218 edges)
+- Dialectic sessions → PostgreSQL (72 sessions migrated Feb 2026)
+- Session cache → Redis (~1,760 sessions)
 - Schema version: 2
 
 ---
@@ -192,7 +152,6 @@ def _load_metadata_from_postgres_sync():
 ```
 
 **Impact**: PostgreSQL loading now works reliably from all contexts
-**Verification**: No "falling back to sqlite" warnings in logs
 
 ---
 
@@ -230,9 +189,6 @@ docker exec postgres-age psql -U postgres -d governance -c "SELECT * FROM core.s
 # Redis
 redis-cli DBSIZE
 redis-cli GET "session:test-session-id"
-
-# SQLite (read-only check)
-lsof data/governance.db  # Should show open but no writes
 ```
 
 ### Backup
@@ -242,8 +198,6 @@ docker exec postgres-age pg_dump -U postgres governance > backup.sql
 
 # Redis (manual snapshot)
 redis-cli BGSAVE
-
-# SQLite (legacy - read-only, no backup needed)
 ```
 
 ### Troubleshooting
@@ -270,17 +224,6 @@ brew services restart redis
 
 # Fallback: Server automatically uses in-memory cache
 ```
-
-**SQLite lock errors:**
-```bash
-# Check if file is being written (shouldn't be)
-stat data/governance.db
-
-# Check open handles
-lsof data/governance.db
-```
-
----
 
 ## Performance Characteristics
 
