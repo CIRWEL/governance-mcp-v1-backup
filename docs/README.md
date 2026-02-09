@@ -1,6 +1,6 @@
 # UNITARES Documentation
 
-**Last Updated:** 2026-02-06
+**Last Updated:** 2026-02-08
 
 ---
 
@@ -39,7 +39,7 @@
 
 ## Test Coverage
 
-6,306 tests passing with **80% overall coverage** as of Feb 2026.
+6,344 tests passing with **80% overall coverage** as of Feb 2026.
 
 ---
 
@@ -76,7 +76,7 @@ governance-mcp-v1/
 ├── skills/                     # SKILL.md for agent onboarding
 ├── docs/                       # Documentation
 ├── data/                       # Runtime data (agents/, knowledge/)
-└── tests/                      # 6,306 tests, 80% coverage
+└── tests/                      # 6,344 tests, 80% coverage
 ```
 
 ---

@@ -276,7 +276,7 @@ The governance server tool count is what we control.
 | Feb 7 | X-Agent-Name header auto-resume in `/mcp` ASGI handler | `mcp_server.py:2476` |
 | Feb 7 | Metadata hot-reload: `load_metadata_async(force=True)` + 60s refresh | `mcp_server_std.py`, `lifecycle.py` |
 | Feb 7 | Dashboard Void bar rescaling: `\|V\|/0.3` maps effective range to full width | `dashboard/utils.js`, `dashboard/index.html` |
-| Feb 7 | 5,501 tests (up from 2,602), 61% coverage | `tests/` |
+| Feb 8 | 6,344 tests, 80% coverage (KG bias fixes, CI test fixes) | `tests/` |
 | Feb 6 | EISV display precision increased to 6 decimal places | `src/eisv_format.py` |
 | Feb 4 | **v2.5.5**: Ethical drift fully integrated, trajectory identity | `governance_core/`, `trajectory_identity.py` |
 | Feb 4 | Model-based agent_id fix (`Claude_Opus_4_5_20260204`) | `identity_v2.py:1446-1460` |
@@ -329,5 +329,5 @@ Future agents will find it via `search_knowledge_graph()`.
 ---
 
 **Written by:** Opus_4.5_CLI_20251223 (Dec 24, 2025)
-**Updated:** Feb 7, 2026 - v2.6.4, negative V, X-Agent-Name identity persistence, 5,501 tests
+**Updated:** Feb 8, 2026 - v2.6.4, KG bias fixes, CI test fixes, 6,344 tests at 80% coverage
 **For:** Future developer/debugger agents

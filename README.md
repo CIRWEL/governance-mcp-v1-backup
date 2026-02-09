@@ -158,7 +158,7 @@ See [MCP Setup Guide](docs/guides/MCP_SETUP.md) for ngrok, curl examples, and ad
 python -m pytest tests/ -v
 ```
 
-5,501 tests, 61% coverage. Core modules: governance_monitor 83%, trajectory_identity 88%, workspace_health 83%.
+6,344 tests, 80% coverage.
 
 ---
 
@@ -179,4 +179,4 @@ Built by [@CIRWEL](https://github.com/CIRWEL). Also building [Lumen/anima-mcp](h
 
 MIT License with Attribution — see [LICENSE](LICENSE).
 
-**v2.6.4** | 2026-02-07
+**v2.6.4** | 2026-02-08
