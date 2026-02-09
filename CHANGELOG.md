@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.6.4] - 2026-02-08
+
+### Added — KG Search Bias Fixes
+
+Knowledge graph searches were biased toward old, heavily-linked philosophical entries from Dec 2025.
+New agents would reflect on them, adding more links, creating a positive feedback loop. Four fixes:
+
+- **Temporal decay** — 90-day half-life applied to blended search scores. Old entries still surface
+  if semantically relevant, but don't dominate by default.
+- **Status-aware scoring** — Archived entries scored at 0.3x, resolved at 0.6x, disputed at 0.5x.
+  Open entries unaffected.
+- **Connectivity dampening** — Capped effective connectivity input at 50 (was unbounded). Prevents
+  heavily-linked entries from monopolizing search results.
+- **Default archived filtering** — `semantic_search()` excludes archived entries by default.
+  Callers can opt in with `include_archived=True`.
+- **SUPERSEDES edge type** — New AGE edge for marking entries that replace others. Superseded
+  entries get halved connectivity scores. Available via `knowledge(action='supersede')`.
+
+### Fixed — CI Test Failures (55 tests)
+
+- **test_model_inference.py** (45 failures) — `openai` package not in CI dependencies. Fixed by
+  ensuring `OpenAI` attribute exists on module for patching. Skip `TestCreateModelInferenceClient`
+  when `openai` not installed.
+- **test_auto_ground_truth.py** (10 failures) — Fragile module-reload mocking broke when run
+  alongside other tests. Root cause: `import src.X as Y` resolves via parent package `__dict__`,
+  not just `sys.modules`. Fixed by patching both `sys.modules` AND parent package attributes.
+
+### Tests
+- 6,344 tests passing, 80% coverage
+
+### Files Changed
+- `src/storage/knowledge_graph_age.py` — Temporal decay, status multiplier, connectivity cap, SUPERSEDES edge
+- `src/mcp_handlers/knowledge_graph.py` — Default archived filtering, supersede action
+- `tests/test_model_inference.py` — CI fix for missing openai package
+- `tests/test_auto_ground_truth.py` — CI fix for module import resolution in mocks
+
+---
+
 ## [2.6.3] - 2026-02-06
 
 ### Changed — Dialectic Audit & Cleanup
