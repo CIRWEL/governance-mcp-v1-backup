@@ -2526,21 +2526,23 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
         if proceed_count >= 15:  # Higher threshold since proceed is the normal state
             return True, f"Decision loop detected: {proceed_count} consecutive 'proceed' decisions (agent may be stuck in feedback loop)"
     
-    # Pattern 5: Slow-stuck pattern - 3+ updates in 60s with any reject
-    # FIXED: Catches "slow-stuck" patterns where agents update rapidly but not fast enough
-    # to trigger rapid-fire detection (Patterns 1-3), then get stuck. This pattern catches
-    # cases like: 3 updates in 33s with 1 reject (would slip through Pattern 2 which needs 2+ rejects).
+    # Pattern 5: Slow-stuck pattern - 3+ updates in 60s with 2+ rejects
+    # Catches "slow-stuck" patterns where agents update rapidly but not fast enough
+    # to trigger rapid-fire detection (Patterns 1-3), then get stuck.
+    # FIXED: Require 2+ pauses, not 1. A single pause in 3 updates is normal governance
+    # feedback (e.g. periodic heartbeat agents like Lumen). A real stuck agent retries
+    # the same failing action and accumulates multiple pause/reject decisions.
     if len(recent_timestamps) >= 3:
         last_three_timestamps = recent_timestamps[-3:]
         last_three_decisions = recent_decisions[-3:]
-        
+
         try:
             timestamps = [datetime.fromisoformat(ts) for ts in last_three_timestamps]
             time_span = (timestamps[-1] - timestamps[0]).total_seconds()
-            
+
             if time_span <= 60.0:  # Within 60 seconds
                 pause_count = sum(1 for d in last_three_decisions if d in ["pause", "reject"])  # Backward compat
-                if pause_count >= 1:  # Any pause
+                if pause_count >= 2:  # 2+ pauses indicates real stuck loop, not normal heartbeat
                     return True, f"Slow-stuck pattern: {pause_count} pause(s) in {len(last_three_timestamps)} updates within {time_span:.1f}s"
         except (ValueError, TypeError):
             pass
@@ -2548,9 +2550,9 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
     # Pattern 6: Extended rapid pattern - 5+ updates in 120s with concerning decisions
     # Catches agents that are updating frequently over a longer time window, which may indicate
     # they're stuck in a loop even if individual updates aren't rapid enough to trigger Pattern 3.
-    # IMPROVED: Only trigger if there are pause/reject decisions (indicates stuck state)
-    # Rationale: Legitimate workflows can have 5+ rapid updates, but if all are "proceed", 
-    #           the agent is likely fine. Only flag if there are concerning decisions.
+    # FIXED: Require 3+ pauses (majority), not 1. Periodic heartbeat agents (like Lumen)
+    # naturally send 5+ updates in 120s — that's their job. A single pause/reject is normal
+    # governance feedback. A real stuck agent accumulates multiple consecutive rejections.
     if len(recent_timestamps) >= 5:
         # Get last 5+ timestamps and decisions
         last_five_timestamps = recent_timestamps[-5:]
@@ -2558,11 +2560,11 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
         try:
             timestamps = [datetime.fromisoformat(ts) for ts in last_five_timestamps]
             time_span = (timestamps[-1] - timestamps[0]).total_seconds()
-            
+
             if time_span <= 120.0:  # Within 120 seconds (2 minutes)
                 # Check for concerning decisions (pause/reject) - indicates stuck state
                 concerning_count = sum(1 for d in last_five_decisions if d in ["pause", "reject"])
-                if concerning_count >= 1:  # At least one pause/reject indicates potential loop
+                if concerning_count >= 3:  # Majority must be pause/reject to indicate real loop
                     return True, f"Extended rapid pattern: {len(last_five_timestamps)} updates within {time_span:.1f}s with {concerning_count} pause/reject decision(s)"
         except (ValueError, TypeError):
             pass
