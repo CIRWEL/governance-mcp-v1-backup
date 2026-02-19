@@ -408,7 +408,7 @@ async def save_state_async(agent_id: str, state_dict: Dict[str, Any]) -> bool:
         entropy = float(state_dict.get('E', 0.5))
         integrity = float(state_dict.get('I', 1.0))
         stability = float(state_dict.get('S', 0.2))
-        volatility = float(state_dict.get('V', 0.0))
+        void = float(state_dict.get('V', 0.0))
         coherence = float(state_dict.get('coherence', 1.0))
         regime = str(state_dict.get('regime', 'DIVERGENCE'))
 
@@ -418,7 +418,7 @@ async def save_state_async(agent_id: str, state_dict: Dict[str, Any]) -> bool:
                 entropy=entropy,
                 integrity=integrity,
                 stability_index=stability,
-                volatility=volatility,
+                void=void,
                 regime=regime,
                 coherence=coherence,
                 state_json=state_dict,
@@ -524,7 +524,7 @@ async def list_agents_async(
                     "E": state.entropy,
                     "I": state.integrity,
                     "S": state.stability_index,
-                    "V": state.volatility,
+                    "V": state.void,
                     "coherence": state.coherence,
                     "regime": state.regime,
                     "update_count": state.state_json.get("update_count", 0) if state.state_json else 0,

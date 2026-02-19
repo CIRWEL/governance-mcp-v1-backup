@@ -13,6 +13,7 @@
 # HTTP server support (multi-client mode)
 uvicorn>=0.30.0
 starlette>=0.37.0
+websockets>=12.0
 
 # Operational dependencies (optional but recommended)
 psutil>=5.9.0

@@ -121,8 +121,7 @@ Discovery types: `note`, `insight`, `bug_found`, `improvement`, `analysis`, `pat
 
 Status lifecycle: `open` → `resolved` or `archived`
 
-**Known issue**: The graph accumulates but doesn't close loops well. If you resolve
-something, update its status. Don't just leave it open.
+**Loop closure**: When you store or leave_note, the response includes `_resolve_when_done` with the exact call. When a discovery is addressed, run `knowledge(action='update', discovery_id='...', status='resolved')`. Before ending a session, search `knowledge(action='search', status='open')` filtered by your agent to find unresolved items.
 
 ### Dialectic Protocol
 

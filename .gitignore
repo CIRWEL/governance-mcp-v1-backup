@@ -153,3 +153,4 @@ tests/additional_security_report.json
 .mcp_session
 config/generated-*.json
 data/telemetry/*.jsonl
+.kimi_governance_session

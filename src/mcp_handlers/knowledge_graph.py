@@ -420,6 +420,9 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
             "discovery": discovery.to_dict(include_details=False)  # Summary only in response
         }
 
+        # KG loop closure: remind agents to resolve when addressed
+        response["_resolve_when_done"] = f"When this is addressed, close the loop: knowledge(action='update', discovery_id='{discovery_id}', status='resolved')"
+
         # UX FIX (Feb 2026): Include warning if display_name was auto-generated
         if display_name_warning:
             response["_name_hint"] = display_name_warning
@@ -1519,6 +1522,7 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         agent_display = arguments.get("_agent_display") or _resolve_agent_display(agent_id)
 
         # UX FIX (Feb 2026): Clarify visibility - notes are shared and discoverable
+        # KG loop closure: remind agents to resolve when addressed
         return success_response({
             "message": f"Note saved",
             "note_id": note.id,
@@ -1528,6 +1532,7 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             "visibility": "shared",
             "discoverable": True,
             "_visibility_note": "Notes are shared and searchable by other agents. Use response_to to reply to discoveries.",
+            "_resolve_when_done": f"When this is addressed, close the loop: knowledge(action='update', discovery_id='{note.id}', status='resolved')",
         }, arguments=arguments)
 
     except Exception as e:

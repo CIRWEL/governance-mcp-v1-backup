@@ -731,7 +731,7 @@ class PostgresBackend(DatabaseBackend):
         entropy: float,
         integrity: float,
         stability_index: float,
-        volatility: float,
+        void: float,
         regime: str,
         coherence: float,
         state_json: Optional[Dict[str, Any]] = None,
@@ -744,7 +744,7 @@ class PostgresBackend(DatabaseBackend):
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 RETURNING state_id
                 """,
-                identity_id, entropy, integrity, stability_index, volatility,
+                identity_id, entropy, integrity, stability_index, void,  # void maps to volatility column
                 regime, coherence, json.dumps(state_json or {}),
             )
             return state_id
@@ -801,7 +801,7 @@ class PostgresBackend(DatabaseBackend):
             entropy=row["entropy"],
             integrity=row["integrity"],
             stability_index=row["stability_index"],
-            volatility=row["volatility"],
+            void=row["volatility"],  # Map database column 'volatility' to 'void' field
             regime=row["regime"],
             coherence=row["coherence"],
             state_json=json.loads(row["state_json"]) if isinstance(row["state_json"], str) else row["state_json"],

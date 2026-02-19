@@ -446,7 +446,7 @@ class DualWriteBackend(DatabaseBackend):
         entropy: float,
         integrity: float,
         stability_index: float,
-        volatility: float,
+        void: float,
         regime: str,
         coherence: float,
         state_json: Optional[Dict[str, Any]] = None,
@@ -454,10 +454,10 @@ class DualWriteBackend(DatabaseBackend):
         return await self._write_both(
             "record_agent_state",
             self._sqlite.record_agent_state(
-                identity_id, entropy, integrity, stability_index, volatility, regime, coherence, state_json
+                identity_id, entropy, integrity, stability_index, void, regime, coherence, state_json
             ),
             self._postgres.record_agent_state(
-                identity_id, entropy, integrity, stability_index, volatility, regime, coherence, state_json
+                identity_id, entropy, integrity, stability_index, void, regime, coherence, state_json
             ),
         )
 

@@ -16,21 +16,27 @@ class EISVMetrics(NamedTuple):
     Complete EISV metrics - cannot be partially constructed.
 
     Use this instead of dict to ensure all four metrics are always present.
+
+    Note on V: In Lumen's sensor layer, V = (1 - presence) * 0.3 [0, 0.3].
+    In governance dynamics, V is a signed integrator: dV/dt = kappa(E-I) - delta*V [-2, 2].
+    The observation-layer V seeds the ODE, which then evolves independently.
     """
     E: float  # Energy (exploration/productive capacity)
     I: float  # Information integrity
     S: float  # Entropy (disorder/uncertainty)
-    V: float  # Void integral (E-I imbalance accumulation)
+    V: float  # Accumulated E-I imbalance (positive: E>I, negative: I>E)
 
     def validate(self) -> None:
-        """Validate metric ranges."""
+        """Validate metric ranges against ODE bounds (parameters.py)."""
         if not (0.0 <= self.E <= 1.0):
             raise ValueError(f"E must be in [0, 1], got {self.E}")
         if not (0.0 <= self.I <= 1.0):
             raise ValueError(f"I must be in [0, 1], got {self.I}")
-        if not (0.0 <= self.S <= 1.0):
-            raise ValueError(f"S must be in [0, 1], got {self.S}")
-        # V has no bounds (can accumulate indefinitely)
+        if not (0.0 <= self.S <= 2.0):
+            raise ValueError(f"S must be in [0, 2], got {self.S}")
+        # V bounded by ODE clip: [-2, 2] per parameters.py
+        if not (-2.0 <= self.V <= 2.0):
+            raise ValueError(f"V must be in [-2, 2], got {self.V}")
 
 
 @dataclass
@@ -104,10 +110,10 @@ def format_eisv_detailed(
     }
 
     user_friendly = {
-        'E': 'How engaged and energized your work feels',
-        'I': 'Consistency and coherence of your approach',
-        'S': 'How scattered or fragmented things are',
-        'V': 'Accumulated strain from energy-integrity mismatch'
+        'E': 'Productive capacity; couples toward I, dragged down by entropy',
+        'I': 'Signal fidelity; boosted by coherence, reduced by entropy',
+        'S': 'Semantic uncertainty; rises with complexity and drift, decays naturally',
+        'V': 'Accumulated E-I imbalance; positive=running hot, negative=running careful'
     }
 
     lines = []

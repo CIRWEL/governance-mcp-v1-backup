@@ -355,8 +355,8 @@ class AuditLogger:
         Maps Anima state (Pi) to EISV governance state (Mac):
         - Warmth → Energy (E)
         - Clarity → Integrity (I)
-        - Stability → 1-Entropy (S)
-        - Presence → 1-Void (V)
+        - 1 - Stability → Entropy (S)
+        - (1 - Presence) × 0.3 → Void (V)  [observation-layer seed; ODE evolves independently]
 
         Args:
             agent_id: Agent performing sync
