@@ -106,7 +106,7 @@
             <div class="eisv-chart-cell">
                 <div class="eisv-chart-label">
                     <span class="legend-item"><span class="legend-dot entropy"></span>Entropy</span>
-                    <span class="legend-item"><span class="legend-dot volatility"></span>Volatility</span>
+                    <span class="legend-item"><span class="legend-dot volatility"></span>Void</span>
                 </div>
                 <div class="eisv-chart-container">
                     <canvas id="eisv-chart-lower"></canvas>
@@ -2580,7 +2580,7 @@ ${escapeHtml(details)}</div>
                 data: {
                     datasets: [
                         { label: 'Entropy (S)', borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', fill: true, data: [], tension: 0.3, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2 },
-                        { label: 'Volatility (V)', borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', fill: true, data: [], tension: 0.3, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2 }
+                        { label: 'Void (V)', borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', fill: true, data: [], tension: 0.3, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2 }
                     ]
                 },
                 options: lowerOpts
@@ -2591,6 +2591,14 @@ ${escapeHtml(details)}</div>
             if (!eisvChartUpper || !eisvChartLower) return;
             const ts = new Date(data.timestamp);
             const eisv = data.eisv || {};
+
+            // DEBUG: Log received data
+            console.log('[EISV] Received:', {
+                E: eisv.E, I: eisv.I, S: eisv.S, V: eisv.V,
+                coherence: data.coherence,
+                has_eisv: !!data.eisv,
+                has_metrics: !!data.metrics
+            });
 
             // Upper chart: E, I, Coherence
             eisvChartUpper.data.datasets[0].data.push({ x: ts, y: eisv.E ?? 0 });

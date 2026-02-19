@@ -1985,6 +1985,58 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                 # Never fail the update because of learning context
                 logger.debug(f"Could not build learning context: {e}")
 
+            # Broadcast EISV update to dashboard via WebSocket (BEFORE format_response filtering)
+            try:
+                import sys
+                from datetime import datetime, timezone
+                broadcaster = None
+                # Check both module names (server attaches to whichever exists)
+                for mod_name in ['src.mcp_server', '__main__']:
+                    if mod_name in sys.modules:
+                        broadcaster = getattr(sys.modules[mod_name], 'eisv_broadcaster', None)
+                        if broadcaster:
+                            break
+
+                if broadcaster:
+                    metrics = response_data.get("metrics", {})
+
+                    # DEBUG: Log what's in metrics to diagnose null values
+                    logger.info(f"📊 Broadcast metrics for {declared_agent_id}: E={metrics.get('E')}, I={metrics.get('I')}, S={metrics.get('S')}, V={metrics.get('V')}, coherence={metrics.get('coherence')}")
+
+                    # Extract EISV values, checking both flat and nested locations
+                    # Use explicit None checks to preserve 0 values
+                    eisv_nested = metrics.get("eisv", {})
+                    eisv_data = {
+                        "E": metrics.get("E") if metrics.get("E") is not None else eisv_nested.get("E", 0),
+                        "I": metrics.get("I") if metrics.get("I") is not None else eisv_nested.get("I", 0),
+                        "S": metrics.get("S") if metrics.get("S") is not None else eisv_nested.get("S", 0),
+                        "V": metrics.get("V") if metrics.get("V") is not None else eisv_nested.get("V", 0)
+                    }
+                    # Explicit None check for coherence
+                    coherence_val = metrics.get("coherence") if metrics.get("coherence") is not None else 0
+
+                    await broadcaster.broadcast({
+                        "type": "eisv_update",
+                        "agent_id": declared_agent_id,  # User-facing name
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        # Restructure for frontend: eisv nested, coherence at top level
+                        "eisv": eisv_data,
+                        "coherence": coherence_val,
+                        "metrics": metrics,  # Full metrics for agent card details
+                        "decision": response_data.get("decision", {}),
+                        "inputs": {
+                            "complexity": complexity,
+                            "confidence": confidence,
+                            "ethical_drift": ethical_drift if isinstance(ethical_drift, list) else [0, 0, 0]
+                        },
+                        "risk": metrics.get("risk_score", 0)
+                    })
+                    logger.debug(f"Broadcast EISV update for agent {declared_agent_id}: eisv={eisv_data}, coherence={coherence_val}")
+                else:
+                    logger.debug("No eisv_broadcaster found in sys.modules")
+            except Exception as e:
+                logger.debug(f"Could not broadcast EISV update: {e}")
+
             # Response mode filtering: reduce cognitive load / token bloat
             try:
                 from .response_formatter import format_response

@@ -523,9 +523,122 @@ class ThemeManager {
     }
 }
 
+class EISVWebSocket {
+    /**
+     * WebSocket client for real-time EISV streaming from governance server.
+     * Auto-reconnects with exponential backoff.
+     */
+    constructor(onUpdate, onStatusChange) {
+        this.onUpdate = onUpdate;
+        this.onStatusChange = onStatusChange || (() => {});
+        this.ws = null;
+        this.reconnectDelay = 1000;
+        this.maxReconnectDelay = 30000;
+        this.maxReconnectAttempts = 3;
+        this.reconnectAttempts = 0;
+        this.connected = false;
+        this._intentionalClose = false;
+        this._pollFallback = false;
+        this._pollInterval = null;
+    }
+
+    connect() {
+        this._intentionalClose = false;
+        this.reconnectAttempts = 0;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/eisv`;
+
+        try {
+            this.ws = new WebSocket(wsUrl);
+        } catch (e) {
+            console.warn('[WS] WebSocket unavailable, falling back to polling');
+            this._startPolling();
+            return;
+        }
+
+        this.ws.onopen = () => {
+            this.connected = true;
+            this.reconnectDelay = 1000;
+            this.reconnectAttempts = 0;
+            this._pollFallback = false;
+            this.onStatusChange('connected');
+            console.log('[WS] Connected to /ws/eisv');
+        };
+
+        this.ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.onUpdate(data);
+            } catch (e) {
+                console.warn('[WS] Failed to parse message:', e);
+            }
+        };
+
+        this.ws.onclose = () => {
+            this.connected = false;
+            this.onStatusChange('disconnected');
+            if (!this._intentionalClose) {
+                this._scheduleReconnect();
+            }
+        };
+
+        this.ws.onerror = () => {
+            // onclose will fire after this, which handles reconnect
+        };
+    }
+
+    _scheduleReconnect() {
+        this.reconnectAttempts++;
+        if (this.reconnectAttempts > this.maxReconnectAttempts) {
+            console.warn('[WS] Max reconnect attempts reached, falling back to HTTP polling');
+            this._startPolling();
+            return;
+        }
+        this.onStatusChange('reconnecting');
+        setTimeout(() => this.connect(), this.reconnectDelay);
+        this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+    }
+
+    _startPolling() {
+        if (this._pollFallback) return;
+        this._pollFallback = true;
+        this.onStatusChange('polling');
+        console.log('[WS] Polling /v1/eisv/latest every 30s');
+        // Poll immediately, then every 30s
+        this._pollOnce();
+        this._pollInterval = setInterval(() => this._pollOnce(), 30000);
+    }
+
+    async _pollOnce() {
+        try {
+            const resp = await fetch(`${window.location.origin}/v1/eisv/latest`);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data && data.type === 'eisv_update') {
+                    this.onUpdate(data);
+                }
+            }
+        } catch (e) {
+            // Silently ignore poll failures
+        }
+    }
+
+    disconnect() {
+        this._intentionalClose = true;
+        if (this.ws) {
+            this.ws.close();
+        }
+        if (this._pollInterval) {
+            clearInterval(this._pollInterval);
+            this._pollInterval = null;
+        }
+    }
+}
+
 // Export for use in dashboard
 if (typeof window !== 'undefined') {
     window.DashboardAPI = DashboardAPI;
     window.DataProcessor = DataProcessor;
     window.ThemeManager = ThemeManager;
+    window.EISVWebSocket = EISVWebSocket;
 }

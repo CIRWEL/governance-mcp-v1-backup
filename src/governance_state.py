@@ -35,7 +35,7 @@ class GovernanceState:
     
     # Derived metrics (computed from UNITARES state)
     coherence: float = 1.0      # Computed from UNITARES coherence function
-    void_active: bool = False     # Whether in void state (|V| > threshold)
+    void_active: bool = False     # Whether E-I imbalance exceeds threshold (|V| > threshold)
     
     # History tracking
     time: float = 0.0
@@ -50,7 +50,7 @@ class GovernanceState:
     E_history: List[float] = field(default_factory=list)  # Energy history
     I_history: List[float] = field(default_factory=list)  # Information integrity history
     S_history: List[float] = field(default_factory=list)  # Entropy history
-    V_history: List[float] = field(default_factory=list)  # Void integral history
+    V_history: List[float] = field(default_factory=list)  # E-I imbalance integral history
     coherence_history: List[float] = field(default_factory=list)
     risk_history: List[float] = field(default_factory=list)
     decision_history: List[str] = field(default_factory=list)  # Track approve/reflect/reject decisions

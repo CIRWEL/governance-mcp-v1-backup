@@ -473,7 +473,7 @@ async def record_agent_state(
         entropy=S,
         integrity=I,
         stability_index=1.0 - S if S else 1.0,
-        volatility=V,
+        void=V,
         regime=db_regime,
         coherence=coherence,
         state_json=state_json,

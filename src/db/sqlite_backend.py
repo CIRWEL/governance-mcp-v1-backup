@@ -636,7 +636,7 @@ class SQLiteBackend(DatabaseBackend):
         entropy: float,
         integrity: float,
         stability_index: float,
-        volatility: float,
+        void: float,
         regime: str,
         coherence: float,
         state_json: Optional[Dict[str, Any]] = None,
@@ -659,7 +659,7 @@ class SQLiteBackend(DatabaseBackend):
                 (agent_id, recorded_at, entropy, integrity, stability_index, volatility, regime, coherence, state_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (agent_id, now, entropy, integrity, stability_index, volatility, regime, coherence, json.dumps(state_json or {})),
+            (agent_id, now, entropy, integrity, stability_index, void, regime, coherence, json.dumps(state_json or {})),  # void maps to volatility column
         )
         conn.commit()
         return cursor.lastrowid
@@ -731,7 +731,7 @@ class SQLiteBackend(DatabaseBackend):
             entropy=row["entropy"],
             integrity=row["integrity"],
             stability_index=row["stability_index"],
-            volatility=row["volatility"],
+            void=row["volatility"],  # Map database column 'volatility' to 'void' field
             regime=row["regime"],
             coherence=row["coherence"],
             state_json=json.loads(row["state_json"]) if row["state_json"] else {},

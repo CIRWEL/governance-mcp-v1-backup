@@ -74,12 +74,27 @@ class TestEISVMetrics:
         with pytest.raises(ValueError, match="S must be in"):
             m.validate()
 
-    def test_validate_v_no_bounds(self):
-        """V has no bounds - can accumulate indefinitely."""
-        m = EISVMetrics(E=0.5, I=0.5, S=0.5, V=-100.0)
-        m.validate()
-        m2 = EISVMetrics(E=0.5, I=0.5, S=0.5, V=999.0)
-        m2.validate()
+    def test_validate_s_allows_up_to_2(self):
+        """S_max=2.0 per parameters.py ODE bounds."""
+        m = EISVMetrics(E=0.5, I=0.5, S=1.5, V=0.0)
+        m.validate()  # Should not raise
+
+        with pytest.raises(ValueError, match="S must be in"):
+            m2 = EISVMetrics(E=0.5, I=0.5, S=2.5, V=0.0)
+            m2.validate()
+
+    def test_validate_v_bounded(self):
+        """V bounded to [-2, 2] per ODE clip bounds in parameters.py."""
+        m = EISVMetrics(E=0.5, I=0.5, S=0.5, V=-1.5)
+        m.validate()  # Should not raise
+
+        with pytest.raises(ValueError, match="V must be in"):
+            m2 = EISVMetrics(E=0.5, I=0.5, S=0.5, V=-100.0)
+            m2.validate()
+
+        with pytest.raises(ValueError, match="V must be in"):
+            m3 = EISVMetrics(E=0.5, I=0.5, S=0.5, V=999.0)
+            m3.validate()
 
 
 # ============================================================================
@@ -176,7 +191,11 @@ class TestFormatEISVDetailed:
     def test_user_friendly(self):
         m = EISVMetrics(E=0.80, I=1.00, S=0.03, V=-0.07)
         result = format_eisv_detailed(m, include_user_friendly=True)
-        assert "engaged" in result.lower() or "energized" in result.lower()
+        # Each dimension has a user-friendly description matching the ODE behavior
+        assert "capacity" in result.lower()  # E: productive capacity
+        assert "fidelity" in result.lower()  # I: signal fidelity
+        assert "uncertainty" in result.lower()  # S: semantic uncertainty
+        assert "imbalance" in result.lower()  # V: E-I imbalance
 
     def test_multiline(self):
         m = EISVMetrics(E=0.5, I=0.5, S=0.5, V=0.0)

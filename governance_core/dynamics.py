@@ -17,7 +17,11 @@ where:
     E: Energy (exploration/productive capacity) [0,1]
     I: Information integrity [0,1]
     S: Semantic uncertainty [0,2]
-    V: Void integral (E-I imbalance, like free energy) [-2,2]
+    V: E-I imbalance integral (damped accumulator, like Helmholtz free energy) [-2,2]
+        V > 0: energy surplus (running hot), V < 0: integrity surplus (running careful)
+        Feeds back through coherence: C(V,Θ) = Cmax · 0.5 · (1 + tanh(C₁·V))
+        Note: "Void" name comes from Lumen mapping V=(1-presence)*0.3; the ODE
+        evolves V as a signed integrator, which is a different quantity.
     C(V,Θ): Coherence function
     ‖Δη‖: Ethical drift norm
     C: Task complexity [0,1] - increases entropy S
@@ -43,7 +47,8 @@ class State:
         E: Energy (exploration/productive capacity) [0, 1]
         I: Information integrity [0, 1]
         S: Semantic uncertainty / disorder [0, 2]
-        V: Void integral (E-I imbalance, like free energy) [-2, 2]
+        V: E-I imbalance integral [-2, 2]. Positive=energy surplus, negative=integrity surplus.
+           Drives coherence feedback. Named "Void" in Lumen's observation layer.
     """
     E: float
     I: float
@@ -158,10 +163,10 @@ def compute_dynamics(
         + noise_S                        # Optional noise term
     )
 
-    # V dynamics: E-I imbalance accumulation with decay
+    # V dynamics: signed E-I imbalance accumulation with exponential decay
     dV_dt = (
-        params.kappa * (E - I)           # Accumulate E-I imbalance
-        - params.delta * V               # Decay toward zero
+        params.kappa * (E - I)           # E>I → V rises (hot); I>E → V falls (careful)
+        - params.delta * V               # Decay toward zero (recent history dominates)
     )
 
     # Euler integration with clipping to physical bounds

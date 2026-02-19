@@ -52,7 +52,7 @@ class AgentStateRecord:
     entropy: float = 0.5
     integrity: float = 0.5
     stability_index: float = 0.5
-    volatility: float = 0.1
+    void: float = 0.1
     regime: str = "nominal"
     coherence: float = 1.0
     state_json: Dict[str, Any] = field(default_factory=dict)
@@ -269,7 +269,7 @@ class DatabaseBackend(ABC):
         entropy: float,
         integrity: float,
         stability_index: float,
-        volatility: float,
+        void: float,
         regime: str,
         coherence: float,
         state_json: Optional[Dict[str, Any]] = None,
