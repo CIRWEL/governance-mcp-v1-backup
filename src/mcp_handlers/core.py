@@ -1987,17 +1987,10 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
 
             # Broadcast EISV update to dashboard via WebSocket (BEFORE format_response filtering)
             try:
-                import sys
                 from datetime import datetime, timezone
-                broadcaster = None
-                # Check both module names (server attaches to whichever exists)
-                for mod_name in ['src.mcp_server', '__main__']:
-                    if mod_name in sys.modules:
-                        broadcaster = getattr(sys.modules[mod_name], 'eisv_broadcaster', None)
-                        if broadcaster:
-                            break
-
-                if broadcaster:
+                from src.broadcaster import broadcaster_instance
+                
+                if broadcaster_instance:
                     metrics = response_data.get("metrics", {})
 
                     # DEBUG: Log what's in metrics to diagnose null values
@@ -2015,7 +2008,7 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                     # Explicit None check for coherence
                     coherence_val = metrics.get("coherence") if metrics.get("coherence") is not None else 0
 
-                    await broadcaster.broadcast({
+                    await broadcaster_instance.broadcast({
                         "type": "eisv_update",
                         "agent_id": declared_agent_id,  # User-facing name
                         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -2032,8 +2025,6 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                         "risk": metrics.get("risk_score", 0)
                     })
                     logger.debug(f"Broadcast EISV update for agent {declared_agent_id}: eisv={eisv_data}, coherence={coherence_val}")
-                else:
-                    logger.debug("No eisv_broadcaster found in sys.modules")
             except Exception as e:
                 logger.debug(f"Could not broadcast EISV update: {e}")
 

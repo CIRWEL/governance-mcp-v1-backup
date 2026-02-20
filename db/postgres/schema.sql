@@ -29,6 +29,7 @@ CREATE SCHEMA IF NOT EXISTS core;
 CREATE TABLE IF NOT EXISTS core.agents (
     id                  TEXT PRIMARY KEY,
     api_key             TEXT NOT NULL,
+    label               TEXT,                               -- Display name (for name-claim identity recovery)
     status              TEXT DEFAULT 'active'
                         CHECK (status IN ('active', 'paused', 'archived')),
     purpose             TEXT,
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS core.agents (
 CREATE INDEX IF NOT EXISTS idx_agents_status ON core.agents(status) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_agents_parent ON core.agents(parent_agent_id) WHERE parent_agent_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_agents_created_at ON core.agents(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agents_label ON core.agents(label) WHERE label IS NOT NULL;
 
 -- Helper function for updated_at triggers (must be defined before triggers)
 CREATE OR REPLACE FUNCTION core.update_timestamp()

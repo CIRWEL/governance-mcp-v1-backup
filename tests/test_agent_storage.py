@@ -61,7 +61,7 @@ def _make_state(
         entropy=0.15,
         integrity=0.8,
         stability_index=0.85,
-        volatility=-0.01,
+        void=-0.01,
         regime="nominal",
         coherence=0.5,
         state_json=state_json if state_json is not None else {},
@@ -762,7 +762,7 @@ class TestRecordAgentState:
         assert call_kwargs["entropy"] == 0.15
         assert call_kwargs["integrity"] == 0.8
         assert call_kwargs["stability_index"] == pytest.approx(0.85)
-        assert call_kwargs["volatility"] == -0.01
+        assert call_kwargs["void"] == -0.01
         assert call_kwargs["regime"] == "EXPLORATION"
         assert call_kwargs["coherence"] == 0.5
         assert call_kwargs["state_json"]["health_status"] == "healthy"
