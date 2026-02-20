@@ -104,12 +104,14 @@ class OscillationDetector:
         if len(self.history) < 2:
             return 0.0
 
-        for i in range(1, len(self.history)):
-            coh_transition = self.history[i]['sign_coh'] - self.history[i-1]['sign_coh']
-            risk_transition = self.history[i]['sign_risk'] - self.history[i-1]['sign_risk']
+        # Only process the LATEST transition incrementally (not the full history).
+        # The EMA accumulators persist across calls, so reprocessing old
+        # transitions would compound values incorrectly.
+        coh_transition = self.history[-1]['sign_coh'] - self.history[-2]['sign_coh']
+        risk_transition = self.history[-1]['sign_risk'] - self.history[-2]['sign_risk']
 
-            self.ema_coherence = self.ema_lambda * coh_transition + (1 - self.ema_lambda) * self.ema_coherence
-            self.ema_risk = self.ema_lambda * risk_transition + (1 - self.ema_lambda) * self.ema_risk
+        self.ema_coherence = self.ema_lambda * coh_transition + (1 - self.ema_lambda) * self.ema_coherence
+        self.ema_risk = self.ema_lambda * risk_transition + (1 - self.ema_lambda) * self.ema_risk
 
         return self.ema_coherence + self.ema_risk
 

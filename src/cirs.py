@@ -152,23 +152,25 @@ class OscillationDetector:
         )
 
     def _compute_oi(self) -> float:
-        """Compute Oscillation Index using EMA of sign transitions."""
+        """Compute Oscillation Index using EMA of sign transitions.
+
+        Only processes the latest transition incrementally. The EMA
+        accumulators persist across calls, so reprocessing old transitions
+        would compound values incorrectly.
+        """
         if len(self.history) < 2:
             return 0.0
 
-        for i in range(1, len(self.history)):
-            # Sign transitions for coherence
-            coh_transition = (self.history[i]['sign_coh'] -
-                            self.history[i-1]['sign_coh'])
-            # Sign transitions for risk
-            risk_transition = (self.history[i]['sign_risk'] -
-                             self.history[i-1]['sign_risk'])
+        # Latest transition only (incremental EMA update)
+        coh_transition = (self.history[-1]['sign_coh'] -
+                        self.history[-2]['sign_coh'])
+        risk_transition = (self.history[-1]['sign_risk'] -
+                         self.history[-2]['sign_risk'])
 
-            # EMA update
-            self.ema_coherence = (self.ema_lambda * coh_transition +
-                                 (1 - self.ema_lambda) * self.ema_coherence)
-            self.ema_risk = (self.ema_lambda * risk_transition +
-                           (1 - self.ema_lambda) * self.ema_risk)
+        self.ema_coherence = (self.ema_lambda * coh_transition +
+                             (1 - self.ema_lambda) * self.ema_coherence)
+        self.ema_risk = (self.ema_lambda * risk_transition +
+                       (1 - self.ema_lambda) * self.ema_risk)
 
         return self.ema_coherence + self.ema_risk
 
