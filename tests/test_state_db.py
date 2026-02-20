@@ -1105,7 +1105,7 @@ class TestAsyncWrappersPostgresPath:
                 entropy = float(state_dict.get('E', 0.5))
                 integrity = float(state_dict.get('I', 1.0))
                 stability = float(state_dict.get('S', 0.2))
-                volatility = float(state_dict.get('V', 0.0))
+                void = float(state_dict.get('V', 0.0))
                 coherence = float(state_dict.get('coherence', 1.0))
                 regime = str(state_dict.get('regime', 'DIVERGENCE'))
 
@@ -1115,7 +1115,7 @@ class TestAsyncWrappersPostgresPath:
                         entropy=entropy,
                         integrity=integrity,
                         stability_index=stability,
-                        volatility=volatility,
+                        void=void,
                         regime=regime,
                         coherence=coherence,
                         state_json=state_dict,
@@ -1237,7 +1237,7 @@ class TestAsyncWrappersPostgresPath:
         mock_state.entropy = 0.7
         mock_state.integrity = 0.8
         mock_state.stability_index = 0.2
-        mock_state.volatility = 0.1
+        mock_state.void = 0.1
         mock_state.coherence = 0.9
         mock_state.regime = "CONVERGENCE"
         mock_state.state_json = {"update_count": 5}
@@ -1265,12 +1265,12 @@ class TestAsyncWrappersPostgresPath:
         mock_db.list_identities.return_value = [id1, id2]
 
         state1 = MagicMock(
-            entropy=0.5, integrity=0.5, stability_index=0.5, volatility=0.1,
+            entropy=0.5, integrity=0.5, stability_index=0.5, void=0.1,
             coherence=0.8, regime="CONVERGENCE", state_json={"update_count": 1},
             recorded_at=datetime(2025, 6, 1)
         )
         state2 = MagicMock(
-            entropy=0.3, integrity=0.4, stability_index=0.6, volatility=0.2,
+            entropy=0.3, integrity=0.4, stability_index=0.6, void=0.2,
             coherence=0.4, regime="DIVERGENCE", state_json={"update_count": 2},
             recorded_at=datetime(2025, 6, 1)
         )
@@ -1295,7 +1295,7 @@ class TestAsyncWrappersPostgresPath:
         mock_db.list_identities.return_value = [id1]
 
         state1 = MagicMock(
-            entropy=0.5, integrity=0.5, stability_index=0.5, volatility=0.1,
+            entropy=0.5, integrity=0.5, stability_index=0.5, void=0.1,
             coherence=0.3, regime="DIVERGENCE", state_json={},
             recorded_at=datetime(2025, 6, 1)
         )
@@ -1413,7 +1413,7 @@ class TestAsyncWrappersPostgresPath:
         mock_db.list_identities.return_value = [id1]
 
         state1 = MagicMock(
-            entropy=0.5, integrity=0.5, stability_index=0.5, volatility=0.1,
+            entropy=0.5, integrity=0.5, stability_index=0.5, void=0.1,
             coherence=0.8, regime="CONVERGENCE", state_json=None,
             recorded_at=datetime(2025, 6, 1)
         )
@@ -1573,12 +1573,12 @@ class TestPostgresMaxCoherenceFilter:
         mock_db.list_identities.return_value = [id1, id2]
 
         state_high = MagicMock(
-            entropy=0.5, integrity=0.5, stability_index=0.5, volatility=0.1,
+            entropy=0.5, integrity=0.5, stability_index=0.5, void=0.1,
             coherence=0.9, regime="CONVERGENCE", state_json={"update_count": 1},
             recorded_at=datetime(2025, 6, 1)
         )
         state_low = MagicMock(
-            entropy=0.3, integrity=0.4, stability_index=0.6, volatility=0.2,
+            entropy=0.3, integrity=0.4, stability_index=0.6, void=0.2,
             coherence=0.3, regime="DIVERGENCE", state_json={"update_count": 2},
             recorded_at=datetime(2025, 6, 1)
         )
@@ -1603,7 +1603,7 @@ class TestPostgresMaxCoherenceFilter:
         mock_db.list_identities.return_value = [id1]
 
         state1 = MagicMock(
-            entropy=0.5, integrity=0.5, stability_index=0.5, volatility=0.1,
+            entropy=0.5, integrity=0.5, stability_index=0.5, void=0.1,
             coherence=0.5, regime="CONVERGENCE", state_json={"update_count": 1},
             recorded_at=datetime(2025, 6, 1)
         )

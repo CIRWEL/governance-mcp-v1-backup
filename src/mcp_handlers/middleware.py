@@ -102,6 +102,26 @@ async def resolve_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCo
         agent_name_hint = arguments.get("agent_name") or (
             arguments.get("name") if name in ("identity", "onboard") else None
         )
+    # Fallback: use X-Agent-Id header for identity resolution.
+    # HTTP clients like anima-mcp send their agent UUID via this header.
+    # If it's a UUID, try direct lookup. If it's a name, use as name claim.
+    x_agent_id_header = None
+    if not agent_name_hint:
+        try:
+            from .context import get_session_context
+            ctx_data = get_session_context()
+            req = ctx_data.get('request')
+            if req and hasattr(req, 'headers'):
+                x_agent_id_header = req.headers.get("x-agent-id") or req.headers.get("X-Agent-Id")
+                if x_agent_id_header:
+                    # Check if it looks like a UUID (36 chars, 4 dashes)
+                    is_uuid = len(x_agent_id_header) == 36 and x_agent_id_header.count("-") == 4
+                    if not is_uuid:
+                        # Non-UUID: use as name claim hint (e.g., "Lumen")
+                        agent_name_hint = x_agent_id_header
+                        logger.debug(f"[DISPATCH] Using X-Agent-Id as name claim: {x_agent_id_header}")
+        except Exception:
+            pass
     trajectory_sig = arguments.get("trajectory_signature") if arguments else None
 
     bound_agent_id = None
@@ -113,6 +133,30 @@ async def resolve_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCo
             trajectory_signature=trajectory_sig,
         )
         bound_agent_id = identity_result.get("agent_uuid")
+
+        # PATH 2.75: X-Agent-Id UUID recovery
+        # If session resolution created a NEW identity but X-Agent-Id header contains
+        # a known UUID, rebind to the existing agent instead of creating a duplicate.
+        # This handles reconnection when session key changes (e.g., Pi restart).
+        if identity_result.get("created") and x_agent_id_header:
+            is_uuid = len(x_agent_id_header) == 36 and x_agent_id_header.count("-") == 4
+            if is_uuid:
+                try:
+                    from .identity_v2 import _agent_exists_in_postgres, _cache_session
+                    if await _agent_exists_in_postgres(x_agent_id_header):
+                        logger.info(
+                            f"[DISPATCH] X-Agent-Id recovery: rebinding session to existing "
+                            f"agent {x_agent_id_header[:8]}... (was about to create {bound_agent_id[:8]}...)"
+                        )
+                        bound_agent_id = x_agent_id_header
+                        identity_result["agent_uuid"] = x_agent_id_header
+                        identity_result["created"] = False
+                        identity_result["persisted"] = True
+                        identity_result["source"] = "x_agent_id_recovery"
+                        # Cache this session → UUID binding for future requests
+                        await _cache_session(session_key, x_agent_id_header)
+                except Exception as e:
+                    logger.debug(f"[DISPATCH] X-Agent-Id recovery failed: {e}")
 
         # Mark dispatch-created identities as ephemeral
         if identity_result.get("created") and not identity_result.get("persisted"):

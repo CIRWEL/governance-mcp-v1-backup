@@ -2382,65 +2382,25 @@ async def main():
         app.routes.append(Route("/health", http_health, methods=["GET"]))
         app.routes.append(Route("/metrics", http_metrics, methods=["GET"]))
 
-        # === WebSocket EISV streaming ===
-        # Real-time broadcast of EISV state changes to dashboard clients
-
-        class EISVBroadcaster:
-            """Manages WebSocket connections and broadcasts EISV updates."""
-
-            def __init__(self):
-                self.connections: list = []
-                self.last_update: dict = None  # Cache for HTTP polling fallback
-
-            async def connect(self, websocket: WebSocket):
-                await websocket.accept()
-                self.connections.append(websocket)
-                logger.info(f"[WS] Dashboard client connected ({len(self.connections)} active)")
-
-            def disconnect(self, websocket: WebSocket):
-                if websocket in self.connections:
-                    self.connections.remove(websocket)
-                logger.info(f"[WS] Dashboard client disconnected ({len(self.connections)} active)")
-
-            async def broadcast(self, data: dict):
-                """Send data to all connected dashboard clients."""
-                self.last_update = data  # Cache for HTTP polling
-                if not self.connections:
-                    return
-                dead = []
-                for ws in self.connections:
-                    try:
-                        await ws.send_json(data)
-                    except Exception:
-                        dead.append(ws)
-                for ws in dead:
-                    self.disconnect(ws)
-
-        # Module-level broadcaster instance (importable from handlers via sys.modules)
-        import sys
-        eisv_broadcaster = EISVBroadcaster()
-        # Attach to whichever module name this file was loaded as
-        for mod_name in ['src.mcp_server', '__main__']:
-            if mod_name in sys.modules:
-                sys.modules[mod_name].eisv_broadcaster = eisv_broadcaster
+        from src.broadcaster import broadcaster_instance
 
         async def websocket_eisv_stream(websocket: WebSocket):
             """WebSocket endpoint for live EISV streaming to dashboard."""
-            await eisv_broadcaster.connect(websocket)
+            await broadcaster_instance.connect(websocket)
             try:
                 while True:
                     # Keep connection alive — client sends pings, we just listen
                     await websocket.receive_text()
             except Exception:
-                eisv_broadcaster.disconnect(websocket)
+                await broadcaster_instance.disconnect(websocket)
 
         app.routes.append(WebSocketRoute("/ws/eisv", websocket_eisv_stream))
 
         # HTTP polling fallback for EISV (when WebSocket is blocked by proxy/ngrok auth)
         async def http_eisv_latest(request):
             """Return the latest EISV update as JSON (polling fallback for WebSocket)."""
-            if eisv_broadcaster.last_update:
-                return JSONResponse(eisv_broadcaster.last_update)
+            if broadcaster_instance.last_update:
+                return JSONResponse(broadcaster_instance.last_update)
             return JSONResponse({"type": "no_data", "message": "No EISV updates yet"}, status_code=200)
 
         app.routes.append(Route("/v1/eisv/latest", http_eisv_latest, methods=["GET"]))

@@ -54,6 +54,19 @@ from .ethical_drift import (
     get_all_baselines,
 )
 
+from .cirs_damping import (
+    OscillationState,
+    OscillationDetector,
+    DampingResult,
+    ResonanceDamper,
+)
+
+from .phase_aware import (
+    Phase,
+    detect_phase,
+    get_phase_aware_thresholds,
+)
+
 __all__ = [
     # Core state and dynamics
     'State',
@@ -91,6 +104,17 @@ __all__ = [
     'get_agent_baseline',
     'clear_baseline',
     'get_all_baselines',
+
+    # Phase-Aware
+    'Phase',
+    'detect_phase',
+    'get_phase_aware_thresholds',
+
+    # CIRS Oscillation Damping
+    'OscillationState',
+    'OscillationDetector',
+    'DampingResult',
+    'ResonanceDamper',
 ]
 
-__version__ = '2.1.0'  # Added concrete ethical drift
+__version__ = '2.2.0'  # Added CIRS Phase-Aware smoothing
