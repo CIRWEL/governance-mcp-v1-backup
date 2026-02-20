@@ -123,6 +123,43 @@ def _generate_agent_id(model_type: Optional[str] = None, client_hint: Optional[s
         return f"mcp_{timestamp}"
 
 
+def _generate_auto_label(model_type: Optional[str] = None, client_hint: Optional[str] = None) -> Optional[str]:
+    """
+    Generate a stable, deterministic label from client signals.
+
+    Unlike _generate_agent_id (which includes date), this produces a
+    time-independent label so repeated sessions converge to one identity.
+
+    Examples:
+        ("claude-opus-4", "claude-code") → "claude-code-opus"
+        ("claude-sonnet-4", None) → "sonnet"
+        (None, "cursor") → "cursor"
+        (None, None) → None (can't generate)
+    """
+    parts = []
+
+    # Client type first (if meaningful)
+    if client_hint and client_hint not in ("unknown", "", "mcp"):
+        parts.append(client_hint.strip().lower().replace(" ", "-"))
+
+    # Model family (extract short name, drop version numbers)
+    if model_type:
+        model = model_type.strip().lower()
+        # Extract model family: "claude-opus-4-5" → "opus"
+        for family in ["opus", "sonnet", "haiku"]:
+            if family in model:
+                parts.append(family)
+                break
+        else:
+            # Non-Claude model: use full name
+            parts.append(model.replace(" ", "-"))
+
+    if not parts:
+        return None
+
+    return "-".join(parts)
+
+
 async def _find_agent_by_id(agent_id: str) -> Optional[Dict[str, Any]]:
     """
     Find existing agent by agent_id.
@@ -483,15 +520,27 @@ async def resolve_session_identity(
         if name_result:
             return name_result
 
+    # PATH 2.75: Auto-name from client signals (prevents ghost proliferation)
+    # If no explicit agent_name was provided, generate a stable label from
+    # model_type + client_hint and try to claim an existing identity.
+    if not agent_name and (model_type or client_hint):
+        auto_label = _generate_auto_label(model_type, client_hint)
+        if auto_label:
+            auto_result = await resolve_by_name_claim(
+                auto_label, session_key, trajectory_signature
+            )
+            if auto_result:
+                logger.info(f"[AUTO_NAME] Reused identity via auto-label '{auto_label}'")
+                return auto_result
+
     # PATH 3: Create new agent
-
-
 
     # UUID is the true identity (for lookup/persistence)
     # agent_id is human-readable label (model+date format, for display)
     agent_uuid = str(uuid.uuid4())
     agent_id = _generate_agent_id(model_type, client_hint)
-    label = None  # No label until explicitly set
+    # Auto-assign label from client signals to prevent future ghosts
+    label = _generate_auto_label(model_type, client_hint) if not agent_name else None
 
     if persist:
         # Persist immediately to PostgreSQL
@@ -504,6 +553,11 @@ async def resolve_session_identity(
                 api_key="",  # Legacy field, not used
                 status="active",
             )
+
+            # Set auto-generated label so future sessions can claim this identity
+            if label:
+                await db.update_agent_fields(agent_uuid, label=label)
+                logger.info(f"[AUTO_NAME] New agent '{label}' (uuid: {agent_uuid[:8]}...)")
 
             # Create identity record with agent_id (display name) in metadata
             await db.upsert_identity(
@@ -537,8 +591,8 @@ async def resolve_session_identity(
             return {
                 "agent_id": agent_id,
                 "agent_uuid": agent_uuid,
-                "display_name": None,
-                "label": None,  # backward compat
+                "display_name": label,
+                "label": label,
                 "created": True,
                 "persisted": True,
                 "source": "created",
