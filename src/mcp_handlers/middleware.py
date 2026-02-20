@@ -102,26 +102,23 @@ async def resolve_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCo
         agent_name_hint = arguments.get("agent_name") or (
             arguments.get("name") if name in ("identity", "onboard") else None
         )
-    # Fallback: use X-Agent-Id header for identity resolution.
-    # HTTP clients like anima-mcp send their agent UUID via this header.
-    # If it's a UUID, try direct lookup. If it's a name, use as name claim.
+    # Always extract X-Agent-Id header — needed for both name-claim fallback
+    # and PATH 2.75 UUID recovery (even when agent_name is in arguments).
     x_agent_id_header = None
-    if not agent_name_hint:
-        try:
-            from .context import get_session_context
-            ctx_data = get_session_context()
-            req = ctx_data.get('request')
-            if req and hasattr(req, 'headers'):
-                x_agent_id_header = req.headers.get("x-agent-id") or req.headers.get("X-Agent-Id")
-                if x_agent_id_header:
-                    # Check if it looks like a UUID (36 chars, 4 dashes)
-                    is_uuid = len(x_agent_id_header) == 36 and x_agent_id_header.count("-") == 4
-                    if not is_uuid:
-                        # Non-UUID: use as name claim hint (e.g., "Lumen")
-                        agent_name_hint = x_agent_id_header
-                        logger.debug(f"[DISPATCH] Using X-Agent-Id as name claim: {x_agent_id_header}")
-        except Exception:
-            pass
+    try:
+        from .context import get_session_context
+        ctx_data = get_session_context()
+        req = ctx_data.get('request')
+        if req and hasattr(req, 'headers'):
+            x_agent_id_header = req.headers.get("x-agent-id") or req.headers.get("X-Agent-Id")
+    except Exception:
+        pass
+    # Use header as name-claim fallback only when no name hint from arguments
+    if not agent_name_hint and x_agent_id_header:
+        is_uuid = len(x_agent_id_header) == 36 and x_agent_id_header.count("-") == 4
+        if not is_uuid:
+            agent_name_hint = x_agent_id_header
+            logger.debug(f"[DISPATCH] Using X-Agent-Id as name claim: {x_agent_id_header}")
     trajectory_sig = arguments.get("trajectory_signature") if arguments else None
 
     bound_agent_id = None
