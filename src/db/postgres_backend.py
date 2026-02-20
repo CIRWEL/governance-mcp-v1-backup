@@ -472,14 +472,20 @@ class PostgresBackend(DatabaseBackend):
                 return None
 
     async def find_agent_by_label(self, label: str) -> Optional[str]:
-        """Find agent UUID by label (for collision detection)."""
+        """Find agent UUID by label. Prefers active agents, most recently updated."""
         async with self.acquire() as conn:
             try:
-                row = await conn.fetchrow(
-                    "SELECT id FROM core.agents WHERE label = $1",
+                rows = await conn.fetch(
+                    "SELECT id FROM core.agents WHERE label = $1 AND status = 'active' "
+                    "ORDER BY updated_at DESC",
                     label
                 )
-                return str(row["id"]) if row else None
+                if len(rows) > 1:
+                    logger.warning(
+                        f"[IDENTITY] Multiple active agents with label '{label}': "
+                        f"{[str(r['id'])[:12] for r in rows]} — returning most recent"
+                    )
+                return str(rows[0]["id"]) if rows else None
             except Exception as e:
                 logger.debug(f"Failed to find agent by label {label}: {e}")
                 return None

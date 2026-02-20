@@ -453,21 +453,27 @@ class SQLiteBackend(DatabaseBackend):
         return None
 
     async def find_agent_by_label(self, label: str) -> Optional[str]:
-        """Find agent UUID by label in metadata_json."""
+        """Find agent UUID by label. Prefers active agents, most recently updated."""
         conn = self._get_conn()
-        # Note: SQLite json_extract or ->> can be used if available, 
-        # but for compatibility we might need to scan if it's an old SQLite.
-        # Most modern ones have it.
         try:
-            row = conn.execute(
-                "SELECT agent_id FROM agent_metadata WHERE json_extract(metadata_json, '$.label') = ?",
+            rows = conn.execute(
+                "SELECT agent_id FROM agent_metadata "
+                "WHERE json_extract(metadata_json, '$.label') = ? AND status = 'active' "
+                "ORDER BY updated_at DESC",
                 (label,),
-            ).fetchone()
-            if row:
-                return row["agent_id"]
+            ).fetchall()
+            if len(rows) > 1:
+                logger.warning(
+                    f"[IDENTITY] Multiple active agents with label '{label}': "
+                    f"{[r['agent_id'][:12] for r in rows]} — returning most recent"
+                )
+            if rows:
+                return rows[0]["agent_id"]
         except sqlite3.OperationalError:
             # Fallback for old SQLite without JSON support: scan (expensive but rare)
-            rows = conn.execute("SELECT agent_id, metadata_json FROM agent_metadata").fetchall()
+            rows = conn.execute(
+                "SELECT agent_id, metadata_json FROM agent_metadata WHERE status = 'active'"
+            ).fetchall()
             for r in rows:
                 if r["metadata_json"]:
                     meta = json.loads(r["metadata_json"])
