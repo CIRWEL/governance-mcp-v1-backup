@@ -18,7 +18,6 @@ Covers:
 - get_agent_or_error (monitor lookup)
 - build_standardized_agent_info (output structure building)
 - detect_loop_pattern (loop detection logic)
-- _should_use_sqlite_state (state backend selection)
 - get_state_file (state file path resolution)
 - list_tools / call_tool (MCP handlers with mocked dispatch)
 - read_resource / list_resources (MCP resource handlers)
@@ -851,36 +850,6 @@ class TestGetAgentOrError:
 
 
 # ============================================================================
-# Test: _should_use_sqlite_state
-# ============================================================================
-
-class TestShouldUseSqliteState:
-    """Tests for state backend selection logic."""
-
-    def test_json_backend_returns_false(self):
-        from src.mcp_server_std import _should_use_sqlite_state
-        with patch("src.mcp_server_std.UNITARES_STATE_BACKEND", "json"):
-            assert _should_use_sqlite_state() is False
-
-    def test_sqlite_backend_returns_true(self):
-        from src.mcp_server_std import _should_use_sqlite_state
-        with patch("src.mcp_server_std.UNITARES_STATE_BACKEND", "sqlite"):
-            assert _should_use_sqlite_state() is True
-
-    def test_auto_backend_with_db_returns_true(self):
-        from src.mcp_server_std import _should_use_sqlite_state
-        with patch("src.mcp_server_std.UNITARES_STATE_BACKEND", "auto"):
-            with patch("pathlib.Path.exists", return_value=True):
-                assert _should_use_sqlite_state() is True
-
-    def test_auto_backend_without_db_returns_false(self):
-        from src.mcp_server_std import _should_use_sqlite_state
-        with patch("src.mcp_server_std.UNITARES_STATE_BACKEND", "auto"):
-            with patch("pathlib.Path.exists", return_value=False):
-                assert _should_use_sqlite_state() is False
-
-
-# ============================================================================
 # Test: _resolve_metadata_backend
 # ============================================================================
 
@@ -894,28 +863,19 @@ class TestResolveMetadataBackend:
                 result = _resolve_metadata_backend()
                 assert result == "json"
 
-    def test_sqlite_returns_sqlite(self):
+    def test_postgres_returns_postgres(self):
         from src.mcp_server_std import _resolve_metadata_backend
         with patch("src.mcp_server_std._metadata_backend_resolved", None):
-            with patch("src.mcp_server_std.UNITARES_METADATA_BACKEND", "sqlite"):
+            with patch("src.mcp_server_std.UNITARES_METADATA_BACKEND", "postgres"):
                 result = _resolve_metadata_backend()
-                assert result == "sqlite"
+                assert result == "postgres"
 
-    def test_auto_with_db_file_returns_sqlite(self):
+    def test_auto_returns_postgres(self):
         from src.mcp_server_std import _resolve_metadata_backend
         with patch("src.mcp_server_std._metadata_backend_resolved", None):
             with patch("src.mcp_server_std.UNITARES_METADATA_BACKEND", "auto"):
-                with patch.object(Path, "exists", return_value=True):
-                    result = _resolve_metadata_backend()
-                    assert result == "sqlite"
-
-    def test_auto_without_db_file_returns_json(self):
-        from src.mcp_server_std import _resolve_metadata_backend
-        with patch("src.mcp_server_std._metadata_backend_resolved", None):
-            with patch("src.mcp_server_std.UNITARES_METADATA_BACKEND", "auto"):
-                with patch.object(Path, "exists", return_value=False):
-                    result = _resolve_metadata_backend()
-                    assert result == "json"
+                result = _resolve_metadata_backend()
+                assert result == "postgres"
 
     def test_cached_result_returned(self):
         """Once resolved, should return cached result without re-computing."""
@@ -1735,56 +1695,3 @@ class TestWriteStateFile:
         assert loaded["version"] == 2
 
 
-# ============================================================================
-# Test: _migrate_metadata_json_to_sqlite_sync
-# ============================================================================
-
-class TestMigrateMetadataJsonToSqlite:
-    """Tests for JSON to SQLite metadata migration."""
-
-    def test_no_json_file_returns_zero(self, tmp_path):
-        from src.mcp_server_std import _migrate_metadata_json_to_sqlite_sync
-        with patch("src.mcp_server_std.METADATA_FILE", tmp_path / "nonexistent.json"):
-            result = _migrate_metadata_json_to_sqlite_sync()
-            assert result == 0
-
-    def test_empty_json_returns_zero(self, tmp_path):
-        from src.mcp_server_std import _migrate_metadata_json_to_sqlite_sync
-        json_file = tmp_path / "metadata.json"
-        json_file.write_text("{}")
-        with patch("src.mcp_server_std.METADATA_FILE", json_file):
-            result = _migrate_metadata_json_to_sqlite_sync()
-            assert result == 0
-
-    def test_invalid_json_returns_zero(self, tmp_path):
-        from src.mcp_server_std import _migrate_metadata_json_to_sqlite_sync
-        json_file = tmp_path / "metadata.json"
-        json_file.write_text("not valid json {{{")
-        with patch("src.mcp_server_std.METADATA_FILE", json_file):
-            result = _migrate_metadata_json_to_sqlite_sync()
-            assert result == 0
-
-    def test_non_dict_entries_skipped(self, tmp_path):
-        from src.mcp_server_std import _migrate_metadata_json_to_sqlite_sync
-        json_file = tmp_path / "metadata.json"
-        json_file.write_text(json.dumps({"agent1": "not a dict", "agent2": 42}))
-        mock_db = MagicMock()
-        with patch("src.mcp_server_std.METADATA_FILE", json_file):
-            with patch("src.mcp_server_std._get_metadata_db", return_value=mock_db):
-                result = _migrate_metadata_json_to_sqlite_sync()
-                assert result == 0
-
-    def test_valid_entries_migrated(self, tmp_path):
-        from src.mcp_server_std import _migrate_metadata_json_to_sqlite_sync
-        now = datetime.now().isoformat()
-        json_file = tmp_path / "metadata.json"
-        json_file.write_text(json.dumps({
-            "agent1": {"agent_id": "agent1", "status": "active", "created_at": now, "last_update": now},
-            "agent2": {"agent_id": "agent2", "status": "active", "created_at": now, "last_update": now},
-        }))
-        mock_db = MagicMock()
-        with patch("src.mcp_server_std.METADATA_FILE", json_file):
-            with patch("src.mcp_server_std._get_metadata_db", return_value=mock_db):
-                result = _migrate_metadata_json_to_sqlite_sync()
-                assert result == 2
-                mock_db.upsert_many.assert_called_once()

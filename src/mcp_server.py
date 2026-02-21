@@ -982,12 +982,6 @@ async def _reconcile_postgres_to_metadata(db) -> Dict[str, Any]:
     }
 
     try:
-        # Check if we have Postgres backend
-        health = await db.health_check()
-        if health.get("backend") == "sqlite":
-            logger.debug("Reconciliation skipped: SQLite-only mode")
-            return result
-
         # Get all Postgres identities
         postgres_identities = await db.list_identities(limit=10000)
         postgres_ids = {i.agent_id for i in postgres_identities}
@@ -1308,8 +1302,7 @@ async def main():
         from src.db import init_db, close_db, get_db
         await init_db()
         db = get_db()
-        backend_type = os.environ.get("DB_BACKEND", "sqlite")
-        logger.info(f"Database initialized: backend={backend_type}")
+        logger.info("Database initialized: backend=postgres")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         print(f"\n❌ Database initialization failed: {e}", file=sys.stderr)
