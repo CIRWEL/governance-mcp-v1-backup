@@ -357,12 +357,8 @@ class TestAuditEntry:
 class TestAuditLogger:
     @pytest.fixture()
     def logger_inst(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("UNITARES_AUDIT_WRITE_SQLITE", "1")
         monkeypatch.setenv("UNITARES_AUDIT_WRITE_JSONL", "1")
-        monkeypatch.setenv("UNITARES_AUDIT_QUERY_BACKEND", "sqlite")
-        monkeypatch.setenv("UNITARES_AUDIT_AUTO_BACKFILL", "0")
         log_file = tmp_path / "audit.jsonl"
-        monkeypatch.setenv("UNITARES_AUDIT_DB_PATH", str(tmp_path / "governance.db"))
         return AuditLogger(log_file=log_file)
 
     def test_log_lambda1_skip(self, logger_inst):
@@ -456,19 +452,6 @@ class TestAuditLogger:
         # All entries should be archived (older than 0 days)
         assert result is not None
 
-    def test_should_query_sqlite_modes(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("UNITARES_AUDIT_AUTO_BACKFILL", "0")
-        log_file = tmp_path / "audit.jsonl"
-        db_path = tmp_path / "test.db"
-        monkeypatch.setenv("UNITARES_AUDIT_DB_PATH", str(db_path))
-
-        monkeypatch.setenv("UNITARES_AUDIT_QUERY_BACKEND", "sqlite")
-        al = AuditLogger(log_file=log_file)
-        assert al._should_query_sqlite() is True
-
-        monkeypatch.setenv("UNITARES_AUDIT_QUERY_BACKEND", "jsonl")
-        al2 = AuditLogger(log_file=log_file)
-        assert al2._should_query_sqlite() is False
 
 
 # ---------------------------------------------------------------------------

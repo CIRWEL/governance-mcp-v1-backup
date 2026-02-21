@@ -41,7 +41,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-# Load .env file if present (for UNITARES_KNOWLEDGE_BACKEND, DB_BACKEND, etc.)
+# Load .env file if present (for UNITARES_KNOWLEDGE_BACKEND, DB_POSTGRES_URL, etc.)
 try:
     from dotenv import load_dotenv
     _env_path = _PROJECT_ROOT / ".env"
@@ -92,8 +92,6 @@ from src.pattern_analysis import analyze_agent_patterns
 from src.runtime_config import get_thresholds
 from src.lock_cleanup import cleanup_stale_state_locks
 from src.tool_schemas import get_tool_definitions
-# Agent metadata SQLite backend (optional; JSON snapshot still supported)
-from src.metadata_db import AgentMetadataDB
 # Tool mode filtering removed - all tools always available
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
@@ -538,22 +536,21 @@ _metadata_batch_state = {
 # Path to metadata file
 METADATA_FILE = Path(project_root) / "data" / "agent_metadata.json"
 
-# SQLite backend for metadata (source of truth).
-# JSON snapshot writing is disabled by default since SQLite is now canonical.
+# Metadata backend: PostgreSQL is now the sole backend.
+# JSON snapshot writing is disabled by default.
 # To enable JSON snapshots for debugging: UNITARES_METADATA_WRITE_JSON_SNAPSHOT=1
-UNITARES_METADATA_BACKEND = os.getenv("UNITARES_METADATA_BACKEND", "sqlite").strip().lower()  # json|sqlite|auto
+UNITARES_METADATA_BACKEND = os.getenv("UNITARES_METADATA_BACKEND", "postgres").strip().lower()  # json|postgres|auto
 # Metadata DB path - uses consolidated governance.db
 UNITARES_METADATA_DB_PATH = Path(
     os.getenv("UNITARES_METADATA_DB_PATH", str(Path(project_root) / "data" / "governance.db"))
 )
-# JSON snapshots disabled by default (SQLite is canonical). Set to "1" to enable for debugging.
+# JSON snapshots disabled by default (PostgreSQL is canonical). Set to "1" to enable for debugging.
 UNITARES_METADATA_WRITE_JSON_SNAPSHOT = os.getenv("UNITARES_METADATA_WRITE_JSON_SNAPSHOT", "0").strip().lower() in (
     "1",
     "true",
     "yes",
 )
 
-_metadata_db: AgentMetadataDB | None = None
 _metadata_backend_resolved: str | None = None
 
 
@@ -561,32 +558,22 @@ def _resolve_metadata_backend() -> str:
     """
     Resolve metadata backend.
 
-    - json: always use METADATA_FILE
-    - sqlite: always use SQLite (with optional JSON snapshot)
-    - auto: prefer SQLite if DB exists; otherwise JSON until first migration
+    - json: always use METADATA_FILE (legacy)
+    - postgres: use PostgreSQL (default)
+    - auto: use PostgreSQL
     """
     global _metadata_backend_resolved
     if _metadata_backend_resolved:
         return _metadata_backend_resolved
 
     backend = UNITARES_METADATA_BACKEND
-    if backend in ("json", "sqlite"):
+    if backend == "json":
         _metadata_backend_resolved = backend
         return backend
 
-    # auto mode
-    if UNITARES_METADATA_DB_PATH.exists():
-        _metadata_backend_resolved = "sqlite"
-    else:
-        _metadata_backend_resolved = "json"
+    # postgres or auto: always postgres
+    _metadata_backend_resolved = "postgres"
     return _metadata_backend_resolved
-
-
-def _get_metadata_db() -> AgentMetadataDB:
-    global _metadata_db
-    if _metadata_db is None:
-        _metadata_db = AgentMetadataDB(UNITARES_METADATA_DB_PATH)
-    return _metadata_db
 
 
 def _write_metadata_snapshot_json_sync() -> None:
@@ -607,39 +594,6 @@ def _write_metadata_snapshot_json_sync() -> None:
         except Exception:
             pass
         os.close(lock_fd)
-
-
-def _migrate_metadata_json_to_sqlite_sync() -> int:
-    """One-time migration: JSON metadata -> SQLite. Returns number of agents migrated."""
-    if not METADATA_FILE.exists():
-        return 0
-    try:
-        with open(METADATA_FILE, "r", encoding="utf-8") as f:
-            existing_data = json.load(f)
-    except Exception:
-        return 0
-
-    # Only accept dict-shaped records
-    migrated: dict[str, dict] = {}
-    for aid, meta_dict in (existing_data or {}).items():
-        if isinstance(meta_dict, dict):
-            migrated[aid] = meta_dict
-
-    if not migrated:
-        return 0
-
-    db = _get_metadata_db()
-    db.upsert_many(migrated)
-    return len(migrated)
-
-
-def _load_metadata_from_sqlite() -> None:
-    """Load metadata from SQLite into in-memory agent_metadata dict."""
-    global agent_metadata
-    db = _get_metadata_db()
-    raw = db.load_all()
-    parsed = _parse_metadata_dict(raw)
-    agent_metadata = parsed
 
 
 async def _load_metadata_from_postgres_async() -> dict:
@@ -736,54 +690,6 @@ def _load_metadata_from_postgres_sync() -> None:
         result = asyncio.run(_load_metadata_from_postgres_async())
         agent_metadata = result
 
-
-# Agent state backend configuration
-# SQLite backend eliminates 199+ JSON files, provides better concurrency
-UNITARES_STATE_BACKEND = os.getenv("UNITARES_STATE_BACKEND", "sqlite").strip().lower()  # json|sqlite|auto
-_state_db_instance = None
-_state_migration_done = False
-
-def _get_state_db():
-    """Get or create the state database instance."""
-    global _state_db_instance
-    if _state_db_instance is None:
-        from src.state_db import AgentStateDB
-        _state_db_instance = AgentStateDB()
-    return _state_db_instance
-
-def _should_use_sqlite_state() -> bool:
-    """Determine if SQLite backend should be used for state."""
-    if UNITARES_STATE_BACKEND == "json":
-        return False
-    if UNITARES_STATE_BACKEND == "sqlite":
-        return True
-    # auto: use SQLite if DB exists, otherwise JSON (will migrate on first save)
-    db_path = Path(project_root) / "data" / "agent_state.db"
-    return db_path.exists()
-
-def _ensure_state_migration() -> None:
-    """One-time migration from JSON files to SQLite (if needed)."""
-    global _state_migration_done
-    if _state_migration_done:
-        return
-    _state_migration_done = True
-    
-    if UNITARES_STATE_BACKEND == "json":
-        return  # No migration needed
-    
-    db_path = Path(project_root) / "data" / "agent_state.db"
-    agents_dir = Path(project_root) / "data" / "agents"
-    
-    # Only migrate if SQLite doesn't exist but JSON files do
-    if not db_path.exists() and agents_dir.exists():
-        json_files = list(agents_dir.glob("*_state.json"))
-        if json_files:
-            logger.info(f"Migrating {len(json_files)} agent state files to SQLite...")
-            db = _get_state_db()
-            stats = db.migrate_from_json(agents_dir)
-            logger.info(f"State migration complete: {stats['migrated']} migrated, {stats['skipped']} skipped")
-            if stats['errors']:
-                logger.warning(f"Migration errors: {stats['errors'][:5]}")  # Show first 5
 
 # State file path template (per-agent) - used for JSON backend
 def get_state_file(agent_id: str) -> Path:
@@ -916,33 +822,16 @@ async def load_metadata_async(force: bool = False) -> None:
     if _metadata_loaded and not force:
         return
 
-    # Support both PostgreSQL and SQLite backends
-    db_backend = os.environ.get("DB_BACKEND", "sqlite").strip().lower()
-
-    if db_backend == "postgres":
-        try:
-            result = await _load_metadata_from_postgres_async()
-            agent_metadata = result
-            _metadata_cache_state["last_load_time"] = time.time()
-            _metadata_cache_state["dirty"] = False
-            _metadata_loaded = True
-            logger.debug(f"Loaded {len(agent_metadata)} agents from PostgreSQL (async)")
-            return
-        except Exception as e:
-            logger.error(f"Could not load metadata from PostgreSQL: {e}", exc_info=True)
-            logger.info("Falling back to SQLite backend")
-            # Fall through to SQLite
-
-    # SQLite backend (default)
+    # PostgreSQL is the sole backend
     try:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _load_metadata_from_sqlite)
+        result = await _load_metadata_from_postgres_async()
+        agent_metadata = result
         _metadata_cache_state["last_load_time"] = time.time()
         _metadata_cache_state["dirty"] = False
         _metadata_loaded = True
-        logger.debug(f"Loaded {len(agent_metadata)} agents from SQLite (async)")
+        logger.debug(f"Loaded {len(agent_metadata)} agents from PostgreSQL (async)")
     except Exception as e:
-        logger.error(f"Could not load metadata from SQLite: {e}", exc_info=True)
+        logger.error(f"Could not load metadata from PostgreSQL: {e}", exc_info=True)
         raise
 
 
@@ -1049,28 +938,7 @@ def _load_metadata_sync_only() -> None:
 
     backend = _resolve_metadata_backend()
 
-    # AUTO-MIGRATION: if sqlite is requested (or auto prefers sqlite) but DB doesn't exist yet,
-    # migrate JSON into SQLite once.
-    if backend == "sqlite":
-        if not UNITARES_METADATA_DB_PATH.exists() and METADATA_FILE.exists():
-            migrated_count = _migrate_metadata_json_to_sqlite_sync()
-            if migrated_count > 0:
-                logger.info(f"Migrated {migrated_count} agent(s) from JSON metadata to SQLite")
-        # Load from SQLite (source of truth)
-        try:
-            _load_metadata_from_sqlite()
-            _metadata_cache_state["last_load_time"] = time.time()
-            try:
-                _metadata_cache_state["last_file_mtime"] = UNITARES_METADATA_DB_PATH.stat().st_mtime
-            except:
-                pass
-            _metadata_cache_state["dirty"] = False
-            return
-        except Exception as e:
-            logger.warning(f"Failed to load from SQLite: {e}")
-            # Fall through to JSON
-
-    # JSON backend or SQLite failed - load from JSON
+    # JSON backend fallback (legacy)
     lock_fd = None
     lock_acquired = False
     try:
@@ -1101,36 +969,25 @@ def load_metadata() -> None:
     """
     Load agent metadata from storage with caching.
 
-    Priority order:
-    1. PostgreSQL (if DB_BACKEND=postgres) - single source of truth
-    2. SQLite (if UNITARES_METADATA_BACKEND=sqlite)
-    3. JSON file (legacy fallback)
+    PostgreSQL is the single source of truth.
 
     Cache behavior:
     - If cache is fresh (< 60s old) and source hasn't changed: use cached data
     - If cache is dirty (modified in memory): don't reload
     - Otherwise: reload from source
 
-    WARNING: If PostgreSQL backend is used, this will fail when called from
-    async contexts. Use load_metadata_async() instead in async functions.
+    WARNING: PostgreSQL backend requires async loading. This sync version
+    uses in-memory cache if available; use load_metadata_async() in async functions.
     """
     global agent_metadata
 
-    # Support both PostgreSQL and SQLite backends
-    db_backend = os.environ.get("DB_BACKEND", "sqlite").strip().lower()
-
-    if db_backend == "postgres":
-        # For PostgreSQL backend, sync loading is problematic (event loop conflicts).
-        # Just use in-memory cache if available; async context will load properly.
-        if agent_metadata:
-            logger.debug(f"Using in-memory metadata cache ({len(agent_metadata)} agents)")
-            return
-        # PostgreSQL backend requires async loading - raise error if sync is called
-        raise RuntimeError("PostgreSQL backend requires async load_metadata_async(). Sync load_metadata() is not supported.")
-
-    # SQLite backend (default)
-    _load_metadata_from_sqlite()
-    logger.debug(f"Loaded {len(agent_metadata)} agents from SQLite (sync)")
+    # PostgreSQL backend: sync loading is problematic (event loop conflicts).
+    # Just use in-memory cache if available; async context will load properly.
+    if agent_metadata:
+        logger.debug(f"Using in-memory metadata cache ({len(agent_metadata)} agents)")
+        return
+    # PostgreSQL backend requires async loading - raise error if sync is called
+    raise RuntimeError("PostgreSQL backend requires async load_metadata_async(). Sync load_metadata() is not supported.")
 
 
 async def schedule_metadata_save(force: bool = False) -> None:
@@ -1184,21 +1041,6 @@ def _legacy_save_metadata() -> None:
     Legacy save_metadata implementation - kept for reference only.
     NOT CALLED - all persistence now goes through agent_storage.
     """
-    backend = _resolve_metadata_backend()
-    if backend == "sqlite":
-        # Source of truth: SQLite
-        db = _get_metadata_db()
-        db.upsert_many(agent_metadata)
-        # Optional: write JSON snapshot for compatibility/transparency
-        _write_metadata_snapshot_json_sync()
-        _metadata_cache_state["last_load_time"] = time.time()
-        try:
-            _metadata_cache_state["last_file_mtime"] = UNITARES_METADATA_DB_PATH.stat().st_mtime
-        except Exception:
-            pass
-        _metadata_cache_state["dirty"] = False
-        return
-
     METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     
     # Use a global metadata lock to prevent concurrent writes
@@ -1422,22 +1264,13 @@ def _write_state_file(state_file: Path, state_data: dict) -> None:
 
 async def save_monitor_state_async(agent_id: str, monitor: UNITARESMonitor) -> None:
     """
-    Async version of save_monitor_state - uses SQLite or file-based storage.
-    
-    SQLite backend (default): No file locking needed, SQLite handles concurrency.
-    JSON backend: Uses async file locking to avoid blocking the event loop.
+    Async version of save_monitor_state - uses file-based storage.
+
+    Uses async file locking to avoid blocking the event loop.
     """
     state_data = monitor.state.to_dict_with_history()
-    
-    # SQLite backend (preferred)
-    if _should_use_sqlite_state():
-        _ensure_state_migration()
-        loop = asyncio.get_running_loop()
-        db = _get_state_db()
-        await loop.run_in_executor(None, db.save_state, agent_id, state_data)
-        return
-    
-    # JSON backend (legacy)
+
+    # JSON file backend
     state_file = get_state_file(agent_id)
     state_file.parent.mkdir(parents=True, exist_ok=True)
     
@@ -1493,17 +1326,10 @@ async def save_monitor_state_async(agent_id: str, monitor: UNITARESMonitor) -> N
 
 
 def save_monitor_state(agent_id: str, monitor: UNITARESMonitor) -> None:
-    """Save monitor state to SQLite or file with locking to prevent race conditions."""
+    """Save monitor state to file with locking to prevent race conditions."""
     state_data = monitor.state.to_dict_with_history()
-    
-    # SQLite backend (preferred)
-    if _should_use_sqlite_state():
-        _ensure_state_migration()
-        db = _get_state_db()
-        db.save_state(agent_id, state_data)
-        return
-    
-    # JSON backend (legacy)
+
+    # JSON file backend
     state_file = get_state_file(agent_id)
     state_file.parent.mkdir(parents=True, exist_ok=True)
     
@@ -1557,36 +1383,20 @@ def save_monitor_state(agent_id: str, monitor: UNITARESMonitor) -> None:
 
 
 def load_monitor_state(agent_id: str) -> 'GovernanceState | None':
-    """Load monitor state from SQLite or file if it exists."""
+    """Load monitor state from file if it exists."""
     from src.governance_state import GovernanceState
-    
-    # SQLite backend (preferred)
-    if _should_use_sqlite_state():
-        _ensure_state_migration()
-        db = _get_state_db()
-        data = db.load_state(agent_id)
-        if data:
-            return GovernanceState.from_dict(data)
-        # Fall through to check JSON file (for agents not yet migrated)
-    
-    # JSON backend (legacy) or fallback
+
+    # JSON file backend
     state_file = get_state_file(agent_id)
-    
+
     if not state_file.exists():
         return None
-    
+
     try:
         # Read-only access, no lock needed
         with open(state_file, 'r') as f:
             data = json.load(f)
             state = GovernanceState.from_dict(data)
-            
-            # If using SQLite, migrate this agent's state
-            if _should_use_sqlite_state():
-                db = _get_state_db()
-                db.save_state(agent_id, data)
-                logger.debug(f"Migrated state for {agent_id} from JSON to SQLite")
-            
             return state
     except Exception as e:
         logger.warning(f"Could not load state for {agent_id}: {e}", exc_info=True)
@@ -2743,15 +2553,13 @@ async def process_update_authenticated_async(
 
         # Persist counters to PostgreSQL (in-memory is not enough — survives restarts)
         try:
-            db_backend = os.environ.get("DB_BACKEND", "sqlite").strip().lower()
-            if db_backend == "postgres":
-                from src import agent_storage
-                db = agent_storage.get_db()
-                await db.update_identity_metadata(agent_id, {
-                    "total_updates": meta.total_updates,
-                    "recent_update_timestamps": meta.recent_update_timestamps,
-                    "recent_decisions": meta.recent_decisions,
-                }, merge=True)
+            from src import agent_storage
+            db = agent_storage.get_db()
+            await db.update_identity_metadata(agent_id, {
+                "total_updates": meta.total_updates,
+                "recent_update_timestamps": meta.recent_update_timestamps,
+                "recent_decisions": meta.recent_decisions,
+            }, merge=True)
         except Exception as e:
             logger.debug(f"Could not persist update counters for {agent_id[:8]}...: {e}")
 

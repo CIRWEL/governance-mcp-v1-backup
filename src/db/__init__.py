@@ -1,12 +1,10 @@
 """
-Database Abstraction Layer
-
-Provides a unified interface for PostgreSQL+AGE (default) with SQLite fallback.
+Database Abstraction Layer — PostgreSQL Only
 
 Usage:
     from src.db import get_db
 
-    db = get_db()  # Returns configured backend
+    db = get_db()  # Returns PostgresBackend
 
     # Identity operations
     await db.upsert_identity(agent_id, api_key_hash, metadata)
@@ -20,13 +18,11 @@ Usage:
     await db.append_audit_event(event)
     events = await db.query_audit_events(agent_id=agent_id, limit=100)
 
-    # Graph operations (AGE - PostgreSQL only)
+    # Graph operations (AGE)
     await db.graph_query("MATCH (a:Agent)-[:COLLABORATED]->(b:Agent) RETURN a, b")
 
 Configuration (environment variables):
-    DB_BACKEND=postgres|sqlite|dual  (default: postgres)
-    DB_POSTGRES_URL=postgresql://user:pass@host:port/db  (required for postgres)
-    DB_SQLITE_PATH=data/governance.db  (for sqlite fallback)
+    DB_POSTGRES_URL=postgresql://user:pass@host:port/db  (required)
 """
 
 from __future__ import annotations
@@ -42,46 +38,14 @@ _db_instance: "DatabaseBackend | None" = None
 
 
 def get_db() -> "DatabaseBackend":
-    """
-    Get the configured database backend.
-
-    Backend selection:
-    - DB_BACKEND=postgres (default): Use PostgreSQL + AGE
-    - DB_BACKEND=sqlite: Use SQLite (fallback/dev mode)
-    - DB_BACKEND=dual: Dual-write to both (migration)
-    """
+    """Get the PostgreSQL database backend."""
     global _db_instance
 
     if _db_instance is not None:
         return _db_instance
 
-    backend = os.environ.get("DB_BACKEND", "postgres").lower()
-
-    if backend == "sqlite":
-        from .sqlite_backend import SQLiteBackend
-        _db_instance = SQLiteBackend()
-    elif backend == "postgres":
-        from .postgres_backend import PostgresBackend
-        _db_instance = PostgresBackend()
-        # Validate PostgreSQL availability during initialization
-        # Note: Full init happens lazily, but we can warn if config is invalid
-        try:
-            import warnings
-            # Check if connection URL is provided
-            if not os.environ.get("DB_POSTGRES_URL"):
-                warnings.warn(
-                    "DB_BACKEND=postgres but DB_POSTGRES_URL not set. "
-                    "PostgreSQL operations will fail. Set DB_BACKEND=sqlite to use SQLite fallback.",
-                    RuntimeWarning
-                )
-        except Exception:
-            pass  # Non-fatal
-    elif backend == "dual":
-        from .dual_backend import DualWriteBackend
-        _db_instance = DualWriteBackend()
-    else:
-        raise ValueError(f"Unknown DB_BACKEND: {backend}. Use: sqlite, postgres, dual")
-
+    from .postgres_backend import PostgresBackend
+    _db_instance = PostgresBackend()
     return _db_instance
 
 

@@ -13,8 +13,6 @@ import numpy as np
 import os
 from datetime import datetime
 
-from src.calibration_db import CalibrationDB
-
 
 @dataclass
 class CalibrationBin:
@@ -90,28 +88,19 @@ class CalibrationChecker:
             state_file = Path(__file__).parent.parent / "data" / "calibration_state.json"
         self.state_file = Path(state_file)
 
-        # Backend: postgres (recommended), sqlite (legacy), json (fallback), auto
-        self._backend = os.getenv("UNITARES_CALIBRATION_BACKEND", "sqlite").strip().lower()
-        # Calibration DB path - used for SQLite fallback
-        self._db_path = Path(
-            os.getenv("UNITARES_CALIBRATION_DB_PATH", str(Path(__file__).parent.parent / "data" / "governance.db"))
-        )
+        # Backend: postgres (default), json (fallback)
+        self._backend = os.getenv("UNITARES_CALIBRATION_BACKEND", "postgres").strip().lower()
         # JSON snapshots disabled by default (DB is canonical). Set to "1" to enable for debugging.
         self._write_json_snapshot = os.getenv("UNITARES_CALIBRATION_WRITE_JSON_SNAPSHOT", "0").strip().lower() in (
             "1",
             "true",
             "yes",
         )
-        self._db: CalibrationDB | None = None
         self._pg_db = None  # PostgreSQL backend (lazy init)
 
-        # Resolve backend once (auto prefers postgres if DB_BACKEND=postgres, else sqlite)
-        if self._backend not in ("json", "sqlite", "postgres"):
-            # Auto: use postgres if main DB is postgres, else sqlite
-            if os.getenv("DB_BACKEND", "").lower() == "postgres":
-                self._backend = "postgres"
-            else:
-                self._backend = "sqlite" if self._db_path.exists() else "json"
+        # Resolve backend: postgres is default, json is fallback
+        if self._backend not in ("json", "postgres"):
+            self._backend = "postgres"
         
         # Initialize complexity bins (always needed)
         self.complexity_bins = [
@@ -123,12 +112,6 @@ class CalibrationChecker:
         
         # Load existing state or reset
         self.load_state()
-
-    def _get_db(self) -> CalibrationDB:
-        """Get SQLite backend (legacy)."""
-        if self._db is None:
-            self._db = CalibrationDB(self._db_path)
-        return self._db
 
     def _get_pg_db(self):
         """Get PostgreSQL backend (lazy init)."""
@@ -815,7 +798,7 @@ class CalibrationChecker:
 
             now = datetime.now().isoformat()
 
-            # PostgreSQL backend (recommended)
+            # PostgreSQL backend
             if self._backend == "postgres":
                 async def _save(data):
                     from src.db import get_db
@@ -824,9 +807,6 @@ class CalibrationChecker:
                     # Closing it breaks all other concurrent users.
                     return await db.update_calibration(data)
                 self._run_async(_save, state_data)
-            # SQLite backend (legacy)
-            elif self._backend == "sqlite":
-                self._get_db().save_state(state_data, updated_at_iso=now)
 
             # Optional JSON snapshot for backward compatibility / transparency
             if self._write_json_snapshot:
@@ -842,7 +822,7 @@ class CalibrationChecker:
         try:
             state_data = None
 
-            # PostgreSQL backend (recommended)
+            # PostgreSQL backend
             if self._backend == "postgres":
                 try:
                     async def _load():
@@ -858,23 +838,6 @@ class CalibrationChecker:
                 except Exception as e:
                     print(f"Warning: PostgreSQL calibration load failed: {e}, trying fallback", file=sys.stderr)
                     state_data = None
-
-            # SQLite backend (legacy) - also used as fallback
-            elif self._backend == "sqlite":
-                # Auto-migrate JSON -> SQLite if sqlite enabled and db missing.
-                if (not self._db_path.exists()) and self.state_file.exists():
-                    try:
-                        with open(self.state_file, "r") as f:
-                            state_data = json.load(f)
-                        # Save into sqlite as canonical state
-                        self._get_db().save_state(state_data, updated_at_iso=datetime.now().isoformat())
-                    except Exception:
-                        state_data = None
-                else:
-                    try:
-                        state_data = self._get_db().load_state()
-                    except Exception:
-                        state_data = None
 
             # Fallback to JSON file if db empty/unavailable
             if state_data is None:

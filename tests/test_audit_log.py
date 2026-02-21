@@ -20,13 +20,8 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Environment setup: disable SQLite for all tests in this module
+# Environment setup (legacy SQLite fixtures removed - Postgres only now)
 # ---------------------------------------------------------------------------
-@pytest.fixture(autouse=True)
-def _disable_sqlite(monkeypatch):
-    """Force JSONL-only mode for every test."""
-    monkeypatch.setenv("UNITARES_AUDIT_WRITE_SQLITE", "0")
-    monkeypatch.setenv("UNITARES_AUDIT_QUERY_BACKEND", "jsonl")
 
 
 # ---------------------------------------------------------------------------
@@ -123,14 +118,6 @@ class TestAuditLoggerInit:
         logger = AuditLogger(log_file=deep_path)
         assert deep_path.parent.exists()
 
-    def test_sqlite_disabled_via_env(self, tmp_path):
-        logger = _make_logger(tmp_path)
-        assert logger._sqlite_enabled is False
-
-    def test_query_backend_jsonl(self, tmp_path):
-        logger = _make_logger(tmp_path)
-        assert logger._query_backend == "jsonl"
-        assert logger._should_query_sqlite() is False
 
 
 # ===========================================================================
@@ -1021,31 +1008,6 @@ class TestGetSkipRateMetrics:
                 }) + "\n")
         metrics = logger.get_skip_rate_metrics(agent_id="a", window_hours=24)
         assert metrics["suspicious"] is False
-
-
-# ===========================================================================
-# _should_query_sqlite
-# ===========================================================================
-class TestShouldQuerySqlite:
-    def test_jsonl_backend(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("UNITARES_AUDIT_QUERY_BACKEND", "jsonl")
-        from src.audit_log import AuditLogger
-        logger = AuditLogger(log_file=tmp_path / "audit.jsonl")
-        assert logger._should_query_sqlite() is False
-
-    def test_sqlite_backend(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("UNITARES_AUDIT_QUERY_BACKEND", "sqlite")
-        monkeypatch.setenv("UNITARES_AUDIT_WRITE_SQLITE", "0")
-        from src.audit_log import AuditLogger
-        logger = AuditLogger(log_file=tmp_path / "audit.jsonl")
-        assert logger._should_query_sqlite() is True
-
-    def test_auto_backend_no_db_sqlite_disabled(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("UNITARES_AUDIT_QUERY_BACKEND", "auto")
-        monkeypatch.setenv("UNITARES_AUDIT_WRITE_SQLITE", "0")
-        from src.audit_log import AuditLogger
-        logger = AuditLogger(log_file=tmp_path / "audit.jsonl")
-        assert logger._should_query_sqlite() is False
 
 
 # ===========================================================================
