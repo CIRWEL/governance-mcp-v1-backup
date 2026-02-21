@@ -1087,6 +1087,38 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             except Exception as e:
                 logger.debug(f"CIRS state_announce auto-emit skipped: {e}")
 
+            # CIRS Protocol: Auto-emit RESONANCE_ALERT / STABILITY_RESTORED on transitions
+            # Enables multi-agent distributed damping from paper §8
+            cirs_resonance = None
+            try:
+                from .cirs_protocol import maybe_emit_resonance_signal
+                cirs_data = result.get('cirs', {})
+                # was_resonant is tracked on the governor's state
+                monitor = mcp_server.monitors.get(agent_id)
+                was_resonant = False
+                if monitor and hasattr(monitor, 'adaptive_governor') and monitor.adaptive_governor:
+                    was_resonant = monitor.adaptive_governor.state.was_resonant
+                cirs_resonance = maybe_emit_resonance_signal(
+                    agent_id=agent_id,
+                    cirs_result=cirs_data,
+                    was_resonant=was_resonant,
+                )
+            except Exception as e:
+                logger.debug(f"CIRS resonance auto-emit skipped: {e}")
+
+            # CIRS Protocol: Apply neighbor pressure from peer resonance alerts
+            # Peers with high similarity tighten thresholds defensively
+            try:
+                from .cirs_protocol import maybe_apply_neighbor_pressure
+                monitor = mcp_server.monitors.get(agent_id)
+                if monitor and hasattr(monitor, 'adaptive_governor'):
+                    maybe_apply_neighbor_pressure(
+                        agent_id=agent_id,
+                        governor=monitor.adaptive_governor,
+                    )
+            except Exception as e:
+                logger.debug(f"CIRS neighbor pressure skipped: {e}")
+
             # PostgreSQL: Record EISV state (single source of truth)
             try:
                 await agent_storage.record_agent_state(
