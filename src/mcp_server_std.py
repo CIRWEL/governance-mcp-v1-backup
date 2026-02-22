@@ -2553,8 +2553,10 @@ async def process_update_authenticated_async(
             meta.recent_update_timestamps = meta.recent_update_timestamps[-10:]
             meta.recent_decisions = meta.recent_decisions[-10:]
 
-        # Persist counters to PostgreSQL (in-memory is not enough — survives restarts)
-        for _attempt in range(2):
+        # Persist counters to PostgreSQL every 50 updates (reduces DB pressure for
+        # high-frequency agents like Lumen that check in every ~4 seconds).
+        # Worst case: lose up to 50 counts on crash — negligible at thousands of updates.
+        if meta.total_updates % 50 == 0 or meta.total_updates <= 5:
             try:
                 from src import agent_storage
                 db = agent_storage.get_db()
@@ -2563,12 +2565,8 @@ async def process_update_authenticated_async(
                     "recent_update_timestamps": meta.recent_update_timestamps,
                     "recent_decisions": meta.recent_decisions,
                 }, merge=True)
-                break  # success
             except Exception as e:
-                if _attempt == 0:
-                    await asyncio.sleep(0.1)  # brief retry
-                else:
-                    logger.warning(f"Failed to persist update counters for {agent_id[:8]}... after 2 attempts: {e}")
+                logger.warning(f"Failed to persist update counters for {agent_id[:8]}... (update #{meta.total_updates}): {e}")
 
         # Enforce pause decisions (circuit breaker)
         # SELF-GOVERNANCE: When paused, automatically initiate dialectic recovery
