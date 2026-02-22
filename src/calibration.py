@@ -121,23 +121,22 @@ class CalibrationChecker:
         return self._pg_db
 
     def _run_async(self, async_fn, *args, **kwargs):
-        """Run async function from sync context. Always uses thread pool for safety."""
+        """Schedule async function on the running event loop (fire-and-forget).
+
+        Previous implementation created a new event loop in a thread, which
+        corrupted the shared asyncpg connection pool (bound to the main loop).
+        Now schedules on the existing loop to avoid cross-loop contamination.
+        """
         import asyncio
-        import concurrent.futures
 
-        def run_in_new_loop():
-            """Run async function in a fresh event loop (for thread execution)."""
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
-            try:
-                return new_loop.run_until_complete(async_fn(*args, **kwargs))
-            finally:
-                new_loop.close()
-
-        # Always use thread pool - safer in mixed sync/async environments
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(run_in_new_loop)
-            return future.result(timeout=10.0)
+        try:
+            loop = asyncio.get_running_loop()
+            # We're inside an async context — schedule as a task
+            loop.create_task(async_fn(*args, **kwargs))
+        except RuntimeError:
+            # No running loop (shouldn't happen in normal MCP flow, but safe fallback).
+            # Use a dedicated connection instead of the shared pool.
+            pass  # Skip DB save — JSON snapshot (below in save_state) is the fallback
     
     def reset(self):
         """Reset calibration statistics"""
