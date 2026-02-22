@@ -576,19 +576,44 @@ SERVER_VERSION = _load_version()
 # Import transport security settings for network access
 from mcp.server.transport_security import TransportSecuritySettings
 
+# --- OAuth 2.1 configuration (optional, enabled by env var) ---
+_oauth_issuer_url = os.environ.get("UNITARES_OAUTH_ISSUER_URL")
+_oauth_provider = None
+_auth_settings = None
+
+if _oauth_issuer_url:
+    try:
+        from mcp.server.auth.settings import AuthSettings
+        from src.oauth_provider import GovernanceOAuthProvider
+
+        _oauth_secret = os.environ.get("UNITARES_OAUTH_SECRET")
+        _auto_approve = os.environ.get("UNITARES_OAUTH_AUTO_APPROVE", "true").lower() in ("true", "1", "yes")
+        _oauth_provider = GovernanceOAuthProvider(secret=_oauth_secret, auto_approve=_auto_approve)
+        _auth_settings = AuthSettings(
+            issuer_url=_oauth_issuer_url,
+            resource_server_url=_oauth_issuer_url,
+        )
+        print(f"[FastMCP] OAuth 2.1 enabled (issuer: {_oauth_issuer_url})", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[FastMCP] OAuth setup failed, continuing without auth: {e}", file=sys.stderr, flush=True)
+        _oauth_provider = None
+        _auth_settings = None
+
 # Create the FastMCP server
 # NOTE: host="0.0.0.0" disables auto DNS rebinding protection (needed for network access from Pi)
 # We explicitly configure allowed_hosts to include local network IPs
 mcp = FastMCP(
     name="governance-monitor-v1",
     host="0.0.0.0",  # Bind to all interfaces
+    auth_server_provider=_oauth_provider,
+    auth=_auth_settings,
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=[
             "127.0.0.1:*", "localhost:*", "[::1]:*",  # Localhost
             "192.168.1.151:*", "192.168.1.164:*",  # Mac LAN IPs
             "100.96.201.46:*",  # Mac Tailscale IP
-            "unitares.ngrok.io",  # Ngrok tunnel (legacy, keep for fallback)
+            "unitares.ngrok.io",  # Ngrok tunnel
         ],
         allowed_origins=[
             "http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*",
@@ -2196,6 +2221,24 @@ async def main():
             else:
                 uptime_str = f"{int(uptime_seconds / 60)}m {int(uptime_seconds % 60)}s"
             
+            # DB pool health
+            db_health = {"status": "unknown"}
+            try:
+                from src.db import get_db
+                db = get_db()
+                if hasattr(db, '_pool') and db._pool is not None:
+                    pool = db._pool
+                    db_health = {
+                        "status": "connected",
+                        "pool_size": pool.get_size(),
+                        "pool_idle": pool.get_idle_size(),
+                        "pool_max": pool.get_max_size(),
+                    }
+                else:
+                    db_health = {"status": "no_pool"}
+            except Exception as e:
+                db_health = {"status": "error", "error": str(e)}
+
             return JSONResponse({
                 "status": "ok" if SERVER_READY else "warming_up",
                 "version": SERVER_VERSION,
@@ -2208,6 +2251,7 @@ async def main():
                     "active": connection_tracker.count,
                     "healthy": sum(1 for c in connection_tracker.connections.values() if c.get("health_status") == "healthy")
                 },
+                "database": db_health,
                 "transports": {
                     "streamable_http": "/mcp (primary, with resumability)" if HAS_STREAMABLE_HTTP else "not available",
                     "sse": "/sse (legacy, deprecated)"
@@ -2393,6 +2437,37 @@ async def main():
             return JSONResponse({"type": "no_data", "message": "No EISV updates yet"}, status_code=200)
 
         app.routes.append(Route("/v1/eisv/latest", http_eisv_latest, methods=["GET"]))
+
+        # Events API endpoint for dashboard
+        async def http_events(request):
+            """Return recent governance events for dashboard."""
+            try:
+                from src.event_detector import event_detector
+
+                limit = int(request.query_params.get("limit", 50))
+                agent_id = request.query_params.get("agent_id")
+                event_type = request.query_params.get("type")
+
+                events = event_detector.get_recent_events(
+                    limit=limit,
+                    agent_id=agent_id,
+                    event_type=event_type
+                )
+
+                return JSONResponse({
+                    "success": True,
+                    "events": events,
+                    "count": len(events)
+                })
+            except Exception as e:
+                logger.error(f"Error fetching events: {e}")
+                return JSONResponse({
+                    "success": False,
+                    "error": str(e),
+                    "events": []
+                }, status_code=500)
+
+        app.routes.append(Route("/api/events", http_events, methods=["GET"]))
 
         # === Streamable HTTP endpoint (/mcp) ===
         # New MCP 1.24.0+ transport with resumability and bidirectional streaming
