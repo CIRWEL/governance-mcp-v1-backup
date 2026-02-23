@@ -1621,7 +1621,7 @@ const agentSearchInput = document.getElementById('agent-search');
 const agentStatusFilterInput = document.getElementById('agent-status-filter');
 const agentMetricsOnlyInput = document.getElementById('agent-metrics-only');
 if (agentSearchInput) {
-    agentSearchInput.addEventListener('input', applyAgentFilters);
+    agentSearchInput.addEventListener('input', debounce(applyAgentFilters, CONFIG.DEBOUNCE_MS));
 }
 if (agentStatusFilterInput) {
     agentStatusFilterInput.addEventListener('change', applyAgentFilters);
@@ -1655,18 +1655,8 @@ const discoverySearchInput = document.getElementById('discovery-search');
 const discoveryTypeFilterInput = document.getElementById('discovery-type-filter');
 const discoveryTimeFilterInput = document.getElementById('discovery-time-filter');
 
-// Debounced search handler
-const handleDiscoverySearch = debounce(async (e) => {
-    const query = e.target.value.trim();
-    // Call server search
-    await loadDiscoveries(query);
-}, 500); // 500ms debounce
-
 if (discoverySearchInput) {
-    // Apply local highlighting immediately
-    discoverySearchInput.addEventListener('input', applyDiscoveryFilters);
-    // Trigger server search after delay
-    discoverySearchInput.addEventListener('input', handleDiscoverySearch);
+    discoverySearchInput.addEventListener('input', debounce(applyDiscoveryFilters, CONFIG.DEBOUNCE_MS));
 }
 if (discoveryTypeFilterInput) {
     discoveryTypeFilterInput.addEventListener('change', applyDiscoveryFilters);
