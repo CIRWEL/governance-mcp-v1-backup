@@ -106,8 +106,8 @@
             <div class="eisv-chart-cell">
                 <div class="eisv-chart-label">
                     <span class="legend-item"><span class="legend-dot energy"></span><span x-tooltip="eisv.energy">Energy</span></span>
-                    <span class="legend-item"><span class="legend-dot integrity"></span>Integrity</span>
-                    <span class="legend-item"><span class="legend-dot legend-dot-dashed coherence"></span>Coherence</span>
+                    <span class="legend-item"><span class="legend-dot integrity"></span><span x-tooltip="eisv.integrity">Integrity</span></span>
+                    <span class="legend-item"><span class="legend-dot legend-dot-dashed coherence"></span><span x-tooltip="metrics.coherence">Coherence</span></span>
                 </div>
                 <div class="eisv-chart-container">
                     <canvas id="eisv-chart-upper"></canvas>
@@ -116,8 +116,8 @@
             <!-- Lower chart: S, V (near zero, need own scale) -->
             <div class="eisv-chart-cell">
                 <div class="eisv-chart-label">
-                    <span class="legend-item"><span class="legend-dot entropy"></span>Entropy</span>
-                    <span class="legend-item"><span class="legend-dot volatility"></span>Void</span>
+                    <span class="legend-item"><span class="legend-dot entropy"></span><span x-tooltip="eisv.entropy">Entropy</span></span>
+                    <span class="legend-item"><span class="legend-dot volatility"></span><span x-tooltip="eisv.void">Void</span></span>
                 </div>
                 <div class="eisv-chart-container">
                     <canvas id="eisv-chart-lower"></canvas>
