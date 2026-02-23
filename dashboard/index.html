@@ -44,16 +44,6 @@
                 <span id="theme-icon">🌙</span>
                 <span id="theme-label">Dark</span>
             </button>
-            <div class="me-mode-toggle" x-data x-show="$store.identity.isAgent">
-                <button id="me-mode-btn"
-                        class="toolbar-button"
-                        :class="{ 'active': $store.identity.meMode }"
-                        @click="$store.identity.toggleMeMode()"
-                        type="button">
-                    <span x-text="$store.identity.meMode ? '👤 Me' : '👥 All'"></span>
-                </button>
-                <span class="me-mode-name" x-show="$store.identity.meMode" x-text="$store.identity.name"></span>
-            </div>
         </div>
         <div class="toolbar-status">
             <span class="ws-status" id="ws-status" title="Offline — waiting for connection">
@@ -115,9 +105,9 @@
         <div class="eisv-chart-row">
             <div class="eisv-chart-cell">
                 <div class="eisv-chart-label">
-                    <span class="legend-item"><span class="legend-dot energy"></span><span x-tooltip="eisv.energy">Energy</span></span>
-                    <span class="legend-item"><span class="legend-dot integrity"></span><span x-tooltip="eisv.integrity">Integrity</span></span>
-                    <span class="legend-item"><span class="legend-dot legend-dot-dashed coherence"></span><span x-tooltip="metrics.coherence">Coherence</span></span>
+                    <span class="legend-item"><span class="legend-dot energy"></span>Energy</span>
+                    <span class="legend-item"><span class="legend-dot integrity"></span>Integrity</span>
+                    <span class="legend-item"><span class="legend-dot legend-dot-dashed coherence"></span>Coherence</span>
                 </div>
                 <div class="eisv-chart-container">
                     <canvas id="eisv-chart-upper"></canvas>
@@ -126,8 +116,8 @@
             <!-- Lower chart: S, V (near zero, need own scale) -->
             <div class="eisv-chart-cell">
                 <div class="eisv-chart-label">
-                    <span class="legend-item"><span class="legend-dot entropy"></span><span x-tooltip="eisv.entropy">Entropy</span></span>
-                    <span class="legend-item"><span class="legend-dot volatility"></span><span x-tooltip="eisv.void">Void</span></span>
+                    <span class="legend-item"><span class="legend-dot entropy"></span>Entropy</span>
+                    <span class="legend-item"><span class="legend-dot volatility"></span>Void</span>
                 </div>
                 <div class="eisv-chart-container">
                     <canvas id="eisv-chart-lower"></canvas>
@@ -159,7 +149,7 @@
             <div class="pulse-metrics">
                 <div class="pulse-metric pulse-metric-large">
                     <div class="pulse-metric-header">
-                        <span class="pulse-metric-label"><span x-tooltip="metrics.risk">Risk</span> → Verdict</span>
+                        <span class="pulse-metric-label">Risk → Verdict</span>
                         <span class="pulse-metric-value" id="vv-risk">—</span>
                         <span class="pulse-metric-detail" id="vv-risk-detail" title="Risk adjustment from trajectory analysis"></span>
                     </div>
@@ -173,14 +163,14 @@
                 <div class="pulse-metric-row">
                     <div class="pulse-metric-mini pulse-metric-with-bar">
                         <div class="pulse-metric-header">
-                            <span class="pulse-metric-label"><span x-tooltip="metrics.confidence">Confidence</span></span>
+                            <span class="pulse-metric-label">Confidence</span>
                             <span class="pulse-metric-value" id="vv-confidence">—</span>
                         </div>
                         <div class="vital-bar-track vital-bar-mini"><div class="vital-bar" id="v-confidence" style="width:0%"></div></div>
                     </div>
                     <div class="pulse-metric-mini pulse-metric-with-bar">
                         <div class="pulse-metric-header">
-                            <span class="pulse-metric-label"><span x-tooltip="metrics.complexity">Complexity</span></span>
+                            <span class="pulse-metric-label">Complexity</span>
                             <span class="pulse-metric-value" id="vv-complexity">—</span>
                         </div>
                         <div class="vital-bar-track vital-bar-mini"><div class="vital-bar" id="v-complexity" style="width:0%"></div></div>
@@ -192,19 +182,19 @@
                 <h3>Drift</h3>
                 <div class="drift-vector">
                     <div class="drift-axis">
-                        <span class="drift-axis-label" title="Emotional drift — calibration deviation from baseline"><span x-tooltip="drift.emotional">Emotional</span></span>
+                        <span class="drift-axis-label" title="Emotional drift — calibration deviation from baseline">Emotional</span>
                         <div class="drift-gauge"><div class="drift-gauge-fill" id="drift-g-0"></div><div class="drift-gauge-center"></div></div>
                         <span class="drift-axis-val" id="drift-v-0">0</span>
                         <span class="drift-trend" id="drift-trend-0" title="Trend"></span>
                     </div>
                     <div class="drift-axis">
-                        <span class="drift-axis-label" title="Epistemic drift — coherence deviation from baseline"><span x-tooltip="drift.epistemic">Epistemic</span></span>
+                        <span class="drift-axis-label" title="Epistemic drift — coherence deviation from baseline">Epistemic</span>
                         <div class="drift-gauge"><div class="drift-gauge-fill" id="drift-g-1"></div><div class="drift-gauge-center"></div></div>
                         <span class="drift-axis-val" id="drift-v-1">0</span>
                         <span class="drift-trend" id="drift-trend-1" title="Trend"></span>
                     </div>
                     <div class="drift-axis">
-                        <span class="drift-axis-label" title="Behavioral drift — stability deviation from baseline"><span x-tooltip="drift.behavioral">Behavioral</span></span>
+                        <span class="drift-axis-label" title="Behavioral drift — stability deviation from baseline">Behavioral</span>
                         <div class="drift-gauge"><div class="drift-gauge-fill" id="drift-g-2"></div><div class="drift-gauge-center"></div></div>
                         <span class="drift-axis-val" id="drift-v-2">0</span>
                         <span class="drift-trend" id="drift-trend-2" title="Trend"></span>
@@ -355,8 +345,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Slide panel removed - expanding cards in-place is better UX -->
 
     <script src="/dashboard/dashboard.js"></script>
 </body>

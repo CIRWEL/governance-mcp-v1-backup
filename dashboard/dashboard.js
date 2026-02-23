@@ -47,446 +47,6 @@ if (typeof DashboardAPI === 'undefined' || typeof DataProcessor === 'undefined' 
     console.error('Dashboard utilities not loaded. Make sure utils.js and components.js are accessible.');
 }
 
-// ============================================================================
-// ERROR HANDLING UTILITIES
-// ============================================================================
-
-/**
- * Wrap API calls with error handling and retry logic.
- * @param {Function} fn - Async function to wrap
- * @param {Object} options - Options (retries, onError)
- * @returns {Function} Wrapped function
- */
-function withErrorHandling(fn, options = {}) {
-    const { retries = 2, onError } = options;
-
-    return async function(...args) {
-        let lastError;
-
-        for (let attempt = 0; attempt <= retries; attempt++) {
-            try {
-                return await fn.apply(this, args);
-            } catch (e) {
-                lastError = e;
-
-                // Don't retry on 4xx errors
-                if (e.status >= 400 && e.status < 500) {
-                    break;
-                }
-
-                // Wait before retry
-                if (attempt < retries) {
-                    await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 500));
-                }
-            }
-        }
-
-        // All retries failed
-        if (onError) {
-            onError(lastError);
-        } else {
-            showToast(`Operation failed: ${lastError.message}`, 'error');
-        }
-
-        throw lastError;
-    };
-}
-
-// ============================================================================
-// ALPINE.JS HELP STORE
-// ============================================================================
-
-/**
- * Initialize Alpine.js help store for tooltip data.
- * Loads help definitions from help.json and provides accessor methods.
- */
-document.addEventListener('alpine:init', () => {
-    // Identity store for Me mode
-    Alpine.store('identity', {
-        name: window.DASHBOARD_IDENTITY?.agentName || '',
-        id: window.DASHBOARD_IDENTITY?.agentId || '',
-        isAgent: window.DASHBOARD_IDENTITY?.isAgent || false,
-        meMode: false,
-
-        toggleMeMode() {
-            this.meMode = !this.meMode;
-            document.body.classList.toggle('me-mode-active', this.meMode);
-            // Trigger re-filter of agents
-            document.getElementById('agent-search')?.dispatchEvent(new Event('input'));
-        },
-
-        // Try to find our agent in the list
-        findMyAgent() {
-            if (!this.name && !this.id) return null;
-            return cachedAgents.find(a =>
-                a.agent_id === this.id ||
-                a.label?.toLowerCase() === this.name?.toLowerCase()
-            );
-        }
-    });
-
-    Alpine.store('help', {
-        data: {},
-        loaded: false,
-        async load() {
-            if (this.loaded) return;
-            try {
-                const response = await fetch('/dashboard/help.json');
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                this.data = await response.json();
-                this.loaded = true;
-            } catch (e) {
-                console.error('Failed to load help data:', e);
-            }
-        },
-        get(path) {
-            const parts = path.split('.');
-            let obj = this.data;
-            for (const part of parts) {
-                obj = obj?.[part];
-            }
-            return obj;
-        },
-        short(path) {
-            return this.get(path)?.short || '';
-        },
-        long(path) {
-            return this.get(path)?.long || '';
-        }
-    });
-
-    // Tooltip directive: x-tooltip="eisv.energy" or x-tooltip="'Custom text'"
-    Alpine.directive('tooltip', (el, { expression }, { evaluate, cleanup }) => {
-        const tooltip = document.createElement('div');
-        tooltip.className = 'tooltip';
-        document.body.appendChild(tooltip);
-
-        const buildContent = () => {
-            let content;
-            if (expression.startsWith("'") || expression.startsWith('"')) {
-                content = evaluate(expression);
-            } else {
-                const helpItem = Alpine.store('help').get(expression);
-                if (helpItem) {
-                    content = `<strong>${helpItem.short}</strong>`;
-                    if (helpItem.long) {
-                        content += `<br><span class="tooltip-detail">${helpItem.long}</span>`;
-                    }
-                    if (helpItem.range) {
-                        content += `<br><span class="tooltip-range">Range: ${helpItem.range}</span>`;
-                    }
-                } else {
-                    content = expression; // Fallback
-                }
-            }
-            tooltip.innerHTML = content;
-        };
-
-        const show = async () => {
-            // Ensure help is loaded before showing
-            await Alpine.store('help').load();
-            buildContent();
-            const rect = el.getBoundingClientRect();
-            tooltip.style.left = `${rect.left + rect.width / 2}px`;
-            tooltip.style.top = `${rect.bottom + 8}px`;
-            tooltip.classList.add('visible');
-        };
-
-        const hide = () => {
-            tooltip.classList.remove('visible');
-        };
-
-        el.addEventListener('mouseenter', show);
-        el.addEventListener('mouseleave', hide);
-        el.addEventListener('focus', show);
-        el.addEventListener('blur', hide);
-
-        cleanup(() => {
-            tooltip.remove();
-            el.removeEventListener('mouseenter', show);
-            el.removeEventListener('mouseleave', hide);
-            el.removeEventListener('focus', show);
-            el.removeEventListener('blur', hide);
-        });
-    });
-});
-
-// ============================================================================
-// KEYBOARD SHORTCUTS
-// ============================================================================
-
-/**
- * Global keyboard shortcut handler.
- * Shortcuts are ignored when focus is in an input/textarea.
- */
-document.addEventListener('keydown', (e) => {
-    // Ignore if in input field
-    const activeTag = document.activeElement?.tagName?.toLowerCase();
-    if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
-        // But allow Escape to blur
-        if (e.key === 'Escape') {
-            document.activeElement.blur();
-            e.preventDefault();
-        }
-        return;
-    }
-
-    // Don't intercept if modifier keys are held (except shift for ?)
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-    switch (e.key) {
-        case '/':
-            // Focus search
-            e.preventDefault();
-            const searchInput = document.getElementById('agent-search');
-            if (searchInput) {
-                searchInput.focus();
-                searchInput.select();
-            }
-            break;
-
-        case 'Escape':
-            e.preventDefault();
-            // Check for modal first
-            const modal = document.getElementById('panel-modal');
-            if (modal?.classList.contains('visible')) {
-                closeModal();
-                return;
-            }
-            // Slide panel (will be implemented in Task 2.2)
-            const panel = document.querySelector('.slide-panel.open');
-            if (panel && typeof closeSlidePanel === 'function') {
-                closeSlidePanel();
-            } else {
-                // Clear search if there's content
-                const search = document.getElementById('agent-search');
-                if (search && search.value) {
-                    search.value = '';
-                    search.dispatchEvent(new Event('input'));
-                }
-            }
-            break;
-
-        case '?':
-            // Show keyboard shortcuts (when shift+/ pressed)
-            e.preventDefault();
-            showKeyboardShortcuts();
-            break;
-
-        case 'j':
-            // Move down in agent list
-            e.preventDefault();
-            navigateAgentList(1);
-            break;
-
-        case 'k':
-            // Move up in agent list
-            e.preventDefault();
-            navigateAgentList(-1);
-            break;
-
-        case 'Enter':
-            // Open selected agent
-            e.preventDefault();
-            openSelectedAgent();
-            break;
-    }
-});
-
-// Track which agent card is "selected" for keyboard navigation
-let selectedAgentIndex = -1;
-
-/**
- * Navigate agent list with j/k keys.
- * @param {number} direction - 1 for down, -1 for up
- */
-function navigateAgentList(direction) {
-    const agentCards = document.querySelectorAll('.agent-card');
-    if (!agentCards.length) return;
-
-    // Remove previous selection
-    agentCards.forEach(card => card.classList.remove('keyboard-selected'));
-
-    // Update index
-    selectedAgentIndex += direction;
-    if (selectedAgentIndex < 0) selectedAgentIndex = agentCards.length - 1;
-    if (selectedAgentIndex >= agentCards.length) selectedAgentIndex = 0;
-
-    // Apply selection
-    const selected = agentCards[selectedAgentIndex];
-    selected.classList.add('keyboard-selected');
-    selected.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-/**
- * Open the currently selected agent (Enter key).
- */
-function openSelectedAgent() {
-    const selected = document.querySelector('.agent-card.keyboard-selected');
-    if (selected) {
-        // For now, just click it (later this will open slide panel)
-        selected.click();
-    }
-}
-
-/**
- * Show keyboard shortcuts help modal.
- */
-function showKeyboardShortcuts() {
-    // Use help.json keyboard section via Alpine store if loaded, otherwise fallback
-    const helpStore = typeof Alpine !== 'undefined' ? Alpine.store('help') : null;
-    const shortcuts = helpStore?.data?.keyboard || {
-        '/': 'Focus search',
-        'Escape': 'Close panel or clear search',
-        'j': 'Move down in list',
-        'k': 'Move up in list',
-        'Enter': 'Open selected item',
-        '?': 'Show this help'
-    };
-
-    let html = '<div class="keyboard-shortcuts-list">';
-    for (const [key, description] of Object.entries(shortcuts)) {
-        html += `<div class="shortcut-row">
-            <kbd>${key}</kbd>
-            <span>${description}</span>
-        </div>`;
-    }
-    html += '</div>';
-
-    // Use existing modal
-    const modal = document.getElementById('panel-modal');
-    const modalTitle = document.getElementById('modal-title');
-    const modalBody = document.getElementById('modal-body');
-
-    modalTitle.textContent = 'Keyboard Shortcuts';
-    modalBody.innerHTML = html;
-
-    modal.classList.add('visible');
-    document.body.style.overflow = 'hidden';
-}
-
-// ============================================================================
-// HASH-BASED ROUTING
-// ============================================================================
-
-/**
- * Simple hash router for deep-linking.
- * Routes:
- *   #agent/{uuid}      - Open agent detail panel
- *   #discovery/{id}    - Open discovery detail
- *   #search?q={query}  - Set search query
- */
-const Router = {
-    routes: {},
-
-    /**
-     * Register a route handler.
-     * @param {string} pattern - Route pattern (e.g., 'agent/:id')
-     * @param {Function} handler - Function to call with params
-     */
-    on(pattern, handler) {
-        this.routes[pattern] = handler;
-    },
-
-    /**
-     * Navigate to a route.
-     * @param {string} hash - Hash without # prefix
-     */
-    navigate(hash) {
-        window.location.hash = hash;
-    },
-
-    /**
-     * Parse current hash and call matching handler.
-     */
-    handleRoute() {
-        const hash = window.location.hash.slice(1);  // Remove #
-        if (!hash) return;
-
-        // Try each route pattern
-        for (const [pattern, handler] of Object.entries(this.routes)) {
-            const match = this.matchRoute(pattern, hash);
-            if (match) {
-                handler(match.params, match.query);
-                return;
-            }
-        }
-
-        console.warn('No route matched:', hash);
-    },
-
-    /**
-     * Match a route pattern against a hash.
-     * @param {string} pattern - Pattern like 'agent/:id'
-     * @param {string} hash - Hash like 'agent/abc-123?foo=bar'
-     * @returns {Object|null} - {params: {id: 'abc-123'}, query: {foo: 'bar'}} or null
-     */
-    matchRoute(pattern, hash) {
-        // Split hash into path and query
-        const [path, queryString] = hash.split('?');
-        const query = queryString ? Object.fromEntries(new URLSearchParams(queryString)) : {};
-
-        // Split pattern and path into segments
-        const patternParts = pattern.split('/');
-        const pathParts = path.split('/');
-
-        if (patternParts.length !== pathParts.length) return null;
-
-        // Reject empty segments
-        if (pathParts.some(part => !part)) return null;
-
-        const params = {};
-        for (let i = 0; i < patternParts.length; i++) {
-            if (patternParts[i].startsWith(':')) {
-                // This is a parameter
-                params[patternParts[i].slice(1)] = pathParts[i];
-            } else if (patternParts[i] !== pathParts[i]) {
-                // Literal mismatch
-                return null;
-            }
-        }
-
-        return { params, query };
-    },
-
-    /**
-     * Initialize router and listen for hash changes.
-     */
-    init() {
-        window.addEventListener('hashchange', () => this.handleRoute());
-        // Handle initial hash on page load
-        if (window.location.hash) {
-            this.handleRoute();
-        }
-    }
-};
-
-// Register routes (handlers will be added as features are built)
-Router.on('agent/:id', (params) => {
-    openAgentDetailPanel(params.id);
-});
-
-Router.on('discovery/:id', (params) => {
-    console.log('Route: discovery', params.id);
-    // TODO: openDiscoveryPanel(params.id)
-});
-
-Router.on('search', (params, query) => {
-    console.log('Route: search', query.q);
-    const searchInput = document.getElementById('agent-search');
-    if (searchInput && query.q) {
-        searchInput.value = query.q;
-        searchInput.dispatchEvent(new Event('input'));
-    }
-});
-
-// Initialize router when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    Router.init();
-});
-
 // Core instances
 const api = typeof DashboardAPI !== 'undefined' ? new DashboardAPI(window.location.origin) : null;
 const themeManager = typeof ThemeManager !== 'undefined' ? new ThemeManager() : null;
@@ -585,562 +145,6 @@ document.getElementById('panel-modal')?.addEventListener('click', (e) => {
 });
 // Close button handler
 document.querySelector('.panel-modal-close')?.addEventListener('click', closeModal);
-
-// ============================================================================
-// SLIDE PANEL
-// ============================================================================
-
-let panelTriggerElement = null;
-
-/**
- * Open the slide panel with content.
- * @param {string} title - Panel title
- * @param {string|HTMLElement} content - Content for panel body (string or DOM element)
- * @param {Object} options - Options object
- * @param {boolean} options.html - If true, content is trusted HTML; if false (default), escaped as text
- */
-function openSlidePanel(title, content, options = {}) {
-    panelTriggerElement = document.activeElement;
-
-    const panel = document.getElementById('slide-panel');
-    const panelTitle = document.getElementById('panel-title');
-    const panelBody = document.getElementById('panel-body');
-
-    panelTitle.textContent = title;
-
-    // Handle content safely
-    if (content instanceof HTMLElement) {
-        panelBody.innerHTML = '';
-        panelBody.appendChild(content);
-    } else if (options.html) {
-        // Trusted HTML - caller takes responsibility
-        panelBody.innerHTML = content;
-    } else {
-        // Default: escape as text
-        panelBody.textContent = content;
-    }
-
-    panel.classList.add('open');
-    document.body.classList.add('panel-open');
-
-    // Focus first focusable element
-    const firstFocusable = panelBody.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-    if (firstFocusable) {
-        firstFocusable.focus();
-    } else {
-        panel.querySelector('.slide-panel-close').focus();
-    }
-}
-
-/**
- * Close the slide panel.
- */
-function closeSlidePanel() {
-    // Cleanup chart if present
-    if (agentTrendChart) {
-        agentTrendChart.destroy();
-        agentTrendChart = null;
-    }
-
-    const panel = document.getElementById('slide-panel');
-    panel.classList.remove('open');
-    document.body.classList.remove('panel-open');
-
-    // Clear hash if it was a panel route
-    if (window.location.hash.match(/^#(agent|discovery)\//)) {
-        history.pushState(null, '', window.location.pathname);
-    }
-
-    // Return focus
-    if (panelTriggerElement) {
-        panelTriggerElement.focus();
-        panelTriggerElement = null;
-    }
-}
-
-// Focus trap for slide panel
-document.addEventListener('keydown', (e) => {
-    const panel = document.getElementById('slide-panel');
-    if (!panel || !panel.classList.contains('open')) return;
-    if (e.key !== 'Tab') return;
-
-    const focusableEls = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-    if (focusableEls.length === 0) return;
-
-    const firstEl = focusableEls[0];
-    const lastEl = focusableEls[focusableEls.length - 1];
-
-    if (e.shiftKey && document.activeElement === firstEl) {
-        lastEl.focus();
-        e.preventDefault();
-    } else if (!e.shiftKey && document.activeElement === lastEl) {
-        firstEl.focus();
-        e.preventDefault();
-    }
-});
-
-// Wire up close button
-document.addEventListener('DOMContentLoaded', () => {
-    const closeBtn = document.querySelector('.slide-panel-close');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', closeSlidePanel);
-    }
-});
-
-// ============================================================================
-// SCOPED SEARCH
-// ============================================================================
-
-const SearchScope = {
-    current: 'agents',
-
-    scopes: {
-        agents: {
-            label: 'Agents',
-            placeholder: 'Search agents...',
-            filter: (query, data) => {
-                if (!query) return data;
-                const q = query.toLowerCase();
-                return data.filter(a =>
-                    a.label?.toLowerCase().includes(q) ||
-                    a.agent_id?.toLowerCase().includes(q) ||
-                    a.tags?.some(t => t.toLowerCase().includes(q))
-                );
-            }
-        },
-        all: {
-            label: 'All',
-            placeholder: 'Search everything...',
-            filter: (query, data) => {
-                // TODO: Search across agents, discoveries, sessions
-                return data;
-            }
-        }
-    },
-
-    setScope(scope) {
-        if (!this.scopes[scope]) return;
-        this.current = scope;
-
-        const scopeLabel = document.getElementById('search-scope');
-        const searchInput = document.getElementById('agent-search');
-
-        if (scopeLabel) scopeLabel.textContent = this.scopes[scope].label;
-        if (searchInput) searchInput.placeholder = this.scopes[scope].placeholder;
-    },
-
-    filter(query, data) {
-        return this.scopes[this.current].filter(query, data);
-    }
-};
-
-// Initialize search scope toggle
-document.addEventListener('DOMContentLoaded', () => {
-    const toggleBtn = document.getElementById('search-scope-toggle');
-    if (toggleBtn) {
-        toggleBtn.addEventListener('click', () => {
-            // Toggle between agents and all
-            const next = SearchScope.current === 'agents' ? 'all' : 'agents';
-            SearchScope.setScope(next);
-            // Re-trigger search
-            const searchInput = document.getElementById('agent-search');
-            if (searchInput) searchInput.dispatchEvent(new Event('input'));
-        });
-    }
-});
-
-// ============================================================================
-// AGENT DETAIL PANEL
-// ============================================================================
-
-/**
- * Open agent detail panel.
- * @param {string} agentId - Agent UUID
- */
-function openAgentDetailPanel(agentId) {
-    // Find agent in cached data
-    const agent = cachedAgents.find(a => a.agent_id === agentId);
-
-    if (!agent) {
-        openSlidePanel('Agent Not Found', `
-            <div class="empty-state">
-                <p>Agent ${escapeHtml(agentId)} not found.</p>
-                <p class="help-text">This agent may have been archived or the ID is invalid.</p>
-            </div>
-        `, { html: true });
-        return;
-    }
-
-    const content = renderAgentDetailContent(agent);
-    openSlidePanel(agent.label || agent.agent_id, content, { html: true });
-
-    // Load trend chart after panel opens
-    setTimeout(() => {
-        loadAgentEisvTrend(agentId, '24h');
-
-        // Wire up range selector
-        const rangeSelect = document.getElementById('eisv-trend-range');
-        if (rangeSelect) {
-            rangeSelect.addEventListener('change', (e) => {
-                loadAgentEisvTrend(agentId, e.target.value);
-            });
-        }
-    }, 100);
-}
-
-/**
- * Render agent detail panel content.
- * @param {Object} agent - Agent data
- * @returns {string} HTML content
- */
-function renderAgentDetailContent(agent) {
-    const status = agent.lifecycle_status || agent.status || 'unknown';
-    const coherenceVal = agent.metrics?.coherence;
-    const coherence = typeof coherenceVal === 'number' ? (coherenceVal * 100).toFixed(1) + '%' : 'N/A';
-    const riskVal = agent.metrics?.current_risk ?? agent.metrics?.risk_score;
-    const risk = typeof riskVal === 'number' ? (riskVal * 100).toFixed(1) + '%' : 'N/A';
-    const lastSeen = agent.last_update ? formatRelativeTime(new Date(agent.last_update)) : 'Never';
-
-    return `
-        <div class="agent-detail">
-            <div class="agent-detail-status status-${escapeHtml(status)}">${escapeHtml(status)}</div>
-
-            <div class="agent-detail-section">
-                <h3>Current Metrics</h3>
-                <div class="agent-detail-metrics">
-                    <div class="metric-row">
-                        <span class="metric-label">Coherence</span>
-                        <span class="metric-value">${coherence}</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Risk</span>
-                        <span class="metric-value">${risk}</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="agent-detail-section">
-                <h3>EISV Values</h3>
-                <div class="agent-detail-eisv">
-                    <div class="eisv-bar">
-                        <span class="eisv-label">E</span>
-                        <div class="eisv-bar-track"><div class="eisv-bar-fill energy" style="width:${(agent.metrics?.E || 0) * 100}%"></div></div>
-                        <span class="eisv-value">${((agent.metrics?.E || 0) * 100).toFixed(0)}%</span>
-                    </div>
-                    <div class="eisv-bar">
-                        <span class="eisv-label">I</span>
-                        <div class="eisv-bar-track"><div class="eisv-bar-fill integrity" style="width:${(agent.metrics?.I || 0) * 100}%"></div></div>
-                        <span class="eisv-value">${((agent.metrics?.I || 0) * 100).toFixed(0)}%</span>
-                    </div>
-                    <div class="eisv-bar">
-                        <span class="eisv-label">S</span>
-                        <div class="eisv-bar-track"><div class="eisv-bar-fill entropy" style="width:${(agent.metrics?.S || 0) * 100}%"></div></div>
-                        <span class="eisv-value">${((agent.metrics?.S || 0) * 100).toFixed(0)}%</span>
-                    </div>
-                    <div class="eisv-bar">
-                        <span class="eisv-label">V</span>
-                        <div class="eisv-bar-track"><div class="eisv-bar-fill volatility" style="width:${(agent.metrics?.V || 0) * 100}%"></div></div>
-                        <span class="eisv-value">${((agent.metrics?.V || 0) * 100).toFixed(0)}%</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="agent-detail-section">
-                <h3>EISV Trend</h3>
-                <div class="eisv-trend-controls">
-                    <select id="eisv-trend-range" class="trend-range-select">
-                        <option value="1h">Last hour</option>
-                        <option value="24h" selected>Last 24h</option>
-                        <option value="7d">Last 7 days</option>
-                        <option value="30d">Last 30 days</option>
-                    </select>
-                </div>
-                <div class="eisv-trend-chart-container">
-                    <canvas id="agent-eisv-trend-chart"></canvas>
-                </div>
-            </div>
-
-            <div class="agent-detail-section">
-                <h3>Info</h3>
-                <dl class="agent-detail-info">
-                    <dt>ID</dt>
-                    <dd><code>${escapeHtml(agent.agent_id)}</code></dd>
-                    <dt>Last Seen</dt>
-                    <dd>${lastSeen}</dd>
-                    <dt>Total Updates</dt>
-                    <dd>${agent.total_updates || 0}</dd>
-                    ${agent.tags?.length ? `<dt>Tags</dt><dd>${agent.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join(' ')}</dd>` : ''}
-                </dl>
-            </div>
-
-            <div class="agent-detail-actions">
-                ${status === 'active' ? `
-                    <button class="action-btn action-pause"
-                            onclick="confirmAgentAction('${escapeHtml(agent.agent_id)}', 'pause')"
-                            title="Pause this agent">
-                        Pause
-                    </button>
-                ` : ''}
-                ${status === 'paused' ? `
-                    <button class="action-btn action-resume"
-                            onclick="executeAgentAction('${escapeHtml(agent.agent_id)}', 'resume')"
-                            title="Resume this agent">
-                        Resume
-                    </button>
-                ` : ''}
-                ${status !== 'archived' ? `
-                    <button class="action-btn action-archive"
-                            onclick="confirmAgentAction('${escapeHtml(agent.agent_id)}', 'archive')"
-                            title="Archive this agent">
-                        Archive
-                    </button>
-                ` : ''}
-                <button class="action-btn action-secondary"
-                        onclick="confirmAgentAction('${escapeHtml(agent.agent_id)}', 'recalibrate')"
-                        title="Recalibrate baseline metrics">
-                    Recalibrate
-                </button>
-            </div>
-        </div>
-    `;
-}
-
-// ============================================================================
-// QUICK ACTIONS
-// ============================================================================
-
-/**
- * Show confirmation dialog for an agent action.
- * @param {string} agentId - Agent UUID
- * @param {string} action - Action type (pause, archive, recalibrate)
- */
-function confirmAgentAction(agentId, action) {
-    const messages = {
-        pause: 'Pause this agent? It will stop processing tasks until resumed.',
-        archive: 'Archive this agent? It will be removed from active governance.',
-        recalibrate: 'Recalibrate this agent? This will rebuild baseline metrics from recent history.'
-    };
-
-    if (confirm(messages[action] || `Execute ${action}?`)) {
-        executeAgentAction(agentId, action);
-    }
-}
-
-/**
- * Execute an agent action via API.
- * @param {string} agentId - Agent UUID
- * @param {string} action - Action type
- */
-async function executeAgentAction(agentId, action) {
-    // Find and disable the button
-    const btn = document.querySelector(`.action-btn.action-${action}`);
-    if (btn) {
-        btn.disabled = true;
-        btn.classList.add('loading');
-    }
-
-    try {
-        let toolName, toolArgs;
-
-        switch (action) {
-            case 'pause':
-                toolName = 'agent';
-                toolArgs = { action: 'update', agent_id: agentId, status: 'paused' };
-                break;
-            case 'resume':
-                toolName = 'agent';
-                toolArgs = { action: 'update', agent_id: agentId, status: 'active' };
-                break;
-            case 'archive':
-                toolName = 'agent';
-                toolArgs = { action: 'archive', agent_id: agentId };
-                break;
-            case 'recalibrate':
-                toolName = 'calibration';
-                toolArgs = { action: 'rebuild', agent_id: agentId };
-                break;
-            default:
-                throw new Error(`Unknown action: ${action}`);
-        }
-
-        const result = await callTool(toolName, toolArgs);
-
-        if (result.error) {
-            throw new Error(result.error);
-        }
-
-        // Refresh data and re-render panel
-        await loadAgents();
-
-        // Re-open panel with updated data
-        openAgentDetailPanel(agentId);
-
-        // Show success feedback
-        showToast(`Agent ${action} successful`, 'success');
-
-    } catch (e) {
-        console.error(`Failed to ${action} agent:`, e);
-        showToast(`Failed to ${action}: ${e.message}`, 'error');
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.classList.remove('loading');
-        }
-    }
-}
-
-/**
- * Show a toast notification.
- * @param {string} message - Message to show
- * @param {string} type - 'success' or 'error'
- */
-function showToast(message, type = 'info') {
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.textContent = message;
-    document.body.appendChild(toast);
-
-    // Animate in
-    requestAnimationFrame(() => toast.classList.add('visible'));
-
-    // Remove after delay
-    setTimeout(() => {
-        toast.classList.remove('visible');
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
-}
-
-/**
- * Load and render EISV trend chart for an agent.
- * @param {string} agentId - Agent UUID
- * @param {string} range - Time range (1h, 24h, 7d, 30d)
- */
-async function loadAgentEisvTrend(agentId, range = '24h') {
-    // Show skeleton loading state for chart
-    const chartContainer = document.querySelector('.eisv-trend-chart-container');
-    if (chartContainer) {
-        chartContainer.innerHTML = renderSkeleton('chart');
-    }
-
-    try {
-        const response = await fetch(`/dashboard/fragments/eisv-history/${agentId}?range=${range}`);
-        if (!response.ok) throw new Error('Failed to load EISV history');
-
-        const data = await response.json();
-        if (data.error) throw new Error(data.error);
-
-        renderAgentTrendChart(data);
-    } catch (e) {
-        console.error('Failed to load EISV trend:', e);
-        const container = document.querySelector('.eisv-trend-chart-container');
-        if (container) {
-            container.innerHTML = '<div class="empty-state"><p>Failed to load trend data</p></div>';
-        }
-    }
-}
-
-/**
- * Render the EISV trend chart with Chart.js.
- * @param {Object} data - Chart data from server
- */
-function renderAgentTrendChart(data) {
-    const canvas = document.getElementById('agent-eisv-trend-chart');
-    if (!canvas) return;
-
-    // Destroy existing chart
-    if (agentTrendChart) {
-        agentTrendChart.destroy();
-        agentTrendChart = null;
-    }
-
-    const ctx = canvas.getContext('2d');
-
-    // Parse timestamps
-    const labels = data.labels.map(ts => new Date(ts));
-
-    // Get colors from CSS variables with fallbacks
-    const getColor = (varName, fallback) => {
-        const value = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
-        return value || fallback;
-    };
-
-    agentTrendChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [
-                {
-                    label: 'Energy',
-                    data: data.datasets.energy,
-                    borderColor: getColor('--color-energy', '#9d4edd'),
-                    backgroundColor: 'transparent',
-                    tension: 0.3,
-                    pointRadius: 0
-                },
-                {
-                    label: 'Integrity',
-                    data: data.datasets.integrity,
-                    borderColor: getColor('--color-integrity', '#00e676'),
-                    backgroundColor: 'transparent',
-                    tension: 0.3,
-                    pointRadius: 0
-                },
-                {
-                    label: 'Coherence',
-                    data: data.datasets.coherence,
-                    borderColor: getColor('--color-coherence', '#00f0ff'),
-                    backgroundColor: 'transparent',
-                    borderDash: [5, 5],
-                    tension: 0.3,
-                    pointRadius: 0
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-                intersect: false,
-                mode: 'index'
-            },
-            scales: {
-                x: {
-                    type: 'time',
-                    time: {
-                        displayFormats: {
-                            hour: 'HH:mm',
-                            day: 'MMM d'
-                        }
-                    },
-                    grid: { display: false }
-                },
-                y: {
-                    min: 0,
-                    max: 1,
-                    grid: { color: 'rgba(128,128,128,0.1)' }
-                }
-            },
-            plugins: {
-                legend: { display: false }
-            }
-        }
-    });
-}
-
-/**
- * Wire up agent card click handlers.
- * Should be called after agent cards are rendered.
- */
-function wireAgentCardClicks() {
-    document.querySelectorAll('.agent-item').forEach(card => {
-        const agentId = card.dataset.agentUuid;
-        if (agentId && !card.dataset.clickWired) {
-            card.style.cursor = 'pointer';
-            card.addEventListener('click', () => Router.navigate(`agent/${agentId}`));
-            card.dataset.clickWired = 'true';
-        }
-    });
-}
 
 /**
  * Render discoveries list for modal view.
@@ -1401,103 +405,6 @@ const formatTimestamp = DataProcessor.formatTimestamp;
 // UI HELPERS
 // ============================================================================
 
-/**
- * Render an empty state with helpful context.
- * @param {string} type - Type of empty state
- * @param {Object} context - Additional context
- * @returns {string} HTML
- */
-function renderEmptyState(type, context = {}) {
-    const states = {
-        'no-agents': {
-            icon: '🤖',
-            title: 'No agents yet',
-            description: 'Agents will appear here when they connect to governance.',
-            hint: 'Agents check in when they start processing tasks.'
-        },
-        'no-agents-filtered': {
-            icon: '🔍',
-            title: 'No matching agents',
-            description: `No agents match "${escapeHtml(context.query || 'your search')}".`,
-            hint: 'Try a different search term or clear filters.',
-            action: '<button onclick="clearAgentFilters()" class="empty-state-action">Clear filters</button>'
-        },
-        'no-discoveries': {
-            icon: '💡',
-            title: 'No discoveries yet',
-            description: 'Knowledge discoveries appear when agents learn something new.',
-            hint: 'Discoveries include insights, patterns, and questions.'
-        },
-        'no-stuck-agents': {
-            icon: '✅',
-            title: 'No stuck agents',
-            description: 'All agents are checking in normally.',
-            hint: 'Agents are considered "stuck" if they haven\'t checked in for 30+ minutes.'
-        },
-        'chart-no-data': {
-            icon: '📊',
-            title: 'No data yet',
-            description: 'Chart data will appear after the first agent check-in.',
-            hint: 'EISV metrics are recorded with each governance check-in.'
-        },
-        'panel-loading': {
-            icon: '⏳',
-            title: 'Loading...',
-            description: 'Fetching data from the server.',
-            hint: ''
-        },
-        'panel-error': {
-            icon: '⚠️',
-            title: 'Failed to load',
-            description: escapeHtml(context.error || 'An error occurred.'),
-            hint: 'Try refreshing the page or check the server connection.',
-            action: '<button onclick="location.reload()" class="empty-state-action">Refresh</button>'
-        }
-    };
-
-    const state = states[type] || {
-        icon: '📭',
-        title: 'Nothing here',
-        description: '',
-        hint: ''
-    };
-
-    return `
-        <div class="empty-state">
-            <div class="empty-state-icon">${state.icon}</div>
-            <div class="empty-state-title">${state.title}</div>
-            ${state.description ? `<div class="empty-state-description">${state.description}</div>` : ''}
-            ${state.hint ? `<div class="empty-state-hint">${state.hint}</div>` : ''}
-            ${state.action || ''}
-        </div>
-    `;
-}
-
-/**
- * Render loading skeletons.
- * @param {string} type - Type of skeleton (card, list, chart, rows)
- * @param {number} count - Number of items for list type
- * @returns {string} HTML
- */
-function renderSkeleton(type, count = 3) {
-    switch (type) {
-        case 'card':
-            return '<div class="skeleton skeleton-card"></div>';
-        case 'list':
-            return `<div class="skeleton-list">
-                ${Array(count).fill('<div class="skeleton skeleton-card"></div>').join('')}
-            </div>`;
-        case 'chart':
-            return '<div class="skeleton skeleton-chart"></div>';
-        case 'rows':
-            return `<div>
-                ${Array(count).fill('<div class="skeleton skeleton-row"></div>').join('')}
-            </div>`;
-        default:
-            return '<div class="skeleton skeleton-card"></div>';
-    }
-}
-
 function showError(message) {
     const container = document.getElementById('error-container');
     container.innerHTML = `<div class="error">Error: ${escapeHtml(message)}</div>`;
@@ -1643,18 +550,13 @@ function updateAgentFilterInfo(filteredCount) {
 function renderAgentsList(agents, searchTerm = '') {
     const container = document.getElementById('agents-container');
     if (cachedAgents.length === 0) {
-        container.innerHTML = renderEmptyState('no-agents');
+        container.innerHTML = '<div class="loading">No agents found. Agents will appear here after calling onboard() or any tool.</div>';
         updateAgentFilterInfo(0);
         return;
     }
 
     if (agents.length === 0) {
-        const searchQuery = document.getElementById('agent-search')?.value;
-        if (searchQuery) {
-            container.innerHTML = renderEmptyState('no-agents-filtered', { query: searchQuery });
-        } else {
-            container.innerHTML = renderEmptyState('no-agents');
-        }
+        container.innerHTML = '<div class="loading">No agents match the current filters.</div>';
         updateAgentFilterInfo(0);
         return;
     }
@@ -1743,28 +645,8 @@ function renderAgentsList(agents, searchTerm = '') {
         const vColor = metricColor(vValue, true);
         const cColor = metricColor(cValue, false);
 
-        // Check if this is the current agent (Me mode)
-        const identityStore = typeof Alpine !== 'undefined' ? Alpine.store('identity') : null;
-        const isMe = identityStore?.isAgent && (
-            agent.agent_id === identityStore.id ||
-            agent.label?.toLowerCase() === identityStore.name?.toLowerCase()
-        );
-        const meClass = isMe ? 'is-me' : '';
-
-        // Build quick actions (shown on hover)
-        const quickActions = [];
-        if (status === 'active') {
-            quickActions.push(`<button class="quick-action pause" data-action="pause" data-agent-id="${escapeHtml(agentId)}" title="Pause agent">⏸</button>`);
-        }
-        if (status === 'paused') {
-            quickActions.push(`<button class="quick-action resume" data-action="resume" data-agent-id="${escapeHtml(agentId)}" title="Resume agent">▶</button>`);
-        }
-        if (status !== 'archived') {
-            quickActions.push(`<button class="quick-action archive" data-action="archive" data-agent-id="${escapeHtml(agentId)}" title="Archive agent">📦</button>`);
-        }
-
         return `
-            <div class="agent-item ${statusClass} ${meClass}" data-agent-uuid="${escapeHtml(agentId)}">
+            <div class="agent-item ${statusClass}" data-agent-uuid="${escapeHtml(agentId)}" style="cursor: pointer;" title="Click to view details">
                 <div class="agent-meta">
                     <div class="agent-title">
                         ${statusIndicator}
@@ -1772,10 +654,6 @@ function renderAgentsList(agents, searchTerm = '') {
                         <span class="status-chip ${status}">${statusLabel}</span>
                         ${trustTierHtml}
                         ${actionsHtml}
-                    </div>
-                    <div class="agent-id-row">
-                        <code class="agent-id" title="Click to copy">${escapeHtml(agentId)}</code>
-                        <span class="quick-actions">${quickActions.join('')}</span>
                     </div>
                     ${subtitleHtml}
                     ${purposeHtml}
@@ -1812,92 +690,6 @@ function renderAgentsList(agents, searchTerm = '') {
             </div>
         `;
     }).join('');
-
-    // Wire up quick actions and click-to-copy
-    wireAgentCards();
-}
-
-/**
- * Wire up agent card interactions.
- */
-function wireAgentCards() {
-    // Click-to-copy agent ID
-    document.querySelectorAll('.agent-id').forEach(el => {
-        if (el.dataset.wired) return;
-        el.dataset.wired = 'true';
-        el.style.cursor = 'pointer';
-
-        el.addEventListener('click', () => {
-            navigator.clipboard.writeText(el.textContent).then(() => {
-                const original = el.textContent;
-                el.textContent = 'Copied!';
-                setTimeout(() => { el.textContent = original; }, 1000);
-            });
-        });
-    });
-
-    // Wire up quick action buttons
-    document.querySelectorAll('.quick-action').forEach(btn => {
-        if (btn.dataset.wired) return;
-        btn.dataset.wired = 'true';
-
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const action = btn.dataset.action;
-            const agentId = btn.dataset.agentId;
-
-            if (action === 'pause' || action === 'archive') {
-                const msg = action === 'pause'
-                    ? 'Pause this agent?'
-                    : 'Archive this agent?';
-                if (!confirm(msg)) return;
-            }
-
-            btn.disabled = true;
-            const original = btn.textContent;
-            btn.textContent = '...';
-
-            try {
-                await executeQuickAction(agentId, action);
-                loadAgents();
-            } catch (err) {
-                console.error('Action failed:', err);
-                alert('Action failed: ' + err.message);
-                btn.textContent = original;
-            } finally {
-                btn.disabled = false;
-            }
-        });
-    });
-}
-
-/**
- * Execute a quick action on an agent.
- */
-async function executeQuickAction(agentId, action) {
-    const actions = {
-        pause: { tool: 'agent', args: { action: 'update', agent_id: agentId, status: 'paused' } },
-        resume: { tool: 'agent', args: { action: 'update', agent_id: agentId, status: 'active' } },
-        archive: { tool: 'agent', args: { action: 'archive', agent_id: agentId } }
-    };
-
-    const { tool, args } = actions[action];
-    const response = await fetch('/v1/tools/call', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: tool, arguments: args })
-    });
-
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-
-    const result = await response.json();
-    if (result.error) {
-        throw new Error(result.error);
-    }
-
-    return result;
 }
 
 /**
@@ -2086,7 +878,7 @@ function renderDiscoveriesList(discoveries, searchTerm = '') {
         const summaryHtml = highlightMatch(displaySummary, searchTerm);
         const relative = d._relativeTime ? ` (${d._relativeTime})` : '';
         const displayDate = escapeHtml(`${d._displayDate || 'Unknown'}${relative}`);
-        const tags = (d.tags || []).slice(0, 5).map(t => `<span class="discovery-tag" data-tag="${escapeHtml(t)}" title="Click to filter by tag">${escapeHtml(t)}</span>`).join('');
+        const tags = (d.tags || []).slice(0, 5).map(t => `<span class="discovery-tag">${escapeHtml(t)}</span>`).join('');
         const expandHint = (isTruncated || hasDetails) ? '<span class="discovery-expand-hint">click to expand</span>' : '';
 
         return `
@@ -2169,12 +961,6 @@ function clearDiscoveryFilters() {
  * @returns {Promise<void>}
  */
 async function loadAgents() {
-    // Show skeleton loading state
-    const container = document.getElementById('agents-container');
-    if (container && container.children.length === 0) {
-        container.innerHTML = renderSkeleton('list', 5);
-    }
-
     try {
         console.log('Loading agents...');
         // Use unified agent() tool with action='list'
@@ -2263,20 +1049,27 @@ async function loadAgents() {
             ...(agentsObj.unknown || [])
         ];
 
-        // Update stats - combined agents display shows Active/Total
+        // Update stats
         document.getElementById('total-agents').textContent = total;
         document.getElementById('active-agents').textContent = active;
 
-        // Show breakdown in the change line
+        const agentsChange = formatChange(total, previousStats.totalAgents);
+        // Show breakdown: active, paused, archived, deleted, unknown
         const breakdown = [];
+        if (active > 0) breakdown.push(`${active} active`);
         if (paused > 0) breakdown.push(`${paused} paused`);
         if (archived > 0) breakdown.push(`${archived} archived`);
         if (deleted > 0) breakdown.push(`${deleted} deleted`);
         if (unknown > 0) breakdown.push(`${unknown} unknown`);
-        const changeText = total > 0
-            ? (breakdown.length > 0 ? breakdown.join(', ') : 'All active')
-            : 'Start by calling onboard()';
-        document.getElementById('agents-change').innerHTML = changeText;
+        document.getElementById('agents-change').innerHTML = agentsChange || (total > 0 ? breakdown.join(', ') || 'All agents' : 'No agents yet');
+
+        const activeChange = formatChange(active, previousStats.activeAgents);
+        // Show what's not active
+        const inactiveBreakdown = [];
+        if (paused > 0) inactiveBreakdown.push(`${paused} paused`);
+        if (archived > 0) inactiveBreakdown.push(`${archived} archived`);
+        if (deleted > 0) inactiveBreakdown.push(`${deleted} deleted`);
+        document.getElementById('active-change').innerHTML = activeChange || (total > 0 ? (inactiveBreakdown.join(', ') || 'All active') : 'Start by calling onboard()');
 
         previousStats.totalAgents = total;
         previousStats.activeAgents = active;
@@ -2351,18 +1144,12 @@ async function loadStuckAgents() {
             const count = stuck.length;
             countEl.textContent = count;
 
-            // Hide card when no stuck agents, show when there are stuck agents
-            if (count === 0) {
-                cardEl.classList.add('hidden');
-            } else {
-                cardEl.classList.remove('hidden');
-                // Style card based on severity
-                cardEl.classList.remove('stat-warning', 'stat-critical');
-                if (count > 10) {
-                    cardEl.classList.add('stat-critical');
-                } else {
-                    cardEl.classList.add('stat-warning');
-                }
+            // Style card based on count
+            cardEl.classList.remove('stat-warning', 'stat-critical');
+            if (count > 10) {
+                cardEl.classList.add('stat-critical');
+            } else if (count > 0) {
+                cardEl.classList.add('stat-warning');
             }
 
             // Show breakdown by reason
@@ -2371,10 +1158,10 @@ async function loadStuckAgents() {
             if (byReason.critical_margin_timeout > 0) parts.push(`${byReason.critical_margin_timeout} critical`);
             if (byReason.tight_margin_timeout > 0) parts.push(`${byReason.tight_margin_timeout} tight`);
             if (byReason.activity_timeout > 0) parts.push(`${byReason.activity_timeout} inactive`);
-            detailEl.innerHTML = parts.join(', ') || 'Stuck';
+            detailEl.innerHTML = count > 0 ? parts.join(', ') : 'All agents healthy';
         } else {
-            // Hide card on error too
-            cardEl.classList.add('hidden');
+            countEl.textContent = '-';
+            detailEl.innerHTML = 'Could not check';
         }
     } catch (e) {
         console.debug('Could not load stuck agents:', e);
@@ -2437,12 +1224,6 @@ async function loadSystemHealth() {
  * @returns {Promise<void>}
  */
 async function loadDiscoveries(searchQuery = '') {
-    // Show skeleton loading state
-    const discoveriesContainer = document.getElementById('discoveries-container');
-    if (discoveriesContainer && discoveriesContainer.children.length === 0) {
-        discoveriesContainer.innerHTML = renderSkeleton('list', 4);
-    }
-
     try {
         console.log('Loading discoveries...', searchQuery ? `(search: ${searchQuery})` : '');
 
@@ -2631,12 +1412,6 @@ async function loadDiscoveries(searchQuery = '') {
 let cachedDialecticSessions = [];
 
 async function loadDialecticSessions() {
-    // Show skeleton loading state
-    const dialecticContainer = document.getElementById('dialectic-container');
-    if (dialecticContainer && dialecticContainer.children.length === 0) {
-        dialecticContainer.innerHTML = renderSkeleton('list', 3);
-    }
-
     try {
         console.log('Loading dialectic sessions...');
         const result = await callTool('list_dialectic_sessions', {
@@ -3092,21 +1867,10 @@ if (dialecticContainer) {
     });
 }
 
-// Click handler for discovery items to show full details (and tag filtering)
+// Click handler for discovery items to show full details
 const discoveriesContainer = document.getElementById('discoveries-container');
 if (discoveriesContainer) {
     discoveriesContainer.addEventListener('click', (event) => {
-        // Check if a tag was clicked - filter by that tag
-        const tagEl = event.target.closest('.discovery-tag');
-        if (tagEl && tagEl.dataset.tag) {
-            const searchInput = document.getElementById('discovery-search');
-            if (searchInput) {
-                searchInput.value = tagEl.dataset.tag;
-                applyDiscoveryFilters();
-            }
-            return; // Don't open modal when clicking tag
-        }
-
         const item = event.target.closest('.discovery-item');
         if (!item) return;
         const index = parseInt(item.getAttribute('data-discovery-index'), 10);
@@ -3629,7 +2393,6 @@ if (exportDiscoveriesJson) exportDiscoveriesJson.addEventListener('click', () =>
 // ========================================
 let eisvChartUpper = null;  // E, I, Coherence
 let eisvChartLower = null;  // S, V
-let agentTrendChart = null;  // Agent detail EISV trend chart
 let eisvWebSocket = null;
 // Per-agent EISV tracking for hybrid view
 const agentEISVHistory = {}; // { agent_id: [{ts, E, I, S, V, coherence}, ...] }
@@ -4623,47 +3386,6 @@ function updateWSStatusLabel(status) {
     const titles = { connected: 'Connected via WebSocket', polling: 'Polling (WebSocket unavailable)', reconnecting: 'Reconnecting...', disconnected: 'Offline' };
     container.title = titles[status] || 'Offline';
 }
-
-// ============================================
-// Connection health check
-// ============================================
-
-/**
- * Update connection status indicator based on API health.
- */
-async function checkConnectionHealth() {
-    const statusEl = document.getElementById('ws-status');
-    if (!statusEl) return;
-
-    const dotEl = statusEl.querySelector('.ws-dot');
-    const labelEl = statusEl.querySelector('.ws-label');
-
-    try {
-        const response = await fetch('/health', {
-            method: 'GET',
-            signal: AbortSignal.timeout(5000)
-        });
-        if (response.ok) {
-            dotEl?.classList.remove('disconnected');
-            dotEl?.classList.add('connected');
-            if (labelEl) labelEl.textContent = 'Online';
-            statusEl.title = 'Connected to server';
-        } else {
-            throw new Error('Health check failed');
-        }
-    } catch (e) {
-        dotEl?.classList.remove('connected');
-        dotEl?.classList.add('disconnected');
-        if (labelEl) labelEl.textContent = 'Offline';
-        statusEl.title = 'Connection lost — retrying...';
-    }
-}
-
-// Check connection periodically
-setInterval(checkConnectionHealth, 30000);
-
-// Initial check
-checkConnectionHealth();
 
 // Patch EISV WebSocket to update status label
 if (typeof EISVWebSocket !== 'undefined') {
