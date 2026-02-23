@@ -243,10 +243,10 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
         graph = await get_knowledge_graph()
         
         # Truncate fields to prevent context overflow
-        # Summary: concise but complete thoughts (500 chars ≈ 80 words)
-        # Details: substantive content, allow more space (2000 chars ≈ 400 words)
-        MAX_SUMMARY_LEN = 500
-        MAX_DETAILS_LEN = 2000
+        # Summary: concise but complete thoughts (1000 chars ≈ 160 words)
+        # Details: substantive content, allow more space (5000 chars ≈ 800 words)
+        MAX_SUMMARY_LEN = 1000
+        MAX_DETAILS_LEN = 5000
 
         raw_summary = summary
         raw_details = arguments.get("details", "")
@@ -441,7 +441,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
         # Add truncation warning if content was truncated (v2.5.0+)
         if truncation_info:
             response["_truncated"] = truncation_info
-            response["_tip"] = "Content was truncated. For longer content, split into multiple discoveries or use details field (2000 char limit)."
+            response["_tip"] = "Content was truncated. For longer content, split into multiple discoveries or use details field (5000 char limit)."
 
         # Add human review flag if needed
         if requires_review:
@@ -1233,8 +1233,8 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
                     continue
                 
                 # Truncate fields (match single-discovery limits)
-                MAX_SUMMARY_LEN = 500
-                MAX_DETAILS_LEN = 2000
+                MAX_SUMMARY_LEN = 1000
+                MAX_DETAILS_LEN = 5000
 
                 truncated_fields = []
                 if len(summary) > MAX_SUMMARY_LEN:
@@ -1345,7 +1345,7 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
         # Check if any items were truncated (v2.5.0+)
         truncated_count = sum(1 for s in stored if "_truncated" in s)
         if truncated_count > 0:
-            response["_tip"] = f"{truncated_count} discovery(ies) had content truncated. Limits: summary=500, details=2000 chars."
+            response["_tip"] = f"{truncated_count} discovery(ies) had content truncated. Limits: summary=1000, details=5000 chars."
 
         return success_response(response, arguments=arguments)
         
