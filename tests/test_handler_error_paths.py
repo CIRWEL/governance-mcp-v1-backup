@@ -33,7 +33,7 @@ async def test_missing_required_parameters():
     print("\n=== Testing Missing Required Parameters ===")
 
     # Test process_agent_update without agent_id - now succeeds with auto-binding
-    result = await dispatch_tool("process_agent_update", {})
+    result = await dispatch_tool("process_agent_update", {"response_text": "test update"})
     assert result is not None, "Should return response"
     response_data = json.loads(result[0].text)
     # With identity_v2, this succeeds - agent_id is auto-generated
@@ -134,6 +134,7 @@ async def test_authentication_failures():
 
     # First call auto-binds an identity
     result = await dispatch_tool("process_agent_update", {
+        "response_text": "test update",
         "complexity": 0.5,
         "confidence": 0.9
     })
@@ -160,6 +161,7 @@ async def test_authentication_failures():
     # Test using the bound agent works
     result = await dispatch_tool("process_agent_update", {
         # No agent_id - uses bound identity
+        "response_text": "test update",
         "complexity": 0.5,
         "confidence": 0.9
     })

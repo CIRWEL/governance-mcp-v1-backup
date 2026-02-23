@@ -305,7 +305,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
 
-    # Check calibration DB - uses PostgreSQL when DB_BACKEND=postgres, SQLite otherwise
+    # Check calibration DB (PostgreSQL)
     try:
         from src.calibration_db import calibration_health_check_async
         info = await calibration_health_check_async()
@@ -333,9 +333,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
 
-    # Check PRIMARY database backend (PostgreSQL/SQLite/Dual) via src.db abstraction.
-    # Note: calibration_db/audit_db below are legacy SQLite indexes; this check reports
-    # the backend that migration work targets (DB_BACKEND).
+    # Check PRIMARY database backend (PostgreSQL) via src.db abstraction.
     try:
         import os
         configured = os.getenv("DB_BACKEND", "postgres").lower()
@@ -368,7 +366,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e),
         }
 
-    # Check audit DB - uses PostgreSQL when DB_BACKEND=postgres, else SQLite.
+    # Check audit DB (PostgreSQL)
     try:
         from src.audit_db import audit_health_check_async
         info = await audit_health_check_async()
@@ -444,13 +442,13 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
 
-    # Check knowledge graph backend (SQLite or JSON) - best effort, kept lightweight.
+    # Check knowledge graph backend (AGE or PostgreSQL FTS) - best effort, kept lightweight.
     try:
         from src.knowledge_graph import get_knowledge_graph
         graph = await get_knowledge_graph()
         backend_name = type(graph).__name__
 
-        # If SQLite backend is active, run its self-check (already offloaded to a thread).
+        # Run backend self-check if available.
         if hasattr(graph, "health_check"):
             kg_info = await graph.health_check()
         else:
@@ -468,8 +466,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
 
-    # Agent metadata - PostgreSQL is the canonical backend via agent_storage module.
-    # Legacy SQLite/JSON backends are deprecated and will be removed.
+    # Agent metadata - PostgreSQL via agent_storage module.
     checks["agent_metadata"] = {
         "status": "healthy",
         "backend": "postgres",
@@ -1292,7 +1289,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         ],
         "recovery": [
             "dialectic",  # View dialectic sessions (action=get/list)
-            "direct_resume_if_safe"  # Resume if state is safe
+            "self_recovery"  # Resume if state is safe
         ],
         "export_analysis": [
             "get_system_history",
@@ -1321,7 +1318,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         "delete_agent": "🗑️ Delete agent (protected for pioneers)",
         "archive_old_test_agents": "🧹 Auto-archive stale test agents",
         "mark_response_complete": "✅ Mark agent as having completed response, waiting for input",
-        "direct_resume_if_safe": "▶️ Direct resume without dialectic if agent state is safe",
+        "self_recovery": "▶️ Self-recovery: use action='quick' for safe states, action='review' for full recovery with reflection",
         "get_system_history": "📜 Export time-series history (inline)",
         "export_to_file": "💾 Export history to JSON/CSV file",
         "reset_monitor": "🔄 Reset agent state",
@@ -1677,7 +1674,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             "lifecycle": {
                 "name": "👥 Agent Lifecycle",
                 "description": "Manage agents, view metadata, and handle agent states",
-                "tools": ["list_agents", "get_agent_metadata", "update_agent_metadata", "archive_agent", "delete_agent", "archive_old_test_agents", "mark_response_complete", "direct_resume_if_safe"],
+                "tools": ["list_agents", "get_agent_metadata", "update_agent_metadata", "archive_agent", "delete_agent", "archive_old_test_agents", "mark_response_complete", "self_recovery"],
                 "priority": 3,
                 "for_new_agents": False
             },

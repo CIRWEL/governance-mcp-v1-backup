@@ -182,7 +182,7 @@ def check_agent_can_operate(agent_uuid: str) -> Optional[TextContent]:
                 "status": "paused",
             },
             recovery={
-                "action": "Use self_recovery(action='resume') to request recovery",
+                "action": "Use self_recovery(action='quick') or self_recovery(action='review', reflection='...') to request recovery",
                 "note": "Circuit breaker triggered due to governance threshold violation",
                 "alternative": "Wait for auto-dialectic recovery to complete",
             }

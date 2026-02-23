@@ -278,9 +278,9 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
             synthesis_round=session.synthesis_round,
             paused_agent_state=paused_agent_state,
         )
-        logger.info(f"Dialectic session {session.session_id} persisted to SQLite")
+        logger.info(f"Dialectic session {session.session_id} persisted to PostgreSQL")
     except Exception as e:
-        logger.error(f"SQLite dialectic session create FAILED: {e}")
+        logger.error(f"Dialectic session create FAILED: {e}")
         return [error_response(
             f"Failed to persist dialectic session: {e}",
             error_code="DB_WRITE_FAILED",
@@ -320,7 +320,7 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
 
     Dialectic protocol is now archived - this tool views past sessions only.
     For current state, use get_governance_metrics.
-    For recovery, use direct_resume_if_safe.
+    For recovery, use self_recovery(action='quick').
 
     Args:
         session_id: Dialectic session ID (optional if agent_id provided)
@@ -367,12 +367,12 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                         reasoning=f"Session auto-failed: {timeout_reason}"
                     )
                     session.transcript.append(timeout_msg)
-                    # Persist to SQLite
+                    # Persist to PostgreSQL
                     try:
                         await pg_add_message(session_id, timeout_msg.to_dict())
                         await pg_update_phase(session_id, "failed")
                     except Exception as e:
-                        logger.error(f"Failed to persist timeout to SQLite: {e}")
+                        logger.error(f"Failed to persist timeout to PostgreSQL: {e}")
                     # QUICK WIN B: Improved error message with actionable guidance
                     return success_response({
                         "success": False,
@@ -383,14 +383,14 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                             "what_happened": timeout_reason,
                             "what_you_can_do": [
                                 "1. Check your state with get_governance_metrics",
-                                "2. Use direct_resume_if_safe if you believe you can proceed safely",
+                                "2. Use self_recovery(action='quick') if you believe you can proceed safely",
                                 "3. Leave a note about what happened with leave_note"
                             ],
-                            "related_tools": ["get_governance_metrics", "direct_resume_if_safe", "leave_note"],
+                            "related_tools": ["get_governance_metrics", "self_recovery", "leave_note"],
                             "note": "Historical session - dialectic is now archived"
                         }
                     })
-                
+
                 # Check if reviewer is stuck
                 if await check_reviewer_stuck(session):
                     session.phase = DialecticPhase.FAILED
@@ -401,12 +401,12 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                         reasoning="Reviewer stuck - session aborted"
                     )
                     session.transcript.append(stuck_msg)
-                    # Persist to SQLite
+                    # Persist to PostgreSQL
                     try:
                         await pg_add_message(session_id, stuck_msg.to_dict())
                         await pg_update_phase(session_id, "failed")
                     except Exception as e:
-                        logger.error(f"Failed to persist reviewer stuck to SQLite: {e}")
+                        logger.error(f"Failed to persist reviewer stuck to PostgreSQL: {e}")
                     # QUICK WIN B: Improved error message with actionable guidance
                     return success_response({
                         "success": False,
@@ -417,14 +417,14 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                             "what_happened": f"Reviewer '{session.reviewer_agent_id}' was assigned but didn't submit antithesis within 30 minutes",
                             "what_you_can_do": [
                                 "1. Check your state with get_governance_metrics",
-                                "2. Use direct_resume_if_safe if you believe you can proceed safely",
+                                "2. Use self_recovery(action='quick') if you believe you can proceed safely",
                                 "3. Leave a note about what happened with leave_note"
                             ],
-                            "related_tools": ["get_governance_metrics", "direct_resume_if_safe", "leave_note"],
+                            "related_tools": ["get_governance_metrics", "self_recovery", "leave_note"],
                             "note": "Historical session - dialectic is now archived"
                         }
                     })
-            
+
             result = session.to_dict()
             result["success"] = True
             return success_response(result)
@@ -490,7 +490,7 @@ async def handle_get_dialectic_session(arguments: Dict[str, Any]) -> Sequence[Te
                     recovery={
                         "action": "No historical sessions. This tool views past dialectic sessions (now archived).",
                         "related_tools": ["get_governance_metrics", "search_knowledge_graph"],
-                        "note": "For current state, use get_governance_metrics. For recovery, use direct_resume_if_safe."
+                        "note": "For current state, use get_governance_metrics. For recovery, use self_recovery(action='quick')."
                     }
                 )]
             
@@ -668,7 +668,7 @@ async def handle_submit_thesis(arguments: Dict[str, Any]) -> Sequence[TextConten
         if result["success"]:
             result["next_step"] = f"Reviewer '{session.reviewer_agent_id}' should submit antithesis"
 
-            # Persist to SQLite
+            # Persist to PostgreSQL
             try:
                 await pg_add_message(
                     session_id=session_id,
@@ -680,7 +680,7 @@ async def handle_submit_thesis(arguments: Dict[str, Any]) -> Sequence[TextConten
                 )
                 await pg_update_phase(session_id, session.phase.value)
             except Exception as e:
-                logger.warning(f"Could not update SQLite after thesis: {e}")
+                logger.warning(f"Could not update PostgreSQL after thesis: {e}")
 
             # Persist to JSON (export snapshot)
             try:
@@ -764,7 +764,7 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
         if result["success"]:
             result["next_step"] = "Both agents should negotiate via submit_synthesis() until convergence"
 
-            # Persist to SQLite
+            # Persist to PostgreSQL
             try:
                 await pg_add_message(
                     session_id=session_id,
@@ -776,7 +776,7 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
                 )
                 await pg_update_phase(session_id, session.phase.value)
             except Exception as e:
-                logger.warning(f"Could not update SQLite after antithesis: {e}")
+                logger.warning(f"Could not update PostgreSQL after antithesis: {e}")
 
             # Persist to JSON
             try:
@@ -860,7 +860,7 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
         result = session.submit_synthesis(message, api_key)
 
         if result.get("success"):
-            # Persist to SQLite
+            # Persist to PostgreSQL
             try:
                 await pg_add_message(
                     session_id=session_id,
@@ -873,7 +873,7 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
                 )
                 await pg_update_phase(session_id, session.phase.value)
             except Exception as e:
-                logger.warning(f"Could not update SQLite after synthesis: {e}")
+                logger.warning(f"Could not update PostgreSQL after synthesis: {e}")
 
             # Persist to JSON
             try:
@@ -911,7 +911,7 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
                 try:
                     await pg_resolve_session(session_id=session_id, resolution={"action": "block", "reason": violation}, status="failed")
                 except Exception as e:
-                    logger.warning(f"Could not resolve session in SQLite: {e}")
+                    logger.warning(f"Could not resolve session in PostgreSQL: {e}")
             else:
                 result["action"] = "resume"
                 result["resolution"] = resolution.to_dict()
@@ -933,7 +933,7 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
                 try:
                     await pg_resolve_session(session_id=session_id, resolution=resolution.to_dict(), status="resolved")
                 except Exception as e:
-                    logger.warning(f"Could not resolve session in SQLite: {e}")
+                    logger.warning(f"Could not resolve session in PostgreSQL: {e}")
 
             await save_session(session)
 

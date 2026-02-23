@@ -542,10 +542,6 @@ METADATA_FILE = Path(project_root) / "data" / "agent_metadata.json"
 # JSON snapshot writing is disabled by default.
 # To enable JSON snapshots for debugging: UNITARES_METADATA_WRITE_JSON_SNAPSHOT=1
 UNITARES_METADATA_BACKEND = os.getenv("UNITARES_METADATA_BACKEND", "postgres").strip().lower()  # json|postgres|auto
-# Metadata DB path - uses consolidated governance.db
-UNITARES_METADATA_DB_PATH = Path(
-    os.getenv("UNITARES_METADATA_DB_PATH", str(Path(project_root) / "data" / "governance.db"))
-)
 # JSON snapshots disabled by default (PostgreSQL is canonical). Set to "1" to enable for debugging.
 UNITARES_METADATA_WRITE_JSON_SNAPSHOT = os.getenv("UNITARES_METADATA_WRITE_JSON_SNAPSHOT", "0").strip().lower() in (
     "1",
@@ -602,7 +598,7 @@ async def _load_metadata_from_postgres_async() -> dict:
     """
     Load agent metadata from PostgreSQL into AgentMetadata dict.
 
-    This is the PostgreSQL-native loading path that replaces SQLite/JSON.
+    PostgreSQL-native loading path for agent metadata.
     Returns dict of agent_id -> AgentMetadata.
     """
     from src import agent_storage
@@ -662,35 +658,6 @@ async def _load_metadata_from_postgres_async() -> dict:
 
     return result
 
-
-def _load_metadata_from_postgres_sync() -> None:
-    """
-    Synchronous wrapper to load metadata from PostgreSQL.
-
-    Runs the async function in a new event loop, avoiding conflicts with
-    existing connection pools by using asyncio.run_coroutine_threadsafe
-    or creating a fresh isolated loop.
-    """
-    global agent_metadata
-    import asyncio
-
-    try:
-        # Try to get existing loop
-        loop = asyncio.get_running_loop()
-        # If we're in an async context, we MUST NOT use asyncio.run() as it
-        # creates a new loop and conflicts with existing connection pools.
-        # Instead, schedule the coroutine on the existing loop using
-        # run_coroutine_threadsafe
-        future = asyncio.run_coroutine_threadsafe(
-            _load_metadata_from_postgres_async(),
-            loop
-        )
-        result = future.result(timeout=30)
-        agent_metadata = result
-    except RuntimeError:
-        # No running loop - we can use asyncio.run directly
-        result = asyncio.run(_load_metadata_from_postgres_async())
-        agent_metadata = result
 
 
 # State file path template (per-agent) - used for JSON backend
@@ -827,6 +794,8 @@ async def load_metadata_async(force: bool = False) -> None:
     # PostgreSQL is the sole backend
     try:
         result = await _load_metadata_from_postgres_async()
+        # PostgreSQL is the single source of truth for total_updates (atomic increment).
+        # No merge logic needed — just replace the in-memory cache wholesale.
         agent_metadata = result
         _metadata_cache_state["last_load_time"] = time.time()
         _metadata_cache_state["dirty"] = False
@@ -870,101 +839,24 @@ def ensure_metadata_loaded() -> None:
         _metadata_loading = True
         
         try:
-            # Load metadata synchronously (with timeout protection)
-            # This is fallback - background load should handle most cases
-            logger.info("Lazy loading metadata (background load may have failed)")
-            _load_metadata_from_postgres_sync()
-            _metadata_loaded = True
-            logger.info(f"Lazy metadata load complete: {len(agent_metadata)} agents")
-        except Exception as e:
-            logger.warning(f"Lazy metadata load failed: {e}. Continuing with empty metadata.")
-            # Continue with empty dict - tools will handle gracefully
-            _metadata_loaded = False  # Allow retry on next access
+            # Schedule async metadata load on the main event loop.
+            # Sync loading via _load_metadata_from_postgres_sync() is broken with
+            # PostgreSQL (causes "Future attached to a different loop" errors).
+            # The background startup task should have loaded metadata already;
+            # this is just a safety net for the rare case it hasn't.
+            try:
+                loop = asyncio.get_running_loop()
+                # Schedule on the main loop — will complete asynchronously
+                asyncio.run_coroutine_threadsafe(load_metadata_async(), loop)
+                logger.info("Scheduled async metadata load from ensure_metadata_loaded()")
+            except RuntimeError:
+                # No running loop (shouldn't happen in normal server operation)
+                logger.warning("No running event loop for metadata load — metadata will be empty until async load completes")
+            # Don't mark as loaded yet — the async task will set _metadata_loaded when done
+            _metadata_loaded = False
         finally:
             _metadata_loading = False
 
-
-def ensure_metadata_loaded() -> None:
-    """
-    Ensure metadata is loaded (lazy load if needed).
-    
-    This is a safety net for cases where metadata hasn't been loaded yet.
-    Background loading during server startup should handle most cases,
-    but this ensures eventual consistency if background load fails.
-    
-    Thread-safe: Uses lock to prevent concurrent loads.
-    """
-    global agent_metadata, _metadata_loading, _metadata_loaded
-    
-    # Fast path: already loaded
-    if _metadata_loaded:
-        return
-    
-    # Acquire lock to prevent concurrent loads
-    with _metadata_loading_lock:
-        # Double-check after acquiring lock
-        if _metadata_loaded:
-            return
-        
-        # Check if another thread is loading
-        if _metadata_loading:
-            # Another thread is loading - wait briefly or return
-            # (Background load should complete quickly)
-            logger.debug("Metadata loading in progress by another thread, skipping lazy load")
-            return
-        
-        # Mark as loading
-        _metadata_loading = True
-        
-        try:
-            # Load metadata synchronously (with timeout protection)
-            # This is fallback - background load should handle most cases
-            logger.info("Lazy loading metadata (background load may have failed)")
-            _load_metadata_from_postgres_sync()
-            _metadata_loaded = True
-            logger.info(f"Lazy metadata load complete: {len(agent_metadata)} agents")
-        except Exception as e:
-            logger.warning(f"Lazy metadata load failed: {e}. Continuing with empty metadata.")
-            # Continue with empty dict - tools will handle gracefully
-            _metadata_loaded = False  # Allow retry on next access
-        finally:
-            _metadata_loading = False
-
-
-def _load_metadata_sync_only() -> None:
-    """
-    Synchronous metadata loading for SQLite/JSON backends only.
-    For PostgreSQL, use load_metadata_async() instead.
-    """
-    global agent_metadata
-
-    backend = _resolve_metadata_backend()
-
-    # JSON backend fallback (legacy)
-    lock_fd = None
-    lock_acquired = False
-    try:
-        lock_fd, lock_acquired = _acquire_metadata_lock(write=False, timeout=5.0)
-        if METADATA_FILE.exists():
-            with open(METADATA_FILE, "r") as f:
-                data = json.load(f)
-            agent_metadata = _parse_metadata_dict(data)
-            _metadata_cache_state["last_load_time"] = time.time()
-            try:
-                _metadata_cache_state["last_file_mtime"] = METADATA_FILE.stat().st_mtime
-            except:
-                pass
-            _metadata_cache_state["dirty"] = False
-        else:
-            # No metadata file yet - start with empty dict
-            agent_metadata = {}
-    finally:
-        if lock_fd:
-            try:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                os.close(lock_fd)
-            except:
-                pass
 
 
 def load_metadata() -> None:
@@ -990,208 +882,6 @@ def load_metadata() -> None:
         return
     # PostgreSQL backend requires async loading - raise error if sync is called
     raise RuntimeError("PostgreSQL backend requires async load_metadata_async(). Sync load_metadata() is not supported.")
-
-
-async def schedule_metadata_save(force: bool = False) -> None:
-    """
-    DEPRECATED: No-op function. PostgreSQL is now the single source of truth.
-
-    As of v2.4.0, all persistence goes through agent_storage module to PostgreSQL.
-    This function is kept for backwards compatibility with callers that haven't
-    been updated yet.
-
-    Args:
-        force: Ignored - no persistence occurs
-    """
-    # No-op - PostgreSQL writes happen directly via agent_storage
-    pass
-
-
-async def _batched_metadata_save() -> None:
-    """DEPRECATED: No-op. PostgreSQL is now the single source of truth."""
-    pass
-
-
-async def flush_metadata_save() -> None:
-    """DEPRECATED: No-op. PostgreSQL is now the single source of truth."""
-    pass
-
-
-def _schedule_metadata_save_sync(force: bool = False) -> None:
-    """DEPRECATED: No-op. PostgreSQL is now the single source of truth."""
-    pass
-
-
-async def save_metadata_async() -> None:
-    """DEPRECATED: No-op. PostgreSQL is now the single source of truth."""
-    pass
-
-def save_metadata() -> None:
-    """
-    DEPRECATED: No-op function. PostgreSQL is now the single source of truth.
-
-    As of v2.4.0, all persistence goes through agent_storage module to PostgreSQL.
-    This function is kept for backwards compatibility with callers that haven't
-    been updated yet.
-    """
-    # No-op - PostgreSQL writes happen directly via agent_storage
-    pass
-
-
-def _legacy_save_metadata() -> None:
-    """
-    Legacy save_metadata implementation - kept for reference only.
-    NOT CALLED - all persistence now goes through agent_storage.
-    """
-    METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Use a global metadata lock to prevent concurrent writes
-    # This is separate from per-agent locks and protects the shared metadata file
-    metadata_lock_file = METADATA_FILE.parent / ".metadata.lock"
-    
-    try:
-        # Acquire exclusive lock on metadata file with timeout (prevents hangs)
-        lock_fd = None
-        try:
-            lock_fd = os.open(str(metadata_lock_file), os.O_CREAT | os.O_RDWR)
-        except (OSError, IOError) as open_error:
-            logger.warning(f"Could not open metadata lock file: {open_error}", exc_info=True)
-            # Fallback: try without lock (not ideal but better than failing silently)
-            with open(METADATA_FILE, 'w') as f:
-                data = {
-                    agent_id: meta.to_dict()
-                    for agent_id, meta in sorted(agent_metadata.items())
-                    if isinstance(meta, AgentMetadata)
-                }
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            return
-        
-        lock_acquired = False
-        start_time = time.time()
-        timeout = 5.0  # 5 second timeout (same as agent lock)
-
-        try:
-            # Try to acquire lock with timeout (non-blocking)
-            while time.time() - start_time < timeout:
-                try:
-                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    lock_acquired = True
-                    break
-                except IOError:
-                    # Lock held by another process, wait and retry
-                    time.sleep(0.1)
-
-            if not lock_acquired:
-                # Timeout reached - log warning but use fallback
-                logger.warning(f"Metadata lock timeout ({timeout}s)")
-                raise TimeoutError("Metadata lock timeout")
-
-            # Reload metadata to get latest state from disk (in case another process updated it)
-            # Then merge with our in-memory changes (in-memory takes precedence)
-            merged_metadata = {}
-            if METADATA_FILE.exists():
-                try:
-                    with open(METADATA_FILE, 'r') as f:
-                        existing_data = json.load(f)
-                        # Start with what's on disk
-                        for agent_id, meta_dict in existing_data.items():
-                            # FIXED: Validate meta_dict is actually a dict before creating AgentMetadata
-                            # Prevents strings from being stored in agent_metadata
-                            if isinstance(meta_dict, dict):
-                                try:
-                                    merged_metadata[agent_id] = AgentMetadata(**meta_dict)
-                                except (TypeError, KeyError) as e:
-                                    # Invalid metadata structure - skip this agent
-                                    logger.warning(f"Invalid metadata for {agent_id}: {e}", exc_info=True)
-                                    continue
-                            else:
-                                # meta_dict is not a dict (could be string from corrupted file)
-                                logger.warning(f"Metadata for {agent_id} is not a dict (type: {type(meta_dict).__name__}), skipping")
-                                continue
-                except (json.JSONDecodeError, KeyError, TypeError) as e:
-                    # If file is corrupted, start fresh
-                    logger.warning(f"Could not load metadata file: {e}", exc_info=True)
-                    pass
-            
-            # Overwrite with in-memory state (our changes take precedence)
-            # FIXED: Validate that in-memory entries are AgentMetadata objects, not strings
-            for agent_id, meta in agent_metadata.items():
-                if isinstance(meta, AgentMetadata):
-                    # Validate consistency before saving
-                    is_valid, errors = meta.validate_consistency()
-                    if not is_valid:
-                        logger.warning(
-                            f"Metadata consistency validation failed for agent '{agent_id}': {errors}. "
-                            f"Fixing inconsistencies..."
-                        )
-                        # Auto-fix: Ensure arrays match
-                        if len(meta.recent_update_timestamps) != len(meta.recent_decisions):
-                            # Truncate longer array to match shorter one (data loss, but prevents corruption)
-                            min_len = min(len(meta.recent_update_timestamps), len(meta.recent_decisions))
-                            meta.recent_update_timestamps = meta.recent_update_timestamps[:min_len]
-                            meta.recent_decisions = meta.recent_decisions[:min_len]
-                            logger.info(f"Fixed array length mismatch for '{agent_id}' (truncated to {min_len} entries)")
-                        
-                        # Auto-fix: If total_updates doesn't match arrays (and arrays aren't capped), adjust
-                        if meta.total_updates <= 10 and len(meta.recent_update_timestamps) != meta.total_updates:
-                            # Set total_updates to match actual tracked updates
-                            meta.total_updates = len(meta.recent_update_timestamps)
-                            logger.info(f"Fixed total_updates mismatch for '{agent_id}' (set to {meta.total_updates})")
-                    
-                    merged_metadata[agent_id] = meta
-                else:
-                    # Invalid type in memory - log warning but skip (don't overwrite valid disk data)
-                    logger.warning(f"In-memory metadata for {agent_id} is not AgentMetadata (type: {type(meta).__name__}), skipping")
-                    # If not in merged_metadata from disk, create fresh entry
-                    if agent_id not in merged_metadata:
-                        logger.info(f"Creating fresh metadata for {agent_id} due to invalid in-memory state")
-                        merged_metadata[agent_id] = get_or_create_metadata(agent_id)
-            
-            # Write merged state
-            with open(METADATA_FILE, 'w') as f:
-                # Sort by agent_id for consistent file output
-                data = {
-                    agent_id: meta.to_dict()
-                    for agent_id, meta in sorted(merged_metadata.items())
-                }
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())  # Ensure written to disk
-            
-            # Update in-memory state with merged result (includes any new agents from disk)
-            agent_metadata.update(merged_metadata)
-
-            # Update cache state after successful write
-            _metadata_cache_state["last_load_time"] = time.time()
-            _metadata_cache_state["last_file_mtime"] = METADATA_FILE.stat().st_mtime
-            _metadata_cache_state["dirty"] = False
-
-        finally:
-            if lock_fd is not None:
-                try:
-                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                except (IOError, OSError):
-                    pass
-                try:
-                    os.close(lock_fd)
-                except (OSError, ValueError):
-                    pass
-    except Exception as e:
-        logger.warning(f"Could not acquire metadata lock: {e}", exc_info=True)
-        # Fallback: try without lock (not ideal but better than failing silently)
-        with open(METADATA_FILE, 'w') as f:
-            data = {
-                agent_id: meta.to_dict()
-                for agent_id, meta in sorted(agent_metadata.items())
-            }
-            json.dump(data, f, indent=2)
-
-        # Update cache state after fallback write
-        _metadata_cache_state["last_load_time"] = time.time()
-        _metadata_cache_state["last_file_mtime"] = METADATA_FILE.stat().st_mtime
-        _metadata_cache_state["dirty"] = False
 
 
 def get_or_create_metadata(agent_id: str, **kwargs) -> AgentMetadata:
@@ -2495,9 +2185,9 @@ async def process_update_authenticated_async(
         # Include recovery tool suggestions in error message
         recovery_tools = []
         if cooldown_seconds <= 5:
-            recovery_tools.append("direct_resume_if_safe (if state is safe)")
+            recovery_tools.append("self_recovery(action='quick') (if state is safe)")
         else:
-            recovery_tools.append("direct_resume_if_safe (if state is safe)")
+            recovery_tools.append("self_recovery(action='quick') (if state is safe)")
             recovery_tools.append("request_dialectic_review (for peer assistance)")
         
         recovery_guidance = (
@@ -2535,38 +2225,37 @@ async def process_update_authenticated_async(
 
     # Auto-save state if requested (async)
     if auto_save:
-        await save_monitor_state_async(agent_id, monitor)
-
-        # Update metadata
-        meta = agent_metadata[agent_id]
-        now = datetime.now().isoformat()
-        meta.last_update = now
-        meta.total_updates += 1
-        
-        # Track recent updates for loop detection (keep last 10)
         decision_action = result.get('decision', {}).get('action', 'unknown')
-        meta.recent_update_timestamps.append(now)
-        meta.recent_decisions.append(decision_action)
-        
-        # Keep only last 10 entries
-        if len(meta.recent_update_timestamps) > 10:
-            meta.recent_update_timestamps = meta.recent_update_timestamps[-10:]
-            meta.recent_decisions = meta.recent_decisions[-10:]
+        now = datetime.now().isoformat()
 
-        # Persist counters to PostgreSQL every 50 updates (reduces DB pressure for
-        # high-frequency agents like Lumen that check in every ~4 seconds).
-        # Worst case: lose up to 50 counts on crash — negligible at thousands of updates.
-        if meta.total_updates % 50 == 0 or meta.total_updates <= 5:
-            try:
-                from src import agent_storage
-                db = agent_storage.get_db()
-                await db.update_identity_metadata(agent_id, {
-                    "total_updates": meta.total_updates,
-                    "recent_update_timestamps": meta.recent_update_timestamps,
-                    "recent_decisions": meta.recent_decisions,
-                }, merge=True)
-            except Exception as e:
-                logger.warning(f"Failed to persist update counters for {agent_id[:8]}... (update #{meta.total_updates}): {e}")
+        # Update in-memory metadata (for loop detection and runtime access)
+        meta = agent_metadata.get(agent_id)
+        if meta is not None:
+            meta.last_update = now
+            meta.recent_update_timestamps.append(now)
+            meta.recent_decisions.append(decision_action)
+            if len(meta.recent_update_timestamps) > 10:
+                meta.recent_update_timestamps = meta.recent_update_timestamps[-10:]
+                meta.recent_decisions = meta.recent_decisions[-10:]
+
+        # Atomically increment total_updates in PostgreSQL.
+        # This is the single source of truth — no in-memory counter, no batch
+        # sync, no merge logic. One atomic SQL operation per update.
+        try:
+            from src import agent_storage
+            db = agent_storage.get_db()
+            new_count = await db.increment_update_count(agent_id, extra_metadata={
+                "recent_update_timestamps": meta.recent_update_timestamps if meta else [now],
+                "recent_decisions": meta.recent_decisions if meta else [decision_action],
+            })
+            # Sync in-memory cache with DB truth
+            if meta is not None:
+                meta.total_updates = new_count
+        except Exception as e:
+            logger.warning(f"Failed to increment update count for {agent_id[:8]}...: {e}")
+            # Fallback: increment in-memory only (will be persisted on next success)
+            if meta is not None:
+                meta.total_updates += 1
 
         # Enforce pause decisions (circuit breaker)
         # SELF-GOVERNANCE: When paused, automatically initiate dialectic recovery
@@ -2577,7 +2266,7 @@ async def process_update_authenticated_async(
             decision_reason = result.get('decision', {}).get('reason', 'Circuit breaker triggered')
             meta.add_lifecycle_event("paused", decision_reason)
             logger.warning(f"⚠️  Circuit breaker triggered for agent '{agent_id}': {decision_reason}")
-            
+
             # SELF-GOVERNANCE: Auto-initiate dialectic recovery (non-blocking)
             # This removes the human bottleneck - agents self-recover via peer review
             try:
@@ -2589,15 +2278,15 @@ async def process_update_authenticated_async(
                     result["auto_recovery_note"] = "Dialectic recovery auto-initiated (self-governance mode)"
             except Exception as e:
                 logger.warning(f"Could not auto-initiate dialectic recovery: {e}")
-        
+
         # Clear cooldown if it has passed
         if meta.loop_cooldown_until:
             cooldown_until = datetime.fromisoformat(meta.loop_cooldown_until)
             if datetime.now() >= cooldown_until:
                 meta.loop_cooldown_until = None
-        
-        # Save metadata in executor to avoid blocking (critical for identity/lifecycle data)
-        await loop.run_in_executor(None, save_metadata)
+
+        # Save monitor state to disk (async — can be cancelled without losing counter)
+        await save_monitor_state_async(agent_id, monitor)
 
     return result
 
@@ -3078,9 +2767,12 @@ async def main():
         await asyncio.sleep(0.5)
         
         try:
-            # Load metadata in background (non-blocking)
-            loop = asyncio.get_running_loop()  # Use get_running_loop() instead of deprecated get_event_loop()
-            await loop.run_in_executor(None, load_metadata)
+            # Load metadata from PostgreSQL (async — we're already in an async context).
+            # CRITICAL FIX: Previously used `run_in_executor(None, load_metadata)` which
+            # called the sync version. The sync version raises RuntimeError because
+            # PostgreSQL requires async loading. This left agent_metadata empty forever,
+            # causing total_updates to reset to 0 on every check-in.
+            await load_metadata_async()
         except Exception as e:
             logger.warning(f"Could not load metadata in background: {e}", exc_info=True)
         
@@ -3150,14 +2842,13 @@ async def main():
             logger.warning(f"Could not load dialectic sessions: {e}", exc_info=True)
 
         try:
-            # Run dialectic data consolidation to ensure JSON backups exist for all SQLite sessions
-            # This prevents data loss by maintaining dual storage
+            # Run dialectic data consolidation to ensure JSON backups exist for all PostgreSQL sessions
             from src.mcp_handlers.dialectic_session import run_startup_consolidation
             consolidation_result = await run_startup_consolidation()
             if consolidation_result.get('exported', 0) > 0:
                 logger.info(f"Dialectic consolidation: exported {consolidation_result['exported']} sessions to JSON backup")
             if consolidation_result.get('synced', 0) > 0:
-                logger.info(f"Dialectic consolidation: synced {consolidation_result['synced']} sessions from JSON to SQLite")
+                logger.info(f"Dialectic consolidation: synced {consolidation_result['synced']} sessions from JSON to PostgreSQL")
         except Exception as e:
             logger.warning(f"Could not run dialectic consolidation: {e}", exc_info=True)
     

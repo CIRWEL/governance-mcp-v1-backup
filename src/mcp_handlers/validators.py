@@ -1018,6 +1018,16 @@ def validate_response_text(value: Any, max_length: int = 50000) -> Tuple[Optiona
     if value is None:
         return "", None  # Empty string if None
 
+    if isinstance(value, str) and not value.strip():
+        return None, error_response(
+            "response_text cannot be empty. Provide a brief summary of what you did.",
+            details={"error_type": "empty_value", "param_name": "response_text"},
+            recovery={
+                "action": "Provide a non-empty response_text describing your work",
+                "example": 'process_agent_update(response_text="Completed code review", complexity=0.5)',
+            }
+        )
+
     if not isinstance(value, str):
         return None, error_response(
             f"Invalid response_text: must be a string, got {type(value).__name__}",

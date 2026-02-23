@@ -126,7 +126,6 @@ def _check_display_name_required(agent_id: str, arguments: Dict[str, Any]) -> tu
             try:
                 meta.label = auto_name
                 meta.display_name = auto_name
-                mcp_server.save_metadata()  # Persist for future use
             except Exception as e:
                 logger.debug(f"Could not save auto-generated display_name: {e}")
 
@@ -239,17 +238,16 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
     
     try:
         # SECURITY: Rate limiting is handled by the knowledge graph backend
-        # JSON backend uses efficient timestamp tracking (O(1) per store)
-        # SQLite backend uses dedicated rate_limits table (O(1) per store)
+        # Backend handles rate limiting internally (O(1) per store)
         # No need for inefficient O(n) query here - let graph handle it
         graph = await get_knowledge_graph()
         
         # Truncate fields to prevent context overflow
-        # Summary: brief identifier, keep short
+        # Summary: concise but complete thoughts (500 chars ≈ 80 words)
         # Details: substantive content, allow more space (2000 chars ≈ 400 words)
-        MAX_SUMMARY_LEN = 300
+        MAX_SUMMARY_LEN = 500
         MAX_DETAILS_LEN = 2000
-        
+
         raw_summary = summary
         raw_details = arguments.get("details", "")
 
@@ -258,7 +256,20 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
 
         if len(raw_summary) > MAX_SUMMARY_LEN:
             truncation_info["summary"] = f"Truncated from {len(raw_summary)} to {MAX_SUMMARY_LEN} chars"
-            summary = raw_summary[:MAX_SUMMARY_LEN] + "..."
+            # Try to cut at sentence boundary, else word boundary
+            truncated = raw_summary[:MAX_SUMMARY_LEN]
+            # Look for last sentence end in final 100 chars
+            for end_char in ['. ', '! ', '? ']:
+                last_end = truncated.rfind(end_char, MAX_SUMMARY_LEN - 100)
+                if last_end > 0:
+                    truncated = truncated[:last_end + 1]
+                    break
+            else:
+                # No sentence boundary, cut at word
+                last_space = truncated.rfind(' ')
+                if last_space > MAX_SUMMARY_LEN - 50:
+                    truncated = truncated[:last_space]
+            summary = truncated.rstrip() + "..."
 
         if len(raw_details) > MAX_DETAILS_LEN:
             truncation_info["details"] = f"Truncated from {len(raw_details)} to {MAX_DETAILS_LEN} chars"
@@ -461,7 +472,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
 
 @mcp_tool("search_knowledge_graph", timeout=15.0, rate_limit_exempt=True)
 async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Search knowledge graph (indexed filters; optional FTS query when SQLite backend is active).
+    """Search knowledge graph (indexed filters; optional FTS query).
 
     Use include_provenance=True to get provenance and lineage chain for each discovery.
     """
@@ -479,7 +490,7 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
         # When enabled, uses Ollama to summarize key patterns from multiple discoveries
         synthesize = arguments.get("synthesize", False)
 
-        # Optional full-text query (SQLite FTS5 if available; bounded substring scan fallback for JSON backend)
+        # Optional full-text query (PostgreSQL FTS or AGE)
         # Accept both "query" and "text" as parameter names for better UX
         query_text = arguments.get("query") or arguments.get("text")
         agent_id = arguments.get("agent_id")
@@ -507,9 +518,10 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
                 # User explicitly chose - respect their choice
                 use_semantic = explicit_semantic and has_semantic
             else:
-                # Auto-detect: use semantic for multi-word queries when available
-                query_words = len(str(query_text).split())
-                use_semantic = has_semantic and query_words >= 2
+                # Auto-detect: use semantic search when available for any text query
+                # Single-word queries benefit from semantic search too (substring_scan
+                # is limited to 50 recent entries and misses most results)
+                use_semantic = has_semantic
             
             if use_semantic:
                 # Semantic search using vector embeddings
@@ -578,17 +590,19 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
             fields_searched = ["summary", "details", "tags"]
         else:
             # Indexed filter query (fast)
+            # Push exclude_archived into the query so LIMIT applies after filtering.
+            # Without this, LIMIT grabs N most recent (mostly archived junk), then
+            # post-hoc filtering removes them, returning far fewer than N results.
+            should_exclude_archived = not status and not include_archived
             results = await graph.query(
                 agent_id=agent_id,
                 tags=tags,
                 type=dtype,
                 severity=severity,
                 status=status,
-                limit=limit
+                limit=limit,
+                exclude_archived=should_exclude_archived,
             )
-            # Exclude archived entries by default (unless status filter or include_archived)
-            if not status and not include_archived:
-                results = [d for d in results if d.status != "archived"]
             search_mode = "indexed_filters"
             operator_used = "N/A"  # No text search, just filters
             fields_searched = []
@@ -1189,8 +1203,7 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
         graph = await get_knowledge_graph()
         
         # SECURITY: Rate limiting is handled by the knowledge graph backend per-discovery
-        # JSON backend uses efficient timestamp tracking (O(1) per store)
-        # SQLite backend uses dedicated rate_limits table (O(1) per store)
+        # Backend handles rate limiting internally (O(1) per store)
         # No need for inefficient O(n) query here - let graph handle it per-discovery
         
         # Process each discovery with graceful error handling
@@ -1220,13 +1233,24 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
                     continue
                 
                 # Truncate fields (match single-discovery limits)
-                MAX_SUMMARY_LEN = 300
+                MAX_SUMMARY_LEN = 500
                 MAX_DETAILS_LEN = 2000
 
                 truncated_fields = []
                 if len(summary) > MAX_SUMMARY_LEN:
                     truncated_fields.append(f"summary ({len(summary)} → {MAX_SUMMARY_LEN})")
-                    summary = summary[:MAX_SUMMARY_LEN] + "..."
+                    # Try to cut at sentence boundary, else word boundary
+                    truncated = summary[:MAX_SUMMARY_LEN]
+                    for end_char in ['. ', '! ', '? ']:
+                        last_end = truncated.rfind(end_char, MAX_SUMMARY_LEN - 100)
+                        if last_end > 0:
+                            truncated = truncated[:last_end + 1]
+                            break
+                    else:
+                        last_space = truncated.rfind(' ')
+                        if last_space > MAX_SUMMARY_LEN - 50:
+                            truncated = truncated[:last_space]
+                    summary = truncated.rstrip() + "..."
 
                 details = disc_data.get("details", "")
                 if len(details) > MAX_DETAILS_LEN:
@@ -1321,7 +1345,7 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
         # Check if any items were truncated (v2.5.0+)
         truncated_count = sum(1 for s in stored if "_truncated" in s)
         if truncated_count > 0:
-            response["_tip"] = f"{truncated_count} discovery(ies) had content truncated. Limits: summary=300, details=2000 chars."
+            response["_tip"] = f"{truncated_count} discovery(ies) had content truncated. Limits: summary=500, details=2000 chars."
 
         return success_response(response, arguments=arguments)
         

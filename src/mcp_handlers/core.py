@@ -535,7 +535,7 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                     "status": "paused",
                 },
                 recovery={
-                    "action": "Use self_recovery(action='resume') or wait for dialectic recovery to complete",
+                    "action": "Use self_recovery(action='quick') for safe states, or self_recovery(action='review', reflection='...') for full recovery",
                     "note": "Circuit breaker triggered due to governance threshold violation",
                     "auto_recovery": "Dialectic recovery may already be in progress",
                 }
@@ -777,11 +777,11 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                 f"Agent '{agent_id}' is paused. Resume it first before processing updates.",
                 recovery={
                     "action": "Check your state and resume when ready",
-                    "related_tools": ["get_governance_metrics", "quick_resume", "self_recovery"],
+                    "related_tools": ["get_governance_metrics", "self_recovery"],
                     "workflow": (
                         "1. Check your state with get_governance_metrics "
                         "2. Reflect on what triggered the pause "
-                        "3. Use quick_resume() if safe (coherence > 0.60, risk < 0.40), otherwise use self_recovery(action='resume')"
+                        "3. Use self_recovery(action='quick') if safe (coherence > 0.60, risk < 0.40), otherwise use self_recovery(action='review', reflection='...')"
                     )
                 },
                 context={
@@ -2028,6 +2028,19 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                     # DEBUG: Log what's in metrics to diagnose null values
                     logger.info(f"📊 Broadcast metrics for {declared_agent_id}: E={metrics.get('E')}, I={metrics.get('I')}, S={metrics.get('S')}, V={metrics.get('V')}, coherence={metrics.get('coherence')}")
 
+                    # Extract sensor data if present (Lumen check-ins)
+                    # Format: parameters=[{"key": "sensor_data", "value": "{\"...\"}"}]
+                    broadcast_sensor_data = None
+                    params_raw = arguments.get("parameters", [])
+                    if isinstance(params_raw, list):
+                        for p in params_raw:
+                            if isinstance(p, dict) and p.get("key") == "sensor_data":
+                                try:
+                                    broadcast_sensor_data = json.loads(p.get("value"))
+                                    break
+                                except Exception:
+                                    pass
+
                     # Extract EISV values, checking both flat and nested locations
                     # Use explicit None checks to preserve 0 values
                     eisv_nested = metrics.get("eisv", {})
@@ -2056,6 +2069,36 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                     risk_adjusted = metrics.get("risk_score", 0)
                     risk_raw = metrics.get("current_risk") or metrics.get("latest_risk_score") or risk_adjusted
                     trajectory_adj = metrics.get("trajectory_risk_adjustment", {})
+                    risk_adj_delta = trajectory_adj.get("delta", 0) if trajectory_adj else 0
+                    risk_adj_reason = trajectory_adj.get("reason", "") if trajectory_adj else ""
+
+                    # Detect governance events (state transitions, threshold crossings, etc.)
+                    governance_events = []
+                    try:
+                        from src.event_detector import event_detector
+                        decision = response_data.get("decision", {})
+                        governance_events = event_detector.detect_events(
+                            agent_id=agent_uuid,
+                            agent_name=display_name,
+                            action=decision.get("action", "proceed"),
+                            risk=risk_adjusted,
+                            risk_raw=risk_raw,
+                            risk_adjustment=risk_adj_delta,
+                            risk_reason=risk_adj_reason,
+                            drift=ethical_drift if isinstance(ethical_drift, list) else [0, 0, 0],
+                            verdict=metrics.get("verdict", "safe"),
+                        )
+                        if governance_events:
+                            logger.info(f"🔔 Events detected for {display_name}: {[e['type'] for e in governance_events]}")
+                    except Exception as e:
+                        logger.debug(f"Could not detect events: {e}")
+
+                    # Get drift trends for dashboard
+                    drift_trends = {}
+                    try:
+                        drift_trends = event_detector.get_drift_trends(agent_uuid)
+                    except Exception:
+                        pass
 
                     await broadcaster_instance.broadcast({
                         "type": "eisv_update",
@@ -2074,8 +2117,11 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                         },
                         "risk": risk_adjusted,
                         "risk_raw": risk_raw,
-                        "risk_adjustment": trajectory_adj.get("delta", 0) if trajectory_adj else 0,
-                        "risk_reason": trajectory_adj.get("reason", "") if trajectory_adj else ""
+                        "risk_adjustment": risk_adj_delta,
+                        "risk_reason": risk_adj_reason,
+                        "events": governance_events,
+                        "drift_trends": drift_trends,
+                        "sensor_data": broadcast_sensor_data  # Real-time environmental data (Lumen-centric)
                     })
                     logger.debug(f"Broadcast EISV update for agent {declared_agent_id}: eisv={eisv_data}, coherence={coherence_val}")
             except Exception as e:
