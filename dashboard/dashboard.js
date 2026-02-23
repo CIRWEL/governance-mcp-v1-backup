@@ -56,6 +56,30 @@ if (typeof DashboardAPI === 'undefined' || typeof DataProcessor === 'undefined' 
  * Loads help definitions from help.json and provides accessor methods.
  */
 document.addEventListener('alpine:init', () => {
+    // Identity store for Me mode
+    Alpine.store('identity', {
+        name: window.DASHBOARD_IDENTITY?.agentName || '',
+        id: window.DASHBOARD_IDENTITY?.agentId || '',
+        isAgent: window.DASHBOARD_IDENTITY?.isAgent || false,
+        meMode: false,
+
+        toggleMeMode() {
+            this.meMode = !this.meMode;
+            document.body.classList.toggle('me-mode-active', this.meMode);
+            // Trigger re-filter of agents
+            document.getElementById('agent-search')?.dispatchEvent(new Event('input'));
+        },
+
+        // Try to find our agent in the list
+        findMyAgent() {
+            if (!this.name && !this.id) return null;
+            return cachedAgents.find(a =>
+                a.agent_id === this.id ||
+                a.label?.toLowerCase() === this.name?.toLowerCase()
+            );
+        }
+    });
+
     Alpine.store('help', {
         data: {},
         loaded: false,
@@ -1564,8 +1588,16 @@ function renderAgentsList(agents, searchTerm = '') {
         const vColor = metricColor(vValue, true);
         const cColor = metricColor(cValue, false);
 
+        // Check if this is the current agent (Me mode)
+        const identityStore = typeof Alpine !== 'undefined' ? Alpine.store('identity') : null;
+        const isMe = identityStore?.isAgent && (
+            agent.agent_id === identityStore.id ||
+            agent.label?.toLowerCase() === identityStore.name?.toLowerCase()
+        );
+        const meClass = isMe ? 'is-me' : '';
+
         return `
-            <div class="agent-item ${statusClass}" data-agent-uuid="${escapeHtml(agentId)}" style="cursor: pointer;" title="Click to view details">
+            <div class="agent-item ${statusClass} ${meClass}" data-agent-uuid="${escapeHtml(agentId)}" style="cursor: pointer;" title="Click to view details">
                 <div class="agent-meta">
                     <div class="agent-title">
                         ${statusIndicator}
