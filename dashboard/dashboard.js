@@ -396,8 +396,7 @@ const Router = {
 
 // Register routes (handlers will be added as features are built)
 Router.on('agent/:id', (params) => {
-    console.log('Route: agent', params.id);
-    // TODO: openAgentPanel(params.id)
+    openAgentDetailPanel(params.id);
 });
 
 Router.on('discovery/:id', (params) => {
@@ -674,6 +673,122 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// ============================================================================
+// AGENT DETAIL PANEL
+// ============================================================================
+
+/**
+ * Open agent detail panel.
+ * @param {string} agentId - Agent UUID
+ */
+function openAgentDetailPanel(agentId) {
+    // Find agent in cached data
+    const agent = cachedAgents.find(a => a.agent_id === agentId);
+
+    if (!agent) {
+        openSlidePanel('Agent Not Found', `
+            <div class="empty-state">
+                <p>Agent ${escapeHtml(agentId)} not found.</p>
+                <p class="help-text">This agent may have been archived or the ID is invalid.</p>
+            </div>
+        `, { html: true });
+        return;
+    }
+
+    const content = renderAgentDetailContent(agent);
+    openSlidePanel(agent.label || agent.agent_id, content, { html: true });
+}
+
+/**
+ * Render agent detail panel content.
+ * @param {Object} agent - Agent data
+ * @returns {string} HTML content
+ */
+function renderAgentDetailContent(agent) {
+    const status = agent.status || 'unknown';
+    const coherence = typeof agent.coherence === 'number' ? (agent.coherence * 100).toFixed(1) + '%' : 'N/A';
+    const risk = typeof agent.risk === 'number' ? (agent.risk * 100).toFixed(1) + '%' : 'N/A';
+    const lastSeen = agent.last_seen ? formatRelativeTime(new Date(agent.last_seen)) : 'Never';
+
+    return `
+        <div class="agent-detail">
+            <div class="agent-detail-status status-${escapeHtml(status)}">${escapeHtml(status)}</div>
+
+            <div class="agent-detail-section">
+                <h3>Current Metrics</h3>
+                <div class="agent-detail-metrics">
+                    <div class="metric-row">
+                        <span class="metric-label">Coherence</span>
+                        <span class="metric-value">${coherence}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Risk</span>
+                        <span class="metric-value">${risk}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="agent-detail-section">
+                <h3>EISV Values</h3>
+                <div class="agent-detail-eisv">
+                    <div class="eisv-bar">
+                        <span class="eisv-label">E</span>
+                        <div class="eisv-bar-track"><div class="eisv-bar-fill energy" style="width:${(agent.eisv?.E || 0) * 100}%"></div></div>
+                        <span class="eisv-value">${((agent.eisv?.E || 0) * 100).toFixed(0)}%</span>
+                    </div>
+                    <div class="eisv-bar">
+                        <span class="eisv-label">I</span>
+                        <div class="eisv-bar-track"><div class="eisv-bar-fill integrity" style="width:${(agent.eisv?.I || 0) * 100}%"></div></div>
+                        <span class="eisv-value">${((agent.eisv?.I || 0) * 100).toFixed(0)}%</span>
+                    </div>
+                    <div class="eisv-bar">
+                        <span class="eisv-label">S</span>
+                        <div class="eisv-bar-track"><div class="eisv-bar-fill entropy" style="width:${(agent.eisv?.S || 0) * 100}%"></div></div>
+                        <span class="eisv-value">${((agent.eisv?.S || 0) * 100).toFixed(0)}%</span>
+                    </div>
+                    <div class="eisv-bar">
+                        <span class="eisv-label">V</span>
+                        <div class="eisv-bar-track"><div class="eisv-bar-fill volatility" style="width:${(agent.eisv?.V || 0) * 100}%"></div></div>
+                        <span class="eisv-value">${((agent.eisv?.V || 0) * 100).toFixed(0)}%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="agent-detail-section">
+                <h3>Info</h3>
+                <dl class="agent-detail-info">
+                    <dt>ID</dt>
+                    <dd><code>${escapeHtml(agent.agent_id)}</code></dd>
+                    <dt>Last Seen</dt>
+                    <dd>${lastSeen}</dd>
+                    <dt>Total Updates</dt>
+                    <dd>${agent.total_updates || 0}</dd>
+                    ${agent.tags?.length ? `<dt>Tags</dt><dd>${agent.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join(' ')}</dd>` : ''}
+                </dl>
+            </div>
+
+            <div class="agent-detail-actions">
+                <!-- Quick actions will be added in Phase 4 -->
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Wire up agent card click handlers.
+ * Should be called after agent cards are rendered.
+ */
+function wireAgentCardClicks() {
+    document.querySelectorAll('.agent-item').forEach(card => {
+        const agentId = card.dataset.agentUuid;
+        if (agentId && !card.dataset.clickWired) {
+            card.style.cursor = 'pointer';
+            card.addEventListener('click', () => Router.navigate(`agent/${agentId}`));
+            card.dataset.clickWired = 'true';
+        }
+    });
+}
 
 /**
  * Render discoveries list for modal view.
@@ -1219,6 +1334,9 @@ function renderAgentsList(agents, searchTerm = '') {
             </div>
         `;
     }).join('');
+
+    // Wire up click handlers for agent cards
+    wireAgentCardClicks();
 }
 
 /**
