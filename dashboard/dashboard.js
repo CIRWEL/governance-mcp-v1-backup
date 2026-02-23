@@ -869,11 +869,17 @@ function renderDiscoveriesList(discoveries, searchTerm = '') {
         const typeLabel = escapeHtml(formatDiscoveryType(type));
         const agent = escapeHtml(d.by || d.agent_id || d._agent_id || 'Unknown');
         const details = String(d.details || d.content || d.discovery || '');
+        const hasDetails = details.length > 0;
         const summaryText = d.summary || 'Untitled';
-        const summaryHtml = highlightMatch(summaryText, searchTerm);
+        // Truncate long summaries in list view (show full in modal)
+        const maxListLen = 200;
+        const isTruncated = summaryText.length > maxListLen;
+        const displaySummary = isTruncated ? summaryText.slice(0, maxListLen).trimEnd() + '…' : summaryText;
+        const summaryHtml = highlightMatch(displaySummary, searchTerm);
         const relative = d._relativeTime ? ` (${d._relativeTime})` : '';
         const displayDate = escapeHtml(`${d._displayDate || 'Unknown'}${relative}`);
         const tags = (d.tags || []).slice(0, 5).map(t => `<span class="discovery-tag">${escapeHtml(t)}</span>`).join('');
+        const expandHint = (isTruncated || hasDetails) ? '<span class="discovery-expand-hint">click to expand</span>' : '';
 
         return `
             <div class="discovery-item" data-discovery-index="${idx}" style="cursor: pointer;" title="Click to view full details">
@@ -881,6 +887,7 @@ function renderDiscoveriesList(discoveries, searchTerm = '') {
                     <span class="discovery-type ${type}">${typeLabel}</span>
                     <span class="meta-item">By: ${agent}</span>
                     <span class="meta-item">${displayDate}</span>
+                    ${expandHint}
                 </div>
                 <div class="discovery-summary">${summaryHtml}</div>
                 ${tags ? `<div class="discovery-tags">${tags}</div>` : ''}
