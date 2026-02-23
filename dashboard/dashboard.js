@@ -794,10 +794,12 @@ function openAgentDetailPanel(agentId) {
  * @returns {string} HTML content
  */
 function renderAgentDetailContent(agent) {
-    const status = agent.status || 'unknown';
-    const coherence = typeof agent.coherence === 'number' ? (agent.coherence * 100).toFixed(1) + '%' : 'N/A';
-    const risk = typeof agent.risk === 'number' ? (agent.risk * 100).toFixed(1) + '%' : 'N/A';
-    const lastSeen = agent.last_seen ? formatRelativeTime(new Date(agent.last_seen)) : 'Never';
+    const status = agent.lifecycle_status || agent.status || 'unknown';
+    const coherenceVal = agent.metrics?.coherence;
+    const coherence = typeof coherenceVal === 'number' ? (coherenceVal * 100).toFixed(1) + '%' : 'N/A';
+    const riskVal = agent.metrics?.current_risk ?? agent.metrics?.risk_score;
+    const risk = typeof riskVal === 'number' ? (riskVal * 100).toFixed(1) + '%' : 'N/A';
+    const lastSeen = agent.last_update ? formatRelativeTime(new Date(agent.last_update)) : 'Never';
 
     return `
         <div class="agent-detail">
@@ -822,23 +824,23 @@ function renderAgentDetailContent(agent) {
                 <div class="agent-detail-eisv">
                     <div class="eisv-bar">
                         <span class="eisv-label">E</span>
-                        <div class="eisv-bar-track"><div class="eisv-bar-fill energy" style="width:${(agent.eisv?.E || 0) * 100}%"></div></div>
-                        <span class="eisv-value">${((agent.eisv?.E || 0) * 100).toFixed(0)}%</span>
+                        <div class="eisv-bar-track"><div class="eisv-bar-fill energy" style="width:${(agent.metrics?.E || 0) * 100}%"></div></div>
+                        <span class="eisv-value">${((agent.metrics?.E || 0) * 100).toFixed(0)}%</span>
                     </div>
                     <div class="eisv-bar">
                         <span class="eisv-label">I</span>
-                        <div class="eisv-bar-track"><div class="eisv-bar-fill integrity" style="width:${(agent.eisv?.I || 0) * 100}%"></div></div>
-                        <span class="eisv-value">${((agent.eisv?.I || 0) * 100).toFixed(0)}%</span>
+                        <div class="eisv-bar-track"><div class="eisv-bar-fill integrity" style="width:${(agent.metrics?.I || 0) * 100}%"></div></div>
+                        <span class="eisv-value">${((agent.metrics?.I || 0) * 100).toFixed(0)}%</span>
                     </div>
                     <div class="eisv-bar">
                         <span class="eisv-label">S</span>
-                        <div class="eisv-bar-track"><div class="eisv-bar-fill entropy" style="width:${(agent.eisv?.S || 0) * 100}%"></div></div>
-                        <span class="eisv-value">${((agent.eisv?.S || 0) * 100).toFixed(0)}%</span>
+                        <div class="eisv-bar-track"><div class="eisv-bar-fill entropy" style="width:${(agent.metrics?.S || 0) * 100}%"></div></div>
+                        <span class="eisv-value">${((agent.metrics?.S || 0) * 100).toFixed(0)}%</span>
                     </div>
                     <div class="eisv-bar">
                         <span class="eisv-label">V</span>
-                        <div class="eisv-bar-track"><div class="eisv-bar-fill volatility" style="width:${(agent.eisv?.V || 0) * 100}%"></div></div>
-                        <span class="eisv-value">${((agent.eisv?.V || 0) * 100).toFixed(0)}%</span>
+                        <div class="eisv-bar-track"><div class="eisv-bar-fill volatility" style="width:${(agent.metrics?.V || 0) * 100}%"></div></div>
+                        <span class="eisv-value">${((agent.metrics?.V || 0) * 100).toFixed(0)}%</span>
                     </div>
                 </div>
             </div>

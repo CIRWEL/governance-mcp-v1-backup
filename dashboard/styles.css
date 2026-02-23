@@ -3760,7 +3760,7 @@ body.panel-open main {
     position: relative;
 }
 
-.agent-item.is-me::before {
+.agent-item.is-me::after {
     content: '👤 You';
     position: absolute;
     top: -10px;
@@ -3770,6 +3770,7 @@ body.panel-open main {
     color: white;
     font-size: 0.75rem;
     border-radius: 4px;
+    z-index: 10;
 }
 
 /* In Me mode, dim other agents */
