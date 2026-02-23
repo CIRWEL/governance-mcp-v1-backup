@@ -1,9 +1,24 @@
 /**
  * Dashboard Utilities
- * 
+ *
  * Core utilities for API calls, error handling, caching, and data processing.
  * Designed for quality, maintainability, and performance.
  */
+
+/**
+ * Creates a debounced function that delays invoking fn until after delay ms
+ * have elapsed since the last time the debounced function was invoked.
+ * @param {Function} fn - Function to debounce
+ * @param {number} delay - Delay in milliseconds
+ * @returns {Function} Debounced function
+ */
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
 
 class DashboardAPI {
     /**
@@ -666,4 +681,5 @@ if (typeof window !== 'undefined') {
     window.DataProcessor = DataProcessor;
     window.ThemeManager = ThemeManager;
     window.EISVWebSocket = EISVWebSocket;
+    window.debounce = debounce;
 }
