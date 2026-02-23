@@ -63,7 +63,10 @@ let cachedDiscoveries = [];
 // ============================================================================
 // MODAL FUNCTIONS
 // ============================================================================
+let modalTriggerElement = null;
+
 function expandPanel(panelType) {
+    modalTriggerElement = document.activeElement;
     const modal = document.getElementById('panel-modal');
     const modalTitle = document.getElementById('modal-title');
     const modalBody = document.getElementById('modal-body');
@@ -81,6 +84,10 @@ function expandPanel(panelType) {
 
     modal.classList.add('visible');
     document.body.style.overflow = 'hidden';
+
+    // Focus first focusable element in modal
+    const firstFocusable = modal.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (firstFocusable) firstFocusable.focus();
 }
 
 function closeModal() {
@@ -88,7 +95,39 @@ function closeModal() {
     if (!modal) return;
     modal.classList.remove('visible');
     document.body.style.overflow = '';
+
+    // Return focus to trigger element
+    if (modalTriggerElement) {
+        modalTriggerElement.focus();
+        modalTriggerElement = null;
+    }
 }
+
+/**
+ * Trap focus within modal when open.
+ * @param {KeyboardEvent} e
+ */
+function trapFocus(e) {
+    const modal = document.getElementById('panel-modal');
+    if (!modal || !modal.classList.contains('visible')) return;
+    if (e.key !== 'Tab') return;
+
+    const focusableEls = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (focusableEls.length === 0) return;
+
+    const firstEl = focusableEls[0];
+    const lastEl = focusableEls[focusableEls.length - 1];
+
+    if (e.shiftKey && document.activeElement === firstEl) {
+        lastEl.focus();
+        e.preventDefault();
+    } else if (!e.shiftKey && document.activeElement === lastEl) {
+        firstEl.focus();
+        e.preventDefault();
+    }
+}
+
+document.addEventListener('keydown', trapFocus);
 
 // Close modal on escape or click outside
 document.addEventListener('keydown', (e) => {
