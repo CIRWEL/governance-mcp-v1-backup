@@ -3730,3 +3730,53 @@ body.panel-open main {
     height: 200px;
     position: relative;
 }
+
+/* ============================================================================
+   ME MODE
+   ============================================================================ */
+
+.me-mode-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.me-mode-toggle .toolbar-button.active {
+    background: var(--accent-cyan);
+    color: white;
+    border-color: var(--accent-cyan);
+}
+
+.me-mode-name {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* Highlight own agent card in Me mode */
+.agent-item.is-me {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.2);
+    position: relative;
+}
+
+.agent-item.is-me::before {
+    content: '👤 You';
+    position: absolute;
+    top: -10px;
+    right: 12px;
+    padding: 2px 8px;
+    background: var(--accent-cyan);
+    color: white;
+    font-size: 0.75rem;
+    border-radius: 4px;
+}
+
+/* In Me mode, dim other agents */
+body.me-mode-active .agent-item:not(.is-me) {
+    opacity: 0.5;
+}
+
+body.me-mode-active .agent-item.is-me {
+    opacity: 1;
+}

@@ -44,6 +44,16 @@
                 <span id="theme-icon">🌙</span>
                 <span id="theme-label">Dark</span>
             </button>
+            <div class="me-mode-toggle" x-data x-show="$store.identity.isAgent">
+                <button id="me-mode-btn"
+                        class="toolbar-button"
+                        :class="{ 'active': $store.identity.meMode }"
+                        @click="$store.identity.toggleMeMode()"
+                        type="button">
+                    <span x-text="$store.identity.meMode ? '👤 Me' : '👥 All'"></span>
+                </button>
+                <span class="me-mode-name" x-show="$store.identity.meMode" x-text="$store.identity.name"></span>
+            </div>
         </div>
         <div class="toolbar-status">
             <span class="ws-status" id="ws-status" title="Offline — waiting for connection">
