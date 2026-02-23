@@ -499,7 +499,7 @@ async def handle_get_agent_metadata(arguments: Sequence[TextContent]) -> list:
                 logger.debug(f"Metadata cache hit: {target_agent[:8]}...")
                 agent_id = target_agent
                 # Convert cached dict back to AgentMetadata for consistency
-                from src.metadata_db import AgentMetadata
+                from src.mcp_server_std import AgentMetadata
                 meta = AgentMetadata(**cached_meta)
                 # Update in-memory cache for consistency
                 mcp_server.agent_metadata[agent_id] = meta
@@ -1531,8 +1531,10 @@ async def handle_self_recovery_review(arguments: Dict[str, Any]) -> Sequence[Tex
     # 9. Resume if safe, or provide guidance
     if all_safe:
         # Resume agent
+        from .self_recovery import clear_loop_detector_state
         meta.status = "active"
         meta.paused_at = None
+        clear_loop_detector_state(meta)
         meta.add_lifecycle_event(
             "resumed",
             f"Self-recovery: {reflection[:50]}... Conditions: {proposed_conditions}"
@@ -1593,24 +1595,29 @@ async def handle_self_recovery_review(arguments: Dict[str, Any]) -> Sequence[Tex
 
 
 def _detect_stuck_agents(
-    max_age_minutes: float = 30.0,
+    max_age_minutes: float = 30.0,  # Unused, kept for API compatibility
     critical_margin_timeout_minutes: float = 5.0,
     tight_margin_timeout_minutes: float = 15.0,
     include_pattern_detection: bool = True,
     min_updates: int = 3,
 ) -> list:
     """
-    Detect stuck agents using proprioceptive margin + timeout.
+    Detect stuck agents using proprioceptive margin + patterns.
 
-    Uses the margin system we built - proprioception becomes stuck detection!
+    IMPORTANT: Inactivity alone does NOT mean stuck!
+    An agent is stuck when it's in a problematic state AND not recovering.
 
     Detection rules:
-    1. Critical margin + no updates > 5 min → stuck
-    2. Tight margin + no updates > 15 min → potentially stuck
-    3. No updates > 30 min → stuck
+    1. Critical margin + no updates > 5 min → stuck (can't proceed safely)
+    2. Tight margin + no updates > 15 min → potentially stuck (struggling)
+    3. Cognitive loop pattern → stuck (repeating unproductive behavior)
+    4. Time box exceeded → stuck (taking too long on a task)
+
+    NOT stuck:
+    - Simply being idle/inactive (that's normal, not stuck)
+    - Low update count (that's orphan/test agent, not stuck)
 
     Args:
-        max_age_minutes: Maximum age in minutes before agent is considered stuck
         critical_margin_timeout_minutes: Timeout for critical margin state
         tight_margin_timeout_minutes: Timeout for tight margin state
         min_updates: Minimum updates before an agent can be considered stuck.
@@ -1671,14 +1678,8 @@ def _detect_stuck_agents(
                     monitor = UNITARESMonitor(agent_id, load_state=False)
                     monitor.state = persisted_state
                 else:
-                    # No state - can't compute margin, use timeout only
-                    if age_minutes > max_age_minutes:
-                        stuck_agents.append({
-                            "agent_id": agent_id,
-                            "reason": "activity_timeout",
-                            "age_minutes": round(age_minutes, 1),
-                            "details": "No updates in {:.1f} minutes".format(age_minutes)
-                        })
+                    # No state - can't compute margin, can't determine if stuck
+                    # Inactivity alone does NOT mean stuck
                     continue
             
             # Pattern detection: check for cognitive loops and unproductive behavior
@@ -1744,7 +1745,8 @@ def _detect_stuck_agents(
                     continue
                 
                 # Detection rule 2: Tight margin + timeout
-                if margin == "tight" and age_minutes > tight_margin_timeout_minutes:
+                # Skip low-update agents (<50) - their EISV dynamics are noise, not signal
+                if margin == "tight" and age_minutes > tight_margin_timeout_minutes and total_updates >= 50:
                     stuck_agents.append({
                         "agent_id": agent_id,
                         "reason": "tight_margin_timeout",
@@ -1759,37 +1761,30 @@ def _detect_stuck_agents(
                 
         except Exception as e:
             logger.debug(f"Error computing margin for {agent_id}: {e}")
-            # Fall back to timeout-only detection
-        
-        # Detection rule 3: Activity timeout (no updates)
-        if age_minutes > max_age_minutes:
-            stuck_agents.append({
-                "agent_id": agent_id,
-                "reason": "activity_timeout",
-                "age_minutes": round(age_minutes, 1),
-                "details": "No updates in {:.1f} minutes".format(age_minutes)
-            })
-    
+            # Don't fall back to timeout-only detection - inactivity ≠ stuck
+            # An agent can be legitimately idle without being stuck
+
     return stuck_agents
 
 
 @mcp_tool("detect_stuck_agents", timeout=15.0, rate_limit_exempt=True)
 async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Detect stuck agents using proprioceptive margin + timeout.
-    
-    Uses the margin system we built - proprioception becomes stuck detection!
-    
+    """Detect stuck agents using proprioceptive margin + patterns.
+
+    IMPORTANT: Inactivity alone does NOT mean stuck!
+
     Detection rules:
     1. Critical margin + no updates > 5 min → stuck
     2. Tight margin + no updates > 15 min → potentially stuck
-    3. No updates > 30 min → stuck
-    
+    3. Cognitive loop / time box exceeded → stuck
+
+    NOT stuck: Simply being idle (that's normal behavior).
+
     Args:
-        max_age_minutes: Maximum age before agent is considered stuck (default: 30)
         critical_margin_timeout_minutes: Timeout for critical margin (default: 5)
         tight_margin_timeout_minutes: Timeout for tight margin (default: 15)
         auto_recover: If True, automatically recover safe stuck agents (default: False)
-    
+
     Returns:
         List of stuck agents with detection reasons and recovery status
     """
@@ -1877,15 +1872,8 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                     # Save session
                                     await save_session(session)
                                     
-                                    # Log dialectic trigger
-                                    try:
-                                        from .knowledge_graph import handle_leave_note
-                                        await handle_leave_note({
-                                            "summary": f"Triggered dialectic for unresponsive stuck agent {agent_id[:8]}... (stuck {stuck.get('age_minutes', 0):.1f} min, reviewer: {reviewer_id[:8]}...)",
-                                            "tags": ["dialectic-trigger", "stuck-agent", "unresponsive"]
-                                        })
-                                    except Exception as e:
-                                        logger.debug(f"Could not log dialectic trigger: {e}")
+                                    # NOTE: Disabled KG writes for dialectic triggers (Feb 2026)
+                                    # Dialectic sessions tracked separately
                                     
                                     recovered.append({
                                         "agent_id": agent_id,
@@ -1976,15 +1964,8 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                                     # Save session
                                                     await save_session(session)
                                                     
-                                                    # Log dialectic trigger
-                                                    try:
-                                                        from .knowledge_graph import handle_leave_note
-                                                        await handle_leave_note({
-                                                            "summary": f"Triggered dialectic for safe stuck agent {agent_id[:8]}... (stuck {age_minutes:.1f} min, reviewer: {reviewer_id[:8]}...)",
-                                                            "tags": ["dialectic-trigger", "stuck-agent", "safe-stuck"]
-                                                        })
-                                                    except Exception as e:
-                                                        logger.debug(f"Could not log dialectic trigger: {e}")
+                                                    # NOTE: Disabled KG writes for dialectic triggers (Feb 2026)
+                                                    # Dialectic sessions tracked separately
                                                     
                                                     recovered.append({
                                                         "agent_id": agent_id,
@@ -2050,23 +2031,17 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                                 pass
 
                                         if should_note:
-                                            try:
-                                                from .knowledge_graph import handle_leave_note
-                                                await handle_leave_note({
-                                                    "summary": f"Agent detected as stuck ({stuck['reason']}, {age_minutes:.1f} min). Please check in with process_agent_update() to unstick.",
-                                                    "tags": ["stuck-agent", "recovery-needed"],
-                                                    "agent_id": agent_id
-                                                })
-                                                if meta:
-                                                    meta.add_lifecycle_event("stuck_note", f"{stuck['reason']} ({age_minutes:.1f} min)")
-                                            except Exception as e:
-                                                logger.debug(f"Could not leave note for stuck agent: {e}")
-                                            
+                                            # NOTE: Disabled KG writes for stuck agents (Feb 2026)
+                                            # Stuck agents are shown in dashboard via detect_stuck_agents API.
+                                            # Writing to KG just creates noise without adding value.
+                                            if meta:
+                                                meta.add_lifecycle_event("stuck_detected", f"{stuck['reason']} ({age_minutes:.1f} min)")
+
                                             recovered.append({
                                                 "agent_id": agent_id,
-                                                "action": "note_left",
+                                                "action": "stuck_tracked",
                                                 "reason": stuck["reason"],
-                                                "note": f"Left note - stuck {age_minutes:.1f} min (will trigger dialectic if stuck > 60 min)"
+                                                "note": f"Stuck {age_minutes:.1f} min - tracked via detect_stuck_agents (no KG write)"
                                             })
                                         else:
                                             recovered.append({
@@ -2121,23 +2096,16 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                             pass
 
                                     if should_note:
-                                        try:
-                                            from .knowledge_graph import handle_leave_note
-                                            await handle_leave_note({
-                                                "summary": f"Agent detected as stuck ({stuck['reason']}). Please check in with process_agent_update() to unstick.",
-                                                "tags": ["stuck-agent", "recovery-needed"],
-                                                "agent_id": agent_id
-                                            })
-                                            if meta:
-                                                meta.add_lifecycle_event("stuck_note", stuck["reason"])
-                                        except Exception as e2:
-                                            logger.debug(f"Could not leave note: {e2}")
-                                        
+                                        # NOTE: Disabled KG writes for stuck agents (Feb 2026)
+                                        # Stuck agents tracked via detect_stuck_agents API instead
+                                        if meta:
+                                            meta.add_lifecycle_event("stuck_detected", stuck["reason"])
+
                                         recovered.append({
                                             "agent_id": agent_id,
-                                            "action": "note_left",
+                                            "action": "stuck_tracked",
                                             "reason": stuck["reason"],
-                                            "note": "Left note prompting check-in"
+                                            "note": "Tracked via detect_stuck_agents (no KG write)"
                                         })
                                     else:
                                         recovered.append({
@@ -2190,15 +2158,8 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                     # Save session
                                     await save_session(session)
                                     
-                                    # Log dialectic trigger
-                                    try:
-                                        from .knowledge_graph import handle_leave_note
-                                        await handle_leave_note({
-                                            "summary": f"Triggered dialectic for stuck agent {agent_id[:8]}... (Reason: {stuck['reason']}, Reviewer: {reviewer_id[:8]}...)",
-                                            "tags": ["dialectic-trigger", "stuck-agent", "unsafe-recovery"]
-                                        })
-                                    except Exception as e:
-                                        logger.debug(f"Could not log dialectic trigger: {e}")
+                                    # NOTE: Disabled KG writes for dialectic triggers (Feb 2026)
+                                    # Dialectic sessions are tracked separately; no need to duplicate in KG
                                     
                                     recovered.append({
                                         "agent_id": agent_id,

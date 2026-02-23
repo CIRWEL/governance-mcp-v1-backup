@@ -1102,10 +1102,11 @@ class TestValidateRangeExtended:
 
 class TestValidateResponseTextExtended:
 
-    def test_empty_string_valid(self):
+    def test_empty_string_rejected(self):
+        """Empty response_text should be rejected to prevent zero-quality state mutation."""
         val, err = validate_response_text("")
-        assert val == ""
-        assert err is None
+        assert val is None
+        assert err is not None
 
     def test_exact_max_length(self):
         val, err = validate_response_text("x" * 50000)

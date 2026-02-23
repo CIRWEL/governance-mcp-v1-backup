@@ -99,9 +99,16 @@ async def resolve_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCo
     from .identity_v2 import resolve_session_identity
     agent_name_hint = None
     if arguments:
-        agent_name_hint = arguments.get("agent_name") or (
-            arguments.get("name") if name in ("identity", "onboard") else None
-        )
+        # Only use name for identity lookup if resume=True is explicitly passed
+        # This prevents accidental identity collision when multiple sessions use same name
+        resume_requested = arguments.get("resume", False)
+        if resume_requested:
+            agent_name_hint = arguments.get("agent_name") or (
+                arguments.get("name") if name in ("identity", "onboard") else None
+            )
+        else:
+            # Without resume, only use agent_name (not "name" parameter)
+            agent_name_hint = arguments.get("agent_name")
     # Always extract X-Agent-Id header — needed for both name-claim fallback
     # and PATH 2.75 UUID recovery (even when agent_name is in arguments).
     x_agent_id_header = None
@@ -418,7 +425,7 @@ async def check_rate_limit(name: str, arguments: Dict[str, Any], ctx: DispatchCo
         tool_history.append(now)
 
     # General rate limiting (skip for read-only tools)
-    read_only_tools = {'health_check', 'get_server_info', 'list_tools', 'get_thresholds'}
+    read_only_tools = {'health_check', 'get_server_info', 'list_tools', 'get_thresholds', 'search_knowledge_graph', 'get_governance_metrics'}
     if name not in read_only_tools:
         agent_id = arguments.get('agent_id') or 'anonymous'
         rate_limiter = get_rate_limiter()

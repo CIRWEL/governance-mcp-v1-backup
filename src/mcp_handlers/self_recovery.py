@@ -61,6 +61,18 @@ MAX_RISK_FOR_SELF_RECOVERY = 0.70  # Above this, escalate to human
 MIN_COHERENCE_FOR_SELF_RECOVERY = 0.30  # Below this, escalate to human
 
 
+def clear_loop_detector_state(meta) -> None:
+    """Clear loop detector state after successful recovery.
+
+    This prevents the stale pause history from immediately re-triggering
+    the loop detector after self_recovery succeeds.
+    """
+    meta.loop_cooldown_until = None
+    meta.loop_detected_at = None
+    meta.recent_update_timestamps = []
+    meta.recent_decisions = []
+
+
 def validate_recovery_conditions(conditions: List[str]) -> tuple[bool, Optional[str]]:
     """
     Validate that recovery conditions don't violate safety limits.
@@ -384,13 +396,13 @@ async def handle_quick_resume(arguments: Dict[str, Any]) -> Sequence[TextContent
         failed = [k for k, v in checks.items() if not v]
         return [error_response(
             f"State not safe enough for quick_resume. Failed: {failed}. "
-            f"Use self_recovery_review instead (allows recovery with reflection).",
+            f"Use self_recovery(action='review') instead (allows recovery with reflection).",
             error_code="NOT_SAFE_FOR_QUICK_RESUME",
             error_category="safety_error",
             recovery={
-                "action": "Use self_recovery_review with reflection",
-                "example": 'self_recovery_review(reflection="I was stuck because...")',
-                "related_tools": ["self_recovery_review", "check_recovery_options"],
+                "action": "Use self_recovery(action='review') with reflection",
+                "example": 'self_recovery(action="review", reflection="I was stuck because...")',
+                "related_tools": ["self_recovery"],
             },
             context={
                 "metrics": {
@@ -444,6 +456,7 @@ async def handle_quick_resume(arguments: Dict[str, Any]) -> Sequence[TextContent
     previous_status = meta.status
     meta.status = "active"
     meta.paused_at = None
+    clear_loop_detector_state(meta)
     meta.add_lifecycle_event("quick_resumed", f"Quick resume: {reason}")
     
     # Update PostgreSQL
@@ -526,7 +539,7 @@ async def handle_operator_resume_agent(arguments: Dict[str, Any]) -> Sequence[Te
     if not is_operator:
         return [error_response(
             "Only operator agents can use this tool. "
-            "For self-recovery, use self_recovery_review or quick_resume.",
+            "For self-recovery, use self_recovery(action='review') or self_recovery(action='quick').",
             error_code="NOT_OPERATOR",
             error_category="auth_error",
             recovery={

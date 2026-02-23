@@ -3486,7 +3486,7 @@ USE CASES:
 - Search by agent, type, severity
 - Query system knowledge
 - Learn from past discoveries
-- Full-text search (SQLite FTS) when available
+- Full-text search (PostgreSQL FTS or AGE)
 - Semantic search (vector embeddings) - find similar meaning, not just keywords
 
 SEE ALSO:
@@ -3547,7 +3547,7 @@ EXAMPLE REQUEST:
   "limit": 10
 }
 
-FULL-TEXT EXAMPLE (SQLite backend):
+FULL-TEXT EXAMPLE:
 {
   "query": "coherence",
   "limit": 10
@@ -3580,7 +3580,7 @@ DEPENDENCIES:
 
                     "query": {
                         "type": "string",
-                        "description": "Optional text query. Uses SQLite FTS5 when available; otherwise performs a bounded substring scan. If semantic=true, uses vector embeddings for semantic similarity search. Multi-term queries (e.g., 'coherence basin') use OR operator by default - finds discoveries matching ANY term. If 0 results, automatically retries with individual terms (more permissive)."
+                        "description": "Optional text query. Uses PostgreSQL full-text search or AGE graph search. If semantic=true, uses vector embeddings for semantic similarity search. Multi-term queries (e.g., 'coherence basin') use OR operator by default - finds discoveries matching ANY term. If 0 results, automatically retries with individual terms (more permissive)."
                     },
                     "semantic": {
                         "type": "boolean",
@@ -4745,16 +4745,16 @@ RETURNS:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "agent_id": {
+                    "target_agent_id": {
                         "type": "string",
-                        "description": "Agent to resume"
+                        "description": "UUID of the agent to resume (target, not caller)"
                     },
                     "reason": {
                         "type": "string",
                         "description": "Operator's reason for override"
                     }
                 },
-                "required": ["agent_id", "reason"]
+                "required": ["target_agent_id", "reason"]
             }
         ),
 
