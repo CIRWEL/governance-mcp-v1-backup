@@ -518,6 +518,101 @@ document.getElementById('panel-modal')?.addEventListener('click', (e) => {
 // Close button handler
 document.querySelector('.panel-modal-close')?.addEventListener('click', closeModal);
 
+// ============================================================================
+// SLIDE PANEL
+// ============================================================================
+
+let panelTriggerElement = null;
+
+/**
+ * Open the slide panel with content.
+ * @param {string} title - Panel title
+ * @param {string|HTMLElement} content - Content for panel body (string or DOM element)
+ * @param {Object} options - Options object
+ * @param {boolean} options.html - If true, content is trusted HTML; if false (default), escaped as text
+ */
+function openSlidePanel(title, content, options = {}) {
+    panelTriggerElement = document.activeElement;
+
+    const panel = document.getElementById('slide-panel');
+    const panelTitle = document.getElementById('panel-title');
+    const panelBody = document.getElementById('panel-body');
+
+    panelTitle.textContent = title;
+
+    // Handle content safely
+    if (content instanceof HTMLElement) {
+        panelBody.innerHTML = '';
+        panelBody.appendChild(content);
+    } else if (options.html) {
+        // Trusted HTML - caller takes responsibility
+        panelBody.innerHTML = content;
+    } else {
+        // Default: escape as text
+        panelBody.textContent = content;
+    }
+
+    panel.classList.add('open');
+    document.body.classList.add('panel-open');
+
+    // Focus first focusable element
+    const firstFocusable = panelBody.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (firstFocusable) {
+        firstFocusable.focus();
+    } else {
+        panel.querySelector('.slide-panel-close').focus();
+    }
+}
+
+/**
+ * Close the slide panel.
+ */
+function closeSlidePanel() {
+    const panel = document.getElementById('slide-panel');
+    panel.classList.remove('open');
+    document.body.classList.remove('panel-open');
+
+    // Clear hash if it was a panel route
+    if (window.location.hash.match(/^#(agent|discovery)\//)) {
+        history.pushState(null, '', window.location.pathname);
+    }
+
+    // Return focus
+    if (panelTriggerElement) {
+        panelTriggerElement.focus();
+        panelTriggerElement = null;
+    }
+}
+
+// Focus trap for slide panel
+document.addEventListener('keydown', (e) => {
+    const panel = document.getElementById('slide-panel');
+    if (!panel || !panel.classList.contains('open')) return;
+    if (e.key !== 'Tab') return;
+
+    const focusableEls = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (focusableEls.length === 0) return;
+
+    const firstEl = focusableEls[0];
+    const lastEl = focusableEls[focusableEls.length - 1];
+
+    if (e.shiftKey && document.activeElement === firstEl) {
+        lastEl.focus();
+        e.preventDefault();
+    } else if (!e.shiftKey && document.activeElement === lastEl) {
+        firstEl.focus();
+        e.preventDefault();
+    }
+});
+
+// Wire up close button
+document.addEventListener('DOMContentLoaded', () => {
+    const closeBtn = document.querySelector('.slide-panel-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeSlidePanel);
+    }
+});
+
 /**
  * Render discoveries list for modal view.
  * @param {Array<Object>} discoveries - Discovery objects from API
