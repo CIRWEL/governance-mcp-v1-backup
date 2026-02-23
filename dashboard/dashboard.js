@@ -144,6 +144,152 @@ document.addEventListener('alpine:init', () => {
     });
 });
 
+// ============================================================================
+// KEYBOARD SHORTCUTS
+// ============================================================================
+
+/**
+ * Global keyboard shortcut handler.
+ * Shortcuts are ignored when focus is in an input/textarea.
+ */
+document.addEventListener('keydown', (e) => {
+    // Ignore if in input field
+    const activeTag = document.activeElement?.tagName?.toLowerCase();
+    if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+        // But allow Escape to blur
+        if (e.key === 'Escape') {
+            document.activeElement.blur();
+            e.preventDefault();
+        }
+        return;
+    }
+
+    // Don't intercept if modifier keys are held (except shift for ?)
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    switch (e.key) {
+        case '/':
+            // Focus search
+            e.preventDefault();
+            const searchInput = document.getElementById('agent-search');
+            if (searchInput) {
+                searchInput.focus();
+                searchInput.select();
+            }
+            break;
+
+        case 'Escape':
+            // Close panel or clear search
+            e.preventDefault();
+            const panel = document.querySelector('.slide-panel.open');
+            if (panel) {
+                closeSlidePanel();
+            } else {
+                // Clear search if there's content
+                const search = document.getElementById('agent-search');
+                if (search && search.value) {
+                    search.value = '';
+                    search.dispatchEvent(new Event('input'));
+                }
+            }
+            break;
+
+        case '?':
+            // Show keyboard shortcuts (when shift+/ pressed)
+            e.preventDefault();
+            showKeyboardShortcuts();
+            break;
+
+        case 'j':
+            // Move down in agent list
+            e.preventDefault();
+            navigateAgentList(1);
+            break;
+
+        case 'k':
+            // Move up in agent list
+            e.preventDefault();
+            navigateAgentList(-1);
+            break;
+
+        case 'Enter':
+            // Open selected agent
+            e.preventDefault();
+            openSelectedAgent();
+            break;
+    }
+});
+
+// Track which agent card is "selected" for keyboard navigation
+let selectedAgentIndex = -1;
+
+/**
+ * Navigate agent list with j/k keys.
+ * @param {number} direction - 1 for down, -1 for up
+ */
+function navigateAgentList(direction) {
+    const agentCards = document.querySelectorAll('.agent-card');
+    if (!agentCards.length) return;
+
+    // Remove previous selection
+    agentCards.forEach(card => card.classList.remove('keyboard-selected'));
+
+    // Update index
+    selectedAgentIndex += direction;
+    if (selectedAgentIndex < 0) selectedAgentIndex = agentCards.length - 1;
+    if (selectedAgentIndex >= agentCards.length) selectedAgentIndex = 0;
+
+    // Apply selection
+    const selected = agentCards[selectedAgentIndex];
+    selected.classList.add('keyboard-selected');
+    selected.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/**
+ * Open the currently selected agent (Enter key).
+ */
+function openSelectedAgent() {
+    const selected = document.querySelector('.agent-card.keyboard-selected');
+    if (selected) {
+        // For now, just click it (later this will open slide panel)
+        selected.click();
+    }
+}
+
+/**
+ * Show keyboard shortcuts help modal.
+ */
+function showKeyboardShortcuts() {
+    const shortcuts = helpData?.keyboard || {
+        '/': 'Focus search',
+        'Escape': 'Close panel or clear search',
+        'j': 'Move down in list',
+        'k': 'Move up in list',
+        'Enter': 'Open selected item',
+        '?': 'Show this help'
+    };
+
+    let html = '<div class="keyboard-shortcuts-list">';
+    for (const [key, description] of Object.entries(shortcuts)) {
+        html += `<div class="shortcut-row">
+            <kbd>${key}</kbd>
+            <span>${description}</span>
+        </div>`;
+    }
+    html += '</div>';
+
+    // Use existing modal
+    const modal = document.getElementById('panel-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalBody = document.getElementById('modal-body');
+
+    modalTitle.textContent = 'Keyboard Shortcuts';
+    modalBody.innerHTML = html;
+
+    modal.classList.add('visible');
+    document.body.style.overflow = 'hidden';
+}
+
 // Core instances
 const api = typeof DashboardAPI !== 'undefined' ? new DashboardAPI(window.location.origin) : null;
 const themeManager = typeof ThemeManager !== 'undefined' ? new ThemeManager() : null;
