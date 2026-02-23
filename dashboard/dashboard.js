@@ -1751,54 +1751,182 @@ function renderAgentsList(agents, searchTerm = '') {
         );
         const meClass = isMe ? 'is-me' : '';
 
+        // Build quick actions for expanded view
+        const quickActions = [];
+        if (status === 'active') {
+            quickActions.push(`<button class="quick-action pause" data-action="pause" data-agent-id="${escapeHtml(agentId)}">⏸ Pause</button>`);
+        }
+        if (status === 'paused') {
+            quickActions.push(`<button class="quick-action resume" data-action="resume" data-agent-id="${escapeHtml(agentId)}">▶ Resume</button>`);
+        }
+        if (status !== 'archived') {
+            quickActions.push(`<button class="quick-action archive" data-action="archive" data-agent-id="${escapeHtml(agentId)}">📦 Archive</button>`);
+        }
+
         return `
             <div class="agent-item ${statusClass} ${meClass}" data-agent-uuid="${escapeHtml(agentId)}">
-                <div class="agent-meta">
-                    <div class="agent-title">
-                        ${statusIndicator}
-                        <span class="agent-name">${nameHtml}</span>
-                        <span class="status-chip ${status}">${statusLabel}</span>
-                        ${trustTierHtml}
-                        ${actionsHtml}
+                <div class="agent-header" role="button" tabindex="0" aria-expanded="false">
+                    <div class="agent-meta">
+                        <div class="agent-title">
+                            ${statusIndicator}
+                            <span class="agent-name">${nameHtml}</span>
+                            <span class="status-chip ${status}">${statusLabel}</span>
+                            ${trustTierHtml}
+                            ${actionsHtml}
+                        </div>
+                        ${subtitleHtml}
+                        ${purposeHtml}
                     </div>
-                    ${subtitleHtml}
-                    ${purposeHtml}
+                    ${hasMetrics ? `
+                        <div class="agent-metrics">
+                            <div class="metric e" title="Energy (divergence/productive capacity)">
+                                <div class="label">E</div>
+                                <div class="val">${e}</div>
+                                <div class="metric-bar"><div class="metric-bar-fill" style="width: ${ePct}%; ${eColor ? `background: ${eColor}` : ''}"></div></div>
+                            </div>
+                            <div class="metric i" title="Information Integrity">
+                                <div class="label">I</div>
+                                <div class="val">${i}</div>
+                                <div class="metric-bar"><div class="metric-bar-fill" style="width: ${iPct}%; ${iColor ? `background: ${iColor}` : ''}"></div></div>
+                            </div>
+                            <div class="metric s" title="Entropy (disorder/uncertainty)">
+                                <div class="label">S</div>
+                                <div class="val">${s}</div>
+                                <div class="metric-bar"><div class="metric-bar-fill" style="width: ${sPct}%; ${sColor ? `background: ${sColor}` : ''}"></div></div>
+                            </div>
+                            <div class="metric v" title="Void Integral (E-I imbalance)">
+                                <div class="label">V</div>
+                                <div class="val">${v}</div>
+                                <div class="metric-bar"><div class="metric-bar-fill" style="width: ${vPct}%; ${vColor ? `background: ${vColor}` : ''}"></div></div>
+                            </div>
+                            <div class="metric c" title="Coherence">
+                                <div class="label">C</div>
+                                <div class="val">${coherence}</div>
+                                <div class="metric-bar"><div class="metric-bar-fill" style="width: ${cPct}%; ${cColor ? `background: ${cColor}` : ''}"></div></div>
+                            </div>
+                        </div>
+                    ` : '<div class="agent-metrics"><span style="color: #8a9ba8; font-size: 0.9em;">No metrics yet</span></div>'}
+                    <span class="expand-indicator">▼</span>
                 </div>
-                ${hasMetrics ? `
-                    <div class="agent-metrics">
-                        <div class="metric e" title="Energy (divergence/productive capacity)">
-                            <div class="label">E</div>
-                            <div class="val">${e}</div>
-                            <div class="metric-bar"><div class="metric-bar-fill" style="width: ${ePct}%; ${eColor ? `background: ${eColor}` : ''}"></div></div>
+                <div class="agent-expanded">
+                    <div class="expanded-row">
+                        <div class="expanded-id">
+                            <span class="id-label">Agent ID</span>
+                            <code class="id-value">${escapeHtml(agentId)}</code>
                         </div>
-                        <div class="metric i" title="Information Integrity">
-                            <div class="label">I</div>
-                            <div class="val">${i}</div>
-                            <div class="metric-bar"><div class="metric-bar-fill" style="width: ${iPct}%; ${iColor ? `background: ${iColor}` : ''}"></div></div>
-                        </div>
-                        <div class="metric s" title="Entropy (disorder/uncertainty)">
-                            <div class="label">S</div>
-                            <div class="val">${s}</div>
-                            <div class="metric-bar"><div class="metric-bar-fill" style="width: ${sPct}%; ${sColor ? `background: ${sColor}` : ''}"></div></div>
-                        </div>
-                        <div class="metric v" title="Void Integral (E-I imbalance)">
-                            <div class="label">V</div>
-                            <div class="val">${v}</div>
-                            <div class="metric-bar"><div class="metric-bar-fill" style="width: ${vPct}%; ${vColor ? `background: ${vColor}` : ''}"></div></div>
-                        </div>
-                        <div class="metric c" title="Coherence">
-                            <div class="label">C</div>
-                            <div class="val">${coherence}</div>
-                            <div class="metric-bar"><div class="metric-bar-fill" style="width: ${cPct}%; ${cColor ? `background: ${cColor}` : ''}"></div></div>
+                        <div class="expanded-actions">
+                            ${quickActions.join('')}
                         </div>
                     </div>
-                ` : '<div class="agent-metrics"><span style="color: #8a9ba8; font-size: 0.9em;">No metrics yet</span></div>'}
+                </div>
             </div>
         `;
     }).join('');
 
-    // Note: Slide panel disabled - duplicate metrics display was unhelpful
-    // wireAgentCardClicks();
+    // Wire up accordion expand/collapse
+    wireAgentAccordion();
+}
+
+/**
+ * Wire up agent card accordion behavior.
+ */
+function wireAgentAccordion() {
+    document.querySelectorAll('.agent-item').forEach(card => {
+        const header = card.querySelector('.agent-header');
+        if (!header || header.dataset.wired) return;
+
+        header.dataset.wired = 'true';
+
+        // Click to toggle
+        header.addEventListener('click', (e) => {
+            // Don't toggle if clicking on a button or link
+            if (e.target.closest('button, a, .agent-actions')) return;
+
+            const wasExpanded = card.classList.contains('expanded');
+
+            // Collapse any other expanded cards
+            document.querySelectorAll('.agent-item.expanded').forEach(other => {
+                if (other !== card) {
+                    other.classList.remove('expanded');
+                    other.querySelector('.agent-header')?.setAttribute('aria-expanded', 'false');
+                }
+            });
+
+            // Toggle this card
+            card.classList.toggle('expanded');
+            header.setAttribute('aria-expanded', !wasExpanded);
+        });
+
+        // Keyboard support
+        header.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                header.click();
+            }
+        });
+    });
+
+    // Wire up quick action buttons
+    document.querySelectorAll('.quick-action').forEach(btn => {
+        if (btn.dataset.wired) return;
+        btn.dataset.wired = 'true';
+
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const action = btn.dataset.action;
+            const agentId = btn.dataset.agentId;
+
+            if (action === 'pause' || action === 'archive') {
+                const msg = action === 'pause'
+                    ? 'Pause this agent?'
+                    : 'Archive this agent?';
+                if (!confirm(msg)) return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '...';
+
+            try {
+                await executeQuickAction(agentId, action);
+                // Refresh agents list
+                loadAgents();
+            } catch (err) {
+                console.error('Action failed:', err);
+                alert('Action failed: ' + err.message);
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    });
+}
+
+/**
+ * Execute a quick action on an agent.
+ */
+async function executeQuickAction(agentId, action) {
+    const actions = {
+        pause: { tool: 'agent', args: { action: 'update', agent_id: agentId, status: 'paused' } },
+        resume: { tool: 'agent', args: { action: 'update', agent_id: agentId, status: 'active' } },
+        archive: { tool: 'agent', args: { action: 'archive', agent_id: agentId } }
+    };
+
+    const { tool, args } = actions[action];
+    const response = await fetch('/v1/tools/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tool, arguments: args })
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (result.error) {
+        throw new Error(result.error);
+    }
+
+    return result;
 }
 
 /**

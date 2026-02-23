@@ -1109,6 +1109,108 @@ body {
 }
 
 /* ============================================
+   Agent Card Accordion
+   ============================================ */
+.agent-header {
+    cursor: pointer;
+    position: relative;
+}
+
+.agent-header:focus {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: -2px;
+}
+
+.expand-indicator {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    transition: transform 0.2s ease;
+}
+
+.agent-item.expanded .expand-indicator {
+    transform: rotate(180deg);
+}
+
+.agent-expanded {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease-out, padding 0.25s ease-out;
+    border-top: 0 solid var(--border-color);
+}
+
+.agent-item.expanded .agent-expanded {
+    max-height: 200px;
+    padding-top: 12px;
+    margin-top: 12px;
+    border-top-width: 1px;
+}
+
+.expanded-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.expanded-id {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.id-label {
+    font-size: 0.75em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.id-value {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    user-select: all;
+}
+
+.expanded-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.quick-action {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.quick-action:hover {
+    border-color: var(--accent-cyan);
+    background: rgba(0, 240, 255, 0.1);
+}
+
+.quick-action.pause:hover {
+    border-color: var(--accent-orange);
+    background: rgba(255, 180, 0, 0.1);
+}
+
+.quick-action.archive:hover {
+    border-color: var(--text-secondary);
+    background: rgba(128, 128, 128, 0.1);
+}
+
+/* ============================================
    Metrics
    ============================================ */
 .agent-metrics {
