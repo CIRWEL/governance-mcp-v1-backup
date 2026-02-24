@@ -2116,14 +2116,21 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                             "reason": stuck["reason"],
                                             "note": f"Skipped note - recent note within {note_cooldown_minutes:.0f} min"
                                         })
-                            # Log intervention (optional - don't fail if it doesn't work)
+                            # Log intervention (optional - deduped, don't fail)
                             try:
-                                from .knowledge_graph import handle_leave_note
-                                # Call handler with proper arguments format (summary is required)
-                                note_result = await handle_leave_note({
-                                    "summary": f"Auto-recovered stuck agent {agent_id[:8]}... (Reason: {stuck['reason']}, Action: auto-resume)",
-                                    "tags": ["auto-recovery", "stuck-agent"]
-                                })
+                                # Dedup: skip if open stuck-agent note already exists for this agent
+                                from src.knowledge_graph import get_knowledge_graph
+                                kg = await get_knowledge_graph()
+                                existing = await kg.query(status="open", agent_id=agent_id, limit=50)
+                                has_open_stuck = any(
+                                    "stuck-agent" in (d.tags or []) for d in existing
+                                )
+                                if not has_open_stuck:
+                                    from .knowledge_graph import handle_leave_note
+                                    await handle_leave_note({
+                                        "summary": f"Auto-recovered stuck agent {agent_id[:8]}... (Reason: {stuck['reason']}, Action: auto-resume)",
+                                        "tags": ["auto-recovery", "stuck-agent"]
+                                    })
                             except Exception as e:
                                 logger.debug(f"Could not log auto-recovery: {e}")
                     else:
