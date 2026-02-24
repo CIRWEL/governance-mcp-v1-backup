@@ -1391,6 +1391,40 @@ body {
     overflow-wrap: break-word;
 }
 
+.discovery-expand {
+    margin-top: 8px;
+    cursor: default;
+}
+
+.discovery-expand summary {
+    font-size: 0.8em;
+    color: var(--accent-cyan);
+    cursor: pointer;
+    user-select: none;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.discovery-expand summary:hover {
+    opacity: 1;
+}
+
+.discovery-details-preview {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    border-left: 2px solid var(--accent-cyan);
+    font-size: 0.88em;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
 .discovery-tags {
     display: flex;
     flex-wrap: wrap;

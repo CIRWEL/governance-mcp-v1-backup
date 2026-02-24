@@ -137,6 +137,15 @@
                 return '<span class="discovery-tag clickable-tag" data-tag="' + escapeHtml(t) + '">' + escapeHtml(t) + '</span>';
             }).join('');
 
+            // Expandable details section (click to expand inline, or click card for modal)
+            var detailsHtml = '';
+            if (details && details.trim()) {
+                detailsHtml = '<details class="discovery-expand" onclick="event.stopPropagation()">' +
+                    '<summary>Show details</summary>' +
+                    '<div class="discovery-details-preview">' + escapeHtml(details) + '</div>' +
+                '</details>';
+            }
+
             return '<div class="discovery-item" data-discovery-index="' + idx + '" style="cursor: pointer;" title="Click to view full details">' +
                 '<div class="discoveries-meta-line">' +
                     '<span class="discovery-type ' + type + '">' + typeLabel + '</span>' +
@@ -144,6 +153,7 @@
                     '<span class="meta-item">' + displayDate + '</span>' +
                 '</div>' +
                 '<div class="discovery-summary">' + summaryHtml + '</div>' +
+                detailsHtml +
                 (tags ? '<div class="discovery-tags">' + tags + '</div>' : '') +
             '</div>';
         }).join('');
