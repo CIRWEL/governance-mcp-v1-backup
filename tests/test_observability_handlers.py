@@ -1071,7 +1071,7 @@ class TestHandleAggregateMetrics:
 
     @pytest.mark.asyncio
     async def test_total_updates_aggregated(self):
-        """total_updates across agents are summed."""
+        """total_updates across agents are summed (from meta.total_updates)."""
         id1 = "aaaaaaaa-bbbb-cccc-dddd-111111111111"
         id2 = "aaaaaaaa-bbbb-cccc-dddd-222222222222"
 
@@ -1082,7 +1082,7 @@ class TestHandleAggregateMetrics:
 
         server = _build_mock_server(
             monitors_dict={id1: m1, id2: m2},
-            metadata_dict={id1: _make_metadata(id1), id2: _make_metadata(id2)},
+            metadata_dict={id1: _make_metadata(id1, total_updates=10), id2: _make_metadata(id2, total_updates=20)},
         )
 
         with patch(_PATCH_SERVER, server), \
