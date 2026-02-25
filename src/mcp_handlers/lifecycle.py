@@ -687,6 +687,22 @@ async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[Te
             }
         )]
 
+    # Update status if provided (reactivation from archived)
+    if "status" in arguments:
+        new_status = arguments["status"]
+        if new_status != "active":
+            return [error_response(
+                f"Only status='active' is supported (to reactivate archived agents). Got '{new_status}'.",
+                error_code="INVALID_STATUS_TRANSITION",
+            )]
+        if getattr(meta, "status", None) != "archived":
+            return [error_response(
+                f"Agent is already '{getattr(meta, 'status', 'unknown')}', no status change needed.",
+                error_code="INVALID_STATUS_TRANSITION",
+            )]
+        meta.status = "active"
+        meta.archived_at = None
+
     # Update tags if provided
     if "tags" in arguments:
         meta.tags = arguments["tags"]
@@ -844,6 +860,79 @@ async def handle_archive_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
         "archived_at": meta.archived_at,
         "reason": reason,
         "kept_in_memory": keep_in_memory
+    })
+
+
+@mcp_tool("resume_agent", timeout=15.0, register=False)
+async def handle_resume_agent(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """Resume a paused/stuck agent from the dashboard.
+
+    Lightweight resume handler for human operators (dashboard).
+    No ownership check — mirrors archive_agent pattern.
+    Only resumes agents in paused or waiting_input status.
+    """
+    agent_id, error = require_registered_agent(arguments)
+    if error:
+        return [error]
+
+    agent_uuid = arguments.get("_agent_uuid") or agent_id
+
+    # Reload metadata from PostgreSQL (async)
+    await mcp_server.load_metadata_async(force=True)
+
+    if agent_uuid not in mcp_server.agent_metadata:
+        return agent_not_found_error(agent_id)
+
+    meta = mcp_server.agent_metadata[agent_uuid]
+
+    # Allow resuming paused/waiting_input agents AND "unsticking" active agents
+    # Stuck agents are typically still "active" but caught in a timeout/loop
+    is_stuck_unstick = meta.status == "active" and arguments.get("unstick", False)
+    if meta.status not in ("paused", "waiting_input") and not is_stuck_unstick:
+        return [error_response(
+            f"Agent '{agent_id}' is '{meta.status}', not resumable (must be paused or waiting_input)",
+            error_code="AGENT_NOT_RESUMABLE",
+            error_category="validation_error",
+            details={"error_type": "agent_not_resumable", "agent_id": agent_id, "status": meta.status},
+            recovery={
+                "action": "Agent must be in paused or waiting_input status to resume",
+                "related_tools": ["get_agent_metadata", "list_agents"],
+                "workflow": ["1. Check agent status with get_agent_metadata", "2. Only paused/waiting_input agents can be resumed"]
+            }
+        )]
+
+    reason = arguments.get("reason", "Resumed from dashboard")
+    previous_status = meta.status
+
+    meta.status = "active"
+    meta.paused_at = None
+    meta.add_lifecycle_event("resumed" if not is_stuck_unstick else "unstuck", reason)
+
+    # PostgreSQL: Update status and refresh last_update to clear stuck detection
+    try:
+        await agent_storage.update_agent(agent_uuid, status="active")
+        # Refresh last_update so detect_stuck_agents no longer flags this agent
+        if is_stuck_unstick:
+            await agent_storage.update_agent(agent_uuid, last_update=datetime.now().isoformat())
+        logger.debug(f"PostgreSQL: {'Unstuck' if is_stuck_unstick else 'Resumed'} agent {agent_id}")
+
+        # Invalidate Redis cache
+        try:
+            from src.cache import get_metadata_cache
+            await get_metadata_cache().invalidate(agent_id)
+        except Exception as e:
+            logger.debug(f"Cache invalidation failed: {e}")
+    except Exception as e:
+        logger.warning(f"PostgreSQL update_agent failed: {e}", exc_info=True)
+
+    return success_response({
+        "success": True,
+        "message": f"Agent '{agent_id}' resumed successfully",
+        "agent_id": agent_id,
+        "lifecycle_status": "active",
+        "previous_status": previous_status,
+        "reason": reason,
+        "resumed_at": datetime.now().isoformat()
     })
 
 

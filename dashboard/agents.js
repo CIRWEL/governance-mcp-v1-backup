@@ -181,6 +181,19 @@
             var purposeHtml = purpose
                 ? '<div class="agent-purpose" title="' + purpose + '">' + purpose + '</div>' : '';
 
+            // Stuck badge (cross-referenced from detect_stuck_agents)
+            var stuckBadgeHtml = '';
+            if (agent._stuck && agent._stuckInfo) {
+                var stuckReason = agent._stuckInfo.reason || 'timeout';
+                var stuckReasonLabels = {
+                    'critical_margin_timeout': 'Critical',
+                    'tight_margin_timeout': 'Tight Margin',
+                    'activity_timeout': 'Inactive'
+                };
+                var stuckLabel = stuckReasonLabels[stuckReason] || 'Stuck';
+                stuckBadgeHtml = '<span class="stuck-badge" title="Stuck: ' + escapeHtml(agent._stuckInfo.details || stuckReason) + '">' + escapeHtml(stuckLabel) + '</span>';
+            }
+
             // Trust tier badge
             var tierRaw = agent.trust_tier;
             var tierNameToNum = { unknown: 0, emerging: 1, established: 2, verified: 3 };
@@ -220,6 +233,7 @@
                         statusIndicator +
                         '<span class="agent-name">' + nameHtml + '</span>' +
                         '<span class="status-chip ' + status + '">' + statusLabel + '</span>' +
+                        stuckBadgeHtml +
                         trustTierHtml + anomalyHtml +
                         sparklineHtml +
                         actionsHtml +
