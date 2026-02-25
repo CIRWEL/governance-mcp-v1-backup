@@ -273,6 +273,9 @@ function renderStuckAgentsForModal(agents) {
                         <button class="stuck-agent-view-btn" data-agent-id="${escapeHtml(stuck.agent_id)}" title="View agent details">
                             <span>Details</span>
                         </button>
+                        <button class="stuck-agent-resume-btn" data-agent-id="${escapeHtml(stuck.agent_id)}" title="Clear stuck status and resume this agent">
+                            <span>Unstick</span>
+                        </button>
                         <button class="stuck-agent-archive-btn" data-agent-id="${escapeHtml(stuck.agent_id)}" title="Archive this stuck agent">
                             <span>Archive</span>
                         </button>
@@ -341,8 +344,63 @@ async function archiveStuckAgent(agentId) {
     }
 }
 
+// Resume/unstick stuck agent handler
+async function resumeStuckAgent(agentId) {
+    try {
+        // Check if agent is active (stuck) vs paused — active agents need unstick flag
+        const agentData = cachedAgents.find(a => a.agent_id === agentId);
+        const isActive = agentData && (agentData.lifecycle_status === 'active' || agentData.status === 'active');
+        const result = await callTool('agent', {
+            action: 'resume',
+            agent_id: agentId,
+            reason: isActive ? 'Unstuck from dashboard' : 'Resumed from dashboard',
+            unstick: isActive ? true : undefined
+        });
+        if (result && result.success) {
+            // Remove from cached stuck agents
+            cachedStuckAgents = cachedStuckAgents.filter(a => a.agent_id !== agentId);
+            // Refresh the modal
+            const modalBody = document.getElementById('modal-body');
+            const modalTitle = document.getElementById('modal-title');
+            if (modalBody && modalTitle) {
+                modalTitle.textContent = `Stuck Agents (${cachedStuckAgents.length})`;
+                modalBody.innerHTML = renderStuckAgentsForModal(cachedStuckAgents);
+            }
+            // Refresh agents list
+            loadAgents();
+            loadStuckAgents();
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Failed to resume agent:', error);
+        return false;
+    }
+}
+
 // Event delegation for stuck agents modal
 document.addEventListener('click', async (event) => {
+    // Handle resume button
+    const resumeBtn = event.target.closest('.stuck-agent-resume-btn');
+    if (resumeBtn) {
+        event.stopPropagation();
+        const agentId = resumeBtn.getAttribute('data-agent-id');
+        if (!agentId) return;
+
+        resumeBtn.disabled = true;
+        resumeBtn.innerHTML = '<span>...</span>';
+
+        const success = await resumeStuckAgent(agentId);
+        if (!success) {
+            resumeBtn.disabled = false;
+            resumeBtn.innerHTML = '<span>Failed</span>';
+            setTimeout(() => {
+                resumeBtn.innerHTML = '<span>Resume</span>';
+            }, CONFIG.SCROLL_FEEDBACK_MS);
+        }
+        return;
+    }
+
     // Handle archive button
     const archiveBtn = event.target.closest('.stuck-agent-archive-btn');
     if (archiveBtn) {
@@ -686,6 +744,19 @@ async function loadStuckAgents() {
             cachedStuckAgents = stuck;
             const count = stuck.length;
             animateValue(countEl, count);
+
+            // Cross-reference: mark stuck agents in cachedAgents so agent cards show stuck badge
+            const stuckIds = new Set(stuck.map(s => s.agent_id));
+            const stuckMap = {};
+            stuck.forEach(s => { stuckMap[s.agent_id] = s; });
+            cachedAgents.forEach(a => {
+                a._stuck = stuckIds.has(a.agent_id);
+                a._stuckInfo = stuckMap[a.agent_id] || null;
+            });
+            // Re-render agent list to show stuck badges
+            if (stuckIds.size > 0 && typeof applyAgentFilters === 'function') {
+                applyAgentFilters();
+            }
 
             // Style card based on count
             cardEl.classList.remove('stat-warning', 'stat-critical');
