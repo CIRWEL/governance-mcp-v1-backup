@@ -973,6 +973,15 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
                     except Exception as pg_e:
                         logger.warning(f"Could not mark failed session in PostgreSQL: {pg_e}")
 
+            # Update calibration from dialectic outcome
+            try:
+                if result.get("action") == "resume":
+                    await update_calibration_from_dialectic(session)
+                elif not is_safe:
+                    await update_calibration_from_dialectic_disagreement(session)
+            except Exception as cal_e:
+                logger.debug(f"Calibration update after dialectic: {cal_e}")
+
             # Always invalidate cache after convergence (success or failure)
             for aid in (session.paused_agent_id, session.reviewer_agent_id):
                 if aid and aid in _SESSION_METADATA_CACHE:

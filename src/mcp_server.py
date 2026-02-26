@@ -1815,9 +1815,9 @@ async def main():
                         async with pool.acquire() as conn:
                             # Collect expired session keys for Redis cleanup
                             rows = await conn.fetch(
-                                "SELECT session_key FROM core.sessions WHERE expires_at <= now()"
+                                "SELECT session_id FROM core.sessions WHERE expires_at <= now()"
                             )
-                            expired_session_keys = [r["session_key"] for r in rows]
+                            expired_session_keys = [r["session_id"] for r in rows]
                             # Delete expired PG rows
                             result = await conn.execute("DELETE FROM core.sessions WHERE expires_at <= now()")
                             pg_deleted = int(result.split()[-1]) if result else 0

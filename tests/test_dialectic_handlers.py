@@ -590,7 +590,8 @@ class TestHandleSubmitThesis:
             result = await handle_submit_thesis({
                 "session_id": session.session_id,
                 "agent_id": "agent-paused",
-                "root_cause": "Test",
+                "root_cause": "Test root cause",
+                "proposed_conditions": ["Monitor closely"],
                 "api_key": "key",
             })
 
@@ -727,6 +728,7 @@ class TestHandleSubmitAntithesis:
                 "session_id": session.session_id,
                 "agent_id": "agent-reviewer",
                 "concerns": ["Concern"],
+                "reasoning": "This needs further review",
                 "api_key": "key",
             })
 

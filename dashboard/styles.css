@@ -858,6 +858,11 @@ body {
     box-shadow: 0 0 10px var(--panel-dot-color, var(--accent-cyan));
 }
 
+.panel-purple { --panel-dot-color: var(--accent-purple); }
+.panel-yellow { --panel-dot-color: var(--accent-yellow); }
+.panel-green  { --panel-dot-color: var(--accent-green); }
+.panel-orange { --panel-dot-color: var(--accent-orange); }
+
 /* ============================================
    Panel Controls
    ============================================ */
@@ -1015,7 +1020,7 @@ body {
 .agent-item {
     background: var(--item-bg);
     border: 1px solid var(--border-color);
-    border-left: 4px solid var(--accent-cyan);
+    border-left: 3px solid var(--accent-cyan);
     border-radius: var(--radius-md);
     padding: 18px;
     margin-bottom: 15px;
@@ -1023,6 +1028,7 @@ body {
     position: relative;
     overflow: hidden;
     contain: layout style;
+    cursor: pointer;
 }
 
 .agent-item::before {
@@ -1051,7 +1057,6 @@ body {
 /* Primary agent = high update count, visually distinct */
 .agent-item.primary {
     border-left-color: var(--accent-cyan);
-    border-left-width: 4px;
     background: linear-gradient(90deg, rgba(6, 182, 212, 0.08) 0%, transparent 40%);
 }
 
@@ -1111,11 +1116,11 @@ body {
 .status-chip {
     font-size: 0.7em;
     padding: 3px 8px;
-    border-radius: 12px;
+    border-radius: 4px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.03em;
     font-weight: 600;
-    border: none;
+    border: 1px solid transparent;
     background: var(--metric-track);
     color: var(--text-secondary);
     cursor: pointer;
@@ -1226,12 +1231,12 @@ body {
    Trust Tier Badges
    ============================================ */
 .trust-tier {
-    font-size: 0.65em;
-    padding: 2px 6px;
-    border-radius: 3px;
+    font-size: 0.7em;
+    padding: 3px 8px;
+    border-radius: 4px;
     font-weight: 700;
     font-family: var(--font-mono);
-    letter-spacing: 0.3px;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
 }
 
@@ -1257,11 +1262,11 @@ body {
 
 /* Stuck badge — shown on agent cards when detect_stuck_agents flags them */
 .stuck-badge {
-    font-size: 0.65em;
-    padding: 2px 6px;
-    border-radius: 3px;
+    font-size: 0.7em;
+    padding: 3px 8px;
+    border-radius: 4px;
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
     background: rgba(207, 102, 121, 0.2);
     color: var(--accent-orange);
@@ -1361,27 +1366,51 @@ body {
 .discovery-item {
     background: var(--item-bg);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 16px 18px;
-    margin-bottom: 14px;
-    transition: all 0.2s ease;
+    border-left: 3px solid var(--accent-purple);
+    border-radius: var(--radius-md);
+    padding: 18px;
+    margin-bottom: 15px;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
     contain: layout style;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.discovery-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, rgba(157, 78, 221, 0.05) 0%, transparent 100%);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
 }
 
 .discovery-item:hover {
-    border-color: var(--accent-cyan);
-    background: rgba(0, 255, 255, 0.03);
-    box-shadow: 0 2px 8px rgba(0, 255, 255, 0.1);
-    transform: translateY(-1px);
+    border-color: rgba(157, 78, 221, 0.4);
+    border-left-color: var(--accent-purple);
+    background: rgba(157, 78, 221, 0.03);
+    box-shadow: -4px 0 15px rgba(157, 78, 221, 0.15), var(--shadow-sm);
+    transform: translateX(6px);
+}
+
+.discovery-item:hover::before {
+    opacity: 1;
 }
 
 .discovery-type {
     font-size: 0.7em;
-    padding: 2px 8px;
+    padding: 3px 8px;
     border-radius: 4px;
     background: var(--metric-track);
     color: var(--text-secondary);
     text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.03em;
     border: 1px solid transparent;
 }
 
@@ -1453,7 +1482,7 @@ body {
 .discovery-tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 6px;
     margin-top: 6px;
 }
 
@@ -1642,38 +1671,59 @@ body {
 .dialectic-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 15px;
     overflow-y: auto;
 }
 
 .dialectic-item {
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--item-bg);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 12px 14px;
-    transition: all 0.2s ease;
+    border-left: 3px solid var(--accent-yellow);
+    border-radius: var(--radius-md);
+    padding: 18px;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
     contain: layout style;
+    position: relative;
+    overflow: hidden;
+}
+
+.dialectic-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, rgba(255, 234, 0, 0.04) 0%, transparent 100%);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
 }
 
 .dialectic-item:hover {
-    border-color: var(--accent-cyan);
-    background: rgba(0, 255, 255, 0.05);
-    box-shadow: 0 2px 8px rgba(0, 255, 255, 0.1);
-    transform: translateY(-1px);
+    border-color: rgba(255, 234, 0, 0.4);
+    border-left-color: var(--accent-yellow);
+    background: rgba(255, 234, 0, 0.03);
+    box-shadow: -4px 0 15px rgba(255, 234, 0, 0.12), var(--shadow-sm);
+    transform: translateX(6px);
+}
+
+.dialectic-item:hover::before {
+    opacity: 1;
 }
 
 .dialectic-item.resolved {
-    border-left: 3px solid var(--accent-green);
+    border-left-color: var(--accent-green);
 }
 
 .dialectic-item.failed {
-    border-left: 3px solid var(--accent-orange);
+    border-left-color: var(--accent-orange);
 }
 
 .dialectic-item.thesis,
 .dialectic-item.antithesis,
 .dialectic-item.synthesis {
-    border-left: 3px solid var(--accent-cyan);
+    border-left-color: var(--accent-cyan);
 }
 
 .dialectic-header {
@@ -1687,18 +1737,19 @@ body {
     font-size: 0.7em;
     font-weight: 600;
     text-transform: uppercase;
-    padding: 2px 6px;
+    padding: 3px 8px;
     border: 1px solid;
-    border-radius: 3px;
-    letter-spacing: 0.3px;
+    border-radius: 4px;
+    letter-spacing: 0.03em;
 }
 
 .dialectic-session-type {
-    font-size: 0.75em;
+    font-size: 0.7em;
     color: var(--text-secondary);
-    background: rgba(255, 255, 255, 0.05);
-    padding: 2px 6px;
-    border-radius: 3px;
+    background: var(--metric-track);
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.03em;
 }
 
 .dialectic-time {
@@ -2538,14 +2589,6 @@ body {
     color: var(--text-secondary);
     margin-left: 0.35rem;
     opacity: 0.8;
-}
-
-/* Risk adjustment detail */
-.pulse-metric-detail {
-    font-size: 0.7rem;
-    font-family: var(--font-mono);
-    margin-left: 0.3rem;
-    opacity: 0.9;
 }
 
 /* Risk adjustment detail */
@@ -3597,4 +3640,71 @@ body {
 
 .cursor-pointer {
     cursor: pointer;
+}
+
+/* ============================================
+   Inline style replacements — extracted from JS
+   ============================================ */
+
+/* Tertiary-color code snippets (agent UUIDs etc.) */
+.code-tertiary {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    word-break: break-all;
+}
+
+.code-tertiary-sm {
+    font-size: 0.7em;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin-left: 6px;
+}
+
+/* Agent label in dialectic items */
+.dialectic-agents .agent-label-spaced {
+    margin-left: 10px;
+}
+
+/* Message count indicator */
+.dialectic-msg-count {
+    color: var(--accent-cyan);
+    margin-left: 10px;
+}
+
+/* Dialectic detail header */
+.dialectic-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.dialectic-detail-header .dialectic-type {
+    font-size: 1.1em;
+}
+
+.dialectic-detail-header .dialectic-session-type {
+    font-size: 1em;
+}
+
+/* Transcript entries */
+.transcript-role {
+    text-transform: uppercase;
+    font-size: 0.8em;
+    font-weight: 700;
+}
+
+.transcript-author {
+    color: var(--text-secondary);
+    font-size: 0.8em;
+    margin-left: 8px;
+}
+
+.transcript-content {
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 0.9em;
+    line-height: 1.5;
 }

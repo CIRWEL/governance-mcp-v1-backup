@@ -848,7 +848,7 @@ class DialecticSession:
         if mediator_msg:
             merged = {
                 "conditions": mediator_msg.proposed_conditions or [],
-                "root_cause": mediator_msg.root_cause or thesis_root_cause or "Unknown",
+                "root_cause": mediator_msg.root_cause or thesis_root_cause or antithesis_root_cause or "Unknown",
                 "reasoning": mediator_msg.reasoning or ""
             }
         else:

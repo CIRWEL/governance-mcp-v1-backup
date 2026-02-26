@@ -227,7 +227,7 @@
                 ? '<div class="sparkline-container" title="Coherence trend (last ' + sparklineData.length + ' points)"><span class="sparkline-label">C ' + sparklineVal.toFixed(2) + '</span>' + createSparklineSVG(sparklineData, { color: '#06b6d4' }) + '</div>'
                 : '';
 
-            return '<div class="agent-item ' + statusClass + '" data-agent-uuid="' + escapeHtml(agentId) + '" style="cursor: pointer;" title="Click to view details">' +
+            return '<div class="agent-item ' + statusClass + '" data-agent-uuid="' + escapeHtml(agentId) + '" title="Click to view details">' +
                 '<div class="agent-meta">' +
                     '<div class="agent-title">' +
                         statusIndicator +
@@ -416,18 +416,18 @@
 
         var html = '<div class="agent-detail">' +
             '<div class="flex-row-wrap mb-md">' +
-                '<span class="status-indicator ' + status + '" style="width: 10px; height: 10px;"></span>' +
-                '<span style="font-size: 1.2em; font-weight: 600;">' + escapeHtml(displayName) + '</span>' +
+                '<span class="status-indicator ' + status + '"></span>' +
+                '<span class="detail-box-value">' + escapeHtml(displayName) + '</span>' +
                 '<span class="status-chip ' + status + '">' + escapeHtml(formatStatusLabel(status)) + '</span>' +
                 (trustTier !== null ? '<span class="trust-tier tier-' + trustTier + '">Tier ' + trustTier + ': ' + (tierNames[trustTier] || 'Unknown') + '</span>' : '') +
             '</div>' +
 
-            (purpose ? '<div class="text-secondary-sm mb-md" style="font-style: italic;">' + purpose + '</div>' : '') +
+            (purpose ? '<div class="text-secondary-sm mb-md agent-purpose">' + purpose + '</div>' : '') +
 
             '<div class="grid-2col mb-md">' +
                 '<div>' +
                     '<strong class="text-secondary-sm">Agent ID:</strong><br>' +
-                    '<code style="font-size: 0.85em; word-break: break-all;">' + escapeHtml(agentId) + '</code>' +
+                    '<code class="code-tertiary">' + escapeHtml(agentId) + '</code>' +
                 '</div>' +
                 '<div>' +
                     '<strong class="text-secondary-sm">Total Updates:</strong><br>' +
@@ -502,7 +502,7 @@
             (notes
                 ? '<div class="detail-section">' +
                     '<strong class="text-secondary-sm">Notes:</strong>' +
-                    '<div class="detail-box mt-sm" style="text-align: left; white-space: pre-wrap;">' + notes + '</div>' +
+                    '<div class="content-box mt-sm">' + notes + '</div>' +
                   '</div>'
                 : '') +
 

@@ -57,7 +57,7 @@
                 container.innerHTML = '<div class="dialectic-empty">' +
                     '<div class="dialectic-empty-icon">⚠</div>' +
                     '<div>Error loading dialectic sessions</div>' +
-                    '<div style="font-size: 0.85em; margin-top: 5px; opacity: 0.7">' +
+                    '<div class="text-secondary-xs">' +
                         'Check server connection and try Refresh' +
                     '</div>' +
                 '</div>';
@@ -100,7 +100,7 @@
             container.innerHTML = '<div class="dialectic-empty">' +
                 '<div class="dialectic-empty-icon">🔄</div>' +
                 '<div>No active dialectic sessions</div>' +
-                '<div style="font-size: 0.85em; margin-top: 5px; opacity: 0.7">' +
+                '<div class="text-secondary-xs">' +
                     'Sessions appear when agents request recovery reviews' +
                 '</div>' +
             '</div>';
@@ -151,7 +151,7 @@
                 '</div>';
             }
 
-            return '<div class="dialectic-item ' + phase + '" data-session-id="' + (session.session_id || '') + '" style="cursor: pointer;" title="Click to view details">' +
+            return '<div class="dialectic-item ' + phase + '" data-session-id="' + (session.session_id || '') + '" title="Click to view details">' +
                 '<div class="dialectic-header">' +
                     '<span class="dialectic-type" style="border-color: ' + phaseColor + '; color: ' + phaseColor + '">' +
                         escapeHtml(formatDialecticPhase(phase)) +
@@ -161,18 +161,18 @@
                 '</div>' +
                 '<div class="dialectic-topic">' + escapeHtml(topic) + '</div>' +
                 '<div class="dialectic-agents">' +
-                    '<span class="agent-label">Requestor:</span> ' + escapeHtml(requestorLabel) + (requestorUuid ? ' <code style="font-size: 0.75em; color: var(--text-tertiary);">' + escapeHtml(requestorUuid.substring(0, 8)) + '</code>' : '') +
+                    '<span class="agent-label">Requestor:</span> ' + escapeHtml(requestorLabel) + (requestorUuid ? ' <code class="code-tertiary">' + escapeHtml(requestorUuid.substring(0, 8)) + '</code>' : '') +
                     (reviewerLabel && reviewerLabel !== 'None'
-                        ? '<span class="agent-label" style="margin-left: 10px;">Reviewer:</span> ' + escapeHtml(reviewerLabel) + (reviewerUuid ? ' <code style="font-size: 0.75em; color: var(--text-tertiary);">' + escapeHtml(reviewerUuid.substring(0, 8)) + '</code>' : '')
+                        ? '<span class="agent-label agent-label-spaced">Reviewer:</span> ' + escapeHtml(reviewerLabel) + (reviewerUuid ? ' <code class="code-tertiary">' + escapeHtml(reviewerUuid.substring(0, 8)) + '</code>' : '')
                         : '') +
-                    '<span class="agent-label" style="margin-left: 10px; color: var(--accent-cyan);">📝 ' + (session.message_count || 0) + ' messages</span>' +
+                    '<span class="agent-label agent-label-spaced dialectic-msg-count">' + (session.message_count || 0) + ' msgs</span>' +
                 '</div>' +
                 resolutionInfo +
             '</div>';
         }).join('');
 
         if (hasMore) {
-            container.innerHTML += '<div class="loading" style="text-align: center; padding: 10px;">' +
+            container.innerHTML += '<div class="loading">' +
                 '...and ' + (sessions.length - 25) + ' more sessions (use filter to narrow down)' +
             '</div>';
         }
@@ -264,21 +264,21 @@
 
         var html = '<div class="dialectic-detail">' +
             '<div class="dialectic-detail-header">' +
-                '<span class="dialectic-type" style="border-color: ' + phaseColor + '; color: ' + phaseColor + '; font-size: 1.1em;">' +
+                '<span class="dialectic-type" style="border-color: ' + phaseColor + '; color: ' + phaseColor + '">' +
                     escapeHtml(formatDialecticPhase(phase)) +
                 '</span>' +
-                '<span class="dialectic-session-type" style="font-size: 1em;">' + escapeHtml(sessionType) + '</span>' +
+                '<span class="dialectic-session-type">' + escapeHtml(sessionType) + '</span>' +
             '</div>' +
 
             '<div class="detail-section mt-md">' +
                 '<strong class="text-secondary-sm">Topic:</strong><br>' +
-                '<span style="font-size: 1.1em;">' + escapeHtml(topic) + '</span>' +
+                '<span class="detail-box-value">' + escapeHtml(topic) + '</span>' +
             '</div>' +
 
             '<div class="grid-2col mb-md mt-md">' +
                 '<div>' +
                     '<strong class="text-secondary-sm">Session ID:</strong><br>' +
-                    '<code style="font-size: 0.85em; word-break: break-all;">' + escapeHtml(sessionId) + '</code>' +
+                    '<code class="code-tertiary">' + escapeHtml(sessionId) + '</code>' +
                 '</div>' +
                 '<div>' +
                     '<strong class="text-secondary-sm">Created:</strong><br>' +
@@ -290,13 +290,13 @@
                 '<div>' +
                     '<strong class="text-secondary-sm">Requestor:</strong><br>' +
                     escapeHtml(requestorLabel) +
-                    (requestorUuid ? '<br><code style="font-size: 0.75em; color: var(--text-tertiary); word-break: break-all;">' + escapeHtml(requestorUuid) + '</code>' : '') +
+                    (requestorUuid ? '<br><code class="code-tertiary">' + escapeHtml(requestorUuid) + '</code>' : '') +
                 '</div>' +
                 '<div>' +
                     '<strong class="text-secondary-sm">Reviewer:</strong><br>' +
                     (reviewerLabel !== 'None'
                         ? escapeHtml(reviewerLabel) +
-                          (reviewerUuid ? '<br><code style="font-size: 0.75em; color: var(--text-tertiary); word-break: break-all;">' + escapeHtml(reviewerUuid) + '</code>' : '')
+                          (reviewerUuid ? '<br><code class="code-tertiary">' + escapeHtml(reviewerUuid) + '</code>' : '')
                         : '<span class="text-secondary-sm">Not assigned</span>') +
                 '</div>' +
             '</div>';
@@ -317,7 +317,7 @@
         if (transcript.length > 0) {
             html += '<div class="detail-section mt-md">' +
                 '<strong class="detail-section-title">Discussion Transcript (' + transcript.length + ' messages):</strong>' +
-                '<div class="mt-sm" style="max-height: 350px; overflow-y: auto;">';
+                '<div class="mt-sm content-box">';
 
             transcript.forEach(function (entry) {
                 var role = entry.role || entry.phase || 'system';
@@ -336,22 +336,38 @@
                 html += '<div class="transcript-entry" style="border-left-color: ' + roleColor + ';">' +
                     '<div class="flex-between mb-sm">' +
                         '<span>' +
-                            '<strong style="color: ' + roleColor + '; text-transform: uppercase; font-size: 0.8em;">' + escapeHtml(role) + '</strong>' +
-                            (authorLabel ? '<span style="color: var(--text-secondary); font-size: 0.8em; margin-left: 8px;">' + escapeHtml(authorLabel) + '</span>' : '') +
-                            (authorUuid ? '<code style="color: var(--text-tertiary); font-size: 0.7em; margin-left: 6px;">' + escapeHtml(authorUuid.substring(0, 8)) + '</code>' : '') +
+                            '<strong class="transcript-role" style="color: ' + roleColor + ';">' + escapeHtml(role) + '</strong>' +
+                            (authorLabel ? '<span class="transcript-author">' + escapeHtml(authorLabel) + '</span>' : '') +
+                            (authorUuid ? '<code class="code-tertiary-sm">' + escapeHtml(authorUuid.substring(0, 8)) + '</code>' : '') +
                         '</span>' +
                         (timestamp ? '<span class="text-secondary-xxs">' + escapeHtml(timestamp) + '</span>' : '') +
                     '</div>' +
-                    '<div style="color: var(--text-primary); white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; line-height: 1.5;">' + escapeHtml(content) + '</div>' +
+                    '<div class="transcript-content">' + escapeHtml(content) + '</div>' +
                 '</div>';
             });
 
             html += '</div></div>';
         } else {
             html += '<div class="empty-state-centered mt-md">' +
-                '<div style="font-size: 1.5em; margin-bottom: 8px;">📭</div>' +
+                '<div class="dialectic-empty-icon">📭</div>' +
                 'No transcript recorded for this session.<br>' +
                 '<small>This may be an auto-resolved or system-generated session.</small>' +
+            '</div>';
+        }
+
+        // Participate: submit antithesis or synthesis when session is active
+        var activePhases = ['thesis', 'antithesis', 'synthesis'];
+        if (activePhases.indexOf(phase) !== -1 && !session.resolution) {
+            html += '<div class="dialectic-participate mt-md">' +
+                '<strong class="text-secondary-sm">Participate:</strong>' +
+                '<textarea class="dialectic-message-input mt-sm" placeholder="Your message..." data-session-id="' + escapeHtml(sessionId) + '" data-phase="' + escapeHtml(phase) + '" rows="3"></textarea>' +
+                '<div class="mt-sm">' +
+                    (phase === 'antithesis'
+                        ? '<button class="panel-button dialectic-submit-btn" data-session-id="' + escapeHtml(sessionId) + '" data-action="antithesis">Submit antithesis</button>'
+                        : phase === 'synthesis'
+                            ? '<button class="panel-button dialectic-submit-btn" data-session-id="' + escapeHtml(sessionId) + '" data-action="synthesis">Submit synthesis</button>'
+                            : '<button class="panel-button dialectic-submit-btn" data-session-id="' + escapeHtml(sessionId) + '" data-action="thesis">Submit thesis</button>') +
+                '</div>' +
             '</div>';
         }
 

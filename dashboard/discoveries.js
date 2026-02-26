@@ -150,7 +150,7 @@
                 '</details>';
             }
 
-            return '<div class="discovery-item" data-discovery-index="' + idx + '" style="cursor: pointer;" title="Click to view full details">' +
+            return '<div class="discovery-item" data-discovery-index="' + idx + '" title="Click to view full details">' +
                 '<div class="discoveries-meta-line">' +
                     '<span class="discovery-type ' + type + '">' + typeLabel + '</span>' +
                     '<span class="meta-item">By: ' + agent + '</span>' +
@@ -235,13 +235,13 @@
 
         var html = '<div class="discovery-detail">' +
             '<div class="flex-row mb-md">' +
-                '<span class="discovery-type ' + type + '" style="font-size: 1em;">' + escapeHtml(typeLabel) + '</span>' +
+                '<span class="discovery-type ' + type + '">' + escapeHtml(typeLabel) + '</span>' +
                 '<span class="text-secondary-sm">' + escapeHtml(displayDate) + (relativeTime ? ' (' + relativeTime + ')' : '') + '</span>' +
             '</div>' +
 
             '<div class="detail-section">' +
                 '<strong class="text-secondary-sm">Summary:</strong><br>' +
-                '<span style="font-size: 1.1em;">' + escapeHtml(summary) + '</span>' +
+                '<span class="detail-box-value">' + escapeHtml(summary) + '</span>' +
             '</div>' +
 
             (details
@@ -254,12 +254,12 @@
             '<div class="grid-2col mb-md mt-md">' +
                 '<div>' +
                     '<strong class="text-secondary-sm">Agent:</strong><br>' +
-                    '<code style="font-size: 0.9em; word-break: break-all;">' + escapeHtml(agent) + '</code>' +
+                    '<code class="code-tertiary">' + escapeHtml(agent) + '</code>' +
                 '</div>' +
                 (discovery.id
                     ? '<div>' +
                         '<strong class="text-secondary-sm">ID:</strong><br>' +
-                        '<code style="font-size: 0.85em; word-break: break-all;">' + escapeHtml(discovery.id) + '</code>' +
+                        '<code class="code-tertiary">' + escapeHtml(discovery.id) + '</code>' +
                       '</div>'
                     : '') +
             '</div>' +
@@ -267,7 +267,7 @@
             (tagsHtml
                 ? '<div class="mt-md">' +
                     '<strong class="text-secondary-sm">Tags:</strong>' +
-                    '<div class="flex-row-wrap mt-sm" style="gap: 6px;">' + tagsHtml + '</div>' +
+                    '<div class="flex-row-wrap mt-sm">' + tagsHtml + '</div>' +
                   '</div>'
                 : '') +
 
@@ -275,6 +275,21 @@
                 ? '<div class="flex-row mt-md">' +
                     (discovery.severity ? '<div><strong class="text-secondary-sm">Severity:</strong> ' + escapeHtml(discovery.severity) + '</div>' : '') +
                     (discovery.status ? '<div><strong class="text-secondary-sm">Status:</strong> ' + escapeHtml(discovery.status) + '</div>' : '') +
+                  '</div>'
+                : '') +
+
+            (discovery.id
+                ? '<div class="discovery-actions mt-md">' +
+                    '<strong class="text-secondary-sm">Status:</strong> ' +
+                    '<div class="flex-row-wrap gap-sm mt-sm">' +
+                        '<button class="panel-button discovery-status-btn" data-discovery-id="' + escapeHtml(discovery.id) + '" data-status="open">Open</button>' +
+                        '<button class="panel-button discovery-status-btn" data-discovery-id="' + escapeHtml(discovery.id) + '" data-status="resolved">Resolved</button>' +
+                        '<button class="panel-button discovery-status-btn" data-discovery-id="' + escapeHtml(discovery.id) + '" data-status="archived">Archived</button>' +
+                    '</div>' +
+                    '<div class="mt-sm">' +
+                        '<input type="text" class="discovery-note-input" placeholder="Add note..." data-discovery-id="' + escapeHtml(discovery.id) + '" style="max-width: 300px; margin-right: 8px;">' +
+                        '<button class="panel-button discovery-leave-note-btn" data-discovery-id="' + escapeHtml(discovery.id) + '">Leave note</button>' +
+                    '</div>' +
                   '</div>'
                 : '') +
 
