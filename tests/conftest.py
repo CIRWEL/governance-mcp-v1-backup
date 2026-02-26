@@ -115,6 +115,22 @@ def _isolate_db_backend(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _neutralize_metadata_loading(monkeypatch):
+    """
+    Prevent ensure_metadata_loaded() from trying to connect to PostgreSQL.
+
+    Sets _metadata_loaded = True in agent_state so the fast-path returns
+    immediately. Tests that need to exercise metadata loading should
+    explicitly set _metadata_loaded = False and mock load_metadata_async.
+    """
+    try:
+        import src.agent_state as agent_state
+        monkeypatch.setattr(agent_state, '_metadata_loaded', True)
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def _isolate_identity_state():
     """
     Reset all in-memory identity and session state between tests.
@@ -145,7 +161,20 @@ def _isolate_identity_state():
     except Exception:
         pass
 
-    # --- mcp_server_std agent_metadata & monitors ---
+    # --- agent_state (canonical) + mcp_server_std (re-exports) agent_metadata & monitors ---
+    try:
+        if 'src.agent_state' in sys.modules:
+            mod = sys.modules['src.agent_state']
+            if hasattr(mod, 'agent_metadata'):
+                mod.agent_metadata.clear()
+            if hasattr(mod, 'monitors'):
+                mod.monitors.clear()
+            # Reset metadata loading state so ensure_metadata_loaded doesn't carry over
+            mod._metadata_loaded = False
+            mod._metadata_loading = False
+            mod._metadata_loaded_event.clear()
+    except Exception:
+        pass
     try:
         if 'src.mcp_server_std' in sys.modules:
             mcp = sys.modules['src.mcp_server_std']

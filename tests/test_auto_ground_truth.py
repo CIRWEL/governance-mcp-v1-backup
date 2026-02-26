@@ -567,7 +567,7 @@ def _patch_modules(mock_checker, mock_audit, mock_mcp_server):
     collect_ground_truth_automatically's runtime imports resolve to our mocks.
 
     Key subtlety: `import src.mcp_server_std as X` resolves via the parent
-    package's __dict__ (src.mcp_server_std attribute), NOT just sys.modules.
+    package's __dict__ (src.agent_state attribute), NOT just sys.modules.
     `from src.calibration import Y` resolves via sys.modules. We must patch both.
     """
     import contextlib
@@ -579,17 +579,17 @@ def _patch_modules(mock_checker, mock_audit, mock_mcp_server):
         mock_audit_log = MagicMock(AuditLogger=MagicMock(return_value=mock_audit))
 
         # Save originals from the parent package
-        orig_mcp = getattr(_src_pkg, 'mcp_server_std', None)
+        orig_mcp = getattr(_src_pkg, 'agent_state', None)
         orig_cal = getattr(_src_pkg, 'calibration', None)
         orig_aud = getattr(_src_pkg, 'audit_log', None)
 
         with patch.dict(sys.modules, {
             "src.calibration": mock_calibration,
-            "src.mcp_server_std": mock_mcp_server,
+            "src.agent_state": mock_mcp_server,
             "src.audit_log": mock_audit_log,
         }):
             # Also patch the parent package attributes (for `import src.X as Y`)
-            _src_pkg.mcp_server_std = mock_mcp_server
+            _src_pkg.agent_state = mock_mcp_server
             _src_pkg.calibration = mock_calibration
             _src_pkg.audit_log = mock_audit_log
             try:
@@ -597,9 +597,9 @@ def _patch_modules(mock_checker, mock_audit, mock_mcp_server):
             finally:
                 # Restore parent package attributes
                 if orig_mcp is not None:
-                    _src_pkg.mcp_server_std = orig_mcp
-                elif hasattr(_src_pkg, 'mcp_server_std'):
-                    delattr(_src_pkg, 'mcp_server_std')
+                    _src_pkg.agent_state = orig_mcp
+                elif hasattr(_src_pkg, 'agent_state'):
+                    delattr(_src_pkg, 'agent_state')
                 if orig_cal is not None:
                     _src_pkg.calibration = orig_cal
                 if orig_aud is not None:

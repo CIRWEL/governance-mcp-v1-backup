@@ -404,7 +404,8 @@ class TestGetAgentMetadata:
         server.monitors = {}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             result = await handle_get_agent_metadata({})
             data = _parse(result)
@@ -453,7 +454,8 @@ class TestGetAgentMetadata:
         error = TextContent(type="text", text='{"error": "not registered"}')
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=(None, error)):
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             result = await handle_get_agent_metadata({})
             assert "not registered" in result[0].text
@@ -471,7 +473,8 @@ class TestGetAgentMetadata:
         server.monitors = {"agent-1": mock_monitor}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             result = await handle_get_agent_metadata({})
             data = _parse(result)
@@ -487,7 +490,8 @@ class TestGetAgentMetadata:
         server.monitors = {}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             result = await handle_get_agent_metadata({})
             data = _parse(result)
@@ -512,6 +516,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -532,6 +537,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -552,6 +558,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -572,6 +579,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -592,6 +600,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -611,6 +620,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -630,6 +640,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -659,6 +670,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
             from src.mcp_handlers.lifecycle import handle_update_agent_metadata
@@ -673,7 +685,8 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=(None, error)):
             from src.mcp_handlers.lifecycle import handle_update_agent_metadata
             result = await handle_update_agent_metadata({})
             assert "not registered" in result[0].text
@@ -685,6 +698,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -706,6 +720,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -726,6 +741,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -745,6 +761,7 @@ class TestUpdateAgentMetadata:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -774,6 +791,7 @@ class TestArchiveAgent:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.archive_agent = AsyncMock()
@@ -792,7 +810,8 @@ class TestArchiveAgent:
         server.agent_metadata = {"agent-1": meta}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_archive_agent
             result = await handle_archive_agent({"agent_id": "agent-1"})
             text = result[0].text
@@ -803,7 +822,8 @@ class TestArchiveAgent:
         server.agent_metadata = {}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_archive_agent
             result = await handle_archive_agent({"agent_id": "agent-1"})
             text = result[0].text
@@ -816,7 +836,8 @@ class TestArchiveAgent:
         server.agent_metadata = {"agent-1": meta}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_archive_agent
             result = await handle_archive_agent({"agent_id": "agent-1"})
             text = result[0].text
@@ -828,7 +849,8 @@ class TestArchiveAgent:
         error = TextContent(type="text", text='{"error": "not registered"}')
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=(None, error)):
             from src.mcp_handlers.lifecycle import handle_archive_agent
             result = await handle_archive_agent({})
             assert "not registered" in result[0].text
@@ -840,6 +862,7 @@ class TestArchiveAgent:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.archive_agent = AsyncMock()
@@ -858,6 +881,7 @@ class TestArchiveAgent:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.archive_agent = AsyncMock()
@@ -877,6 +901,7 @@ class TestArchiveAgent:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.archive_agent = AsyncMock()
@@ -902,7 +927,8 @@ class TestDeleteAgent:
     @pytest.mark.asyncio
     async def test_delete_requires_confirm(self, server):
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_delete_agent
             result = await handle_delete_agent({"agent_id": "agent-1", "confirm": False})
             text = result[0].text
@@ -911,7 +937,8 @@ class TestDeleteAgent:
     @pytest.mark.asyncio
     async def test_delete_default_no_confirm(self, server):
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_delete_agent
             result = await handle_delete_agent({"agent_id": "agent-1"})
             text = result[0].text
@@ -923,7 +950,8 @@ class TestDeleteAgent:
         server.agent_metadata = {"agent-1": meta}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_delete_agent
             result = await handle_delete_agent({"agent_id": "agent-1", "confirm": True})
             text = result[0].text
@@ -936,6 +964,7 @@ class TestDeleteAgent:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.delete_agent = AsyncMock()
@@ -953,7 +982,8 @@ class TestDeleteAgent:
         server.agent_metadata = {}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_delete_agent
             result = await handle_delete_agent({"agent_id": "agent-1", "confirm": True})
             text = result[0].text
@@ -966,7 +996,8 @@ class TestDeleteAgent:
         server.agent_metadata = {"agent-1": meta}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_delete_agent
             result = await handle_delete_agent({
                 "agent_id": "agent-1", "confirm": True,
@@ -982,6 +1013,7 @@ class TestDeleteAgent:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.delete_agent = AsyncMock()
@@ -997,7 +1029,8 @@ class TestDeleteAgent:
         error = TextContent(type="text", text='{"error": "not registered"}')
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=(None, error)):
             from src.mcp_handlers.lifecycle import handle_delete_agent
             result = await handle_delete_agent({"confirm": True})
             assert "not registered" in result[0].text
@@ -1269,6 +1302,7 @@ class TestMarkResponseComplete:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.knowledge_graph.get_knowledge_graph", new_callable=AsyncMock, side_effect=Exception("no graph")):
@@ -1287,6 +1321,7 @@ class TestMarkResponseComplete:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.knowledge_graph.get_knowledge_graph", new_callable=AsyncMock, side_effect=Exception("no graph")):
@@ -1307,7 +1342,8 @@ class TestMarkResponseComplete:
         error = TextContent(type="text", text='{"error": "not registered"}')
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=(None, error)):
             from src.mcp_handlers.lifecycle import handle_mark_response_complete
             result = await handle_mark_response_complete({})
             assert "not registered" in result[0].text
@@ -1319,6 +1355,7 @@ class TestMarkResponseComplete:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
             from src.mcp_handlers.lifecycle import handle_mark_response_complete
             result = await handle_mark_response_complete({"agent_id": "agent-1"})
@@ -1353,6 +1390,7 @@ class TestDirectResumeIfSafe:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.update_agent = AsyncMock()
@@ -1372,6 +1410,7 @@ class TestDirectResumeIfSafe:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             from src.mcp_handlers.lifecycle import handle_direct_resume_if_safe
             result = await handle_direct_resume_if_safe({"agent_id": "agent-1"})
@@ -1387,6 +1426,7 @@ class TestDirectResumeIfSafe:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             from src.mcp_handlers.lifecycle import handle_direct_resume_if_safe
             result = await handle_direct_resume_if_safe({"agent_id": "agent-1"})
@@ -1401,6 +1441,7 @@ class TestDirectResumeIfSafe:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             from src.mcp_handlers.lifecycle import handle_direct_resume_if_safe
             result = await handle_direct_resume_if_safe({"agent_id": "agent-1"})
@@ -1415,6 +1456,7 @@ class TestDirectResumeIfSafe:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             from src.mcp_handlers.lifecycle import handle_direct_resume_if_safe
             result = await handle_direct_resume_if_safe({"agent_id": "agent-1"})
@@ -1426,7 +1468,8 @@ class TestDirectResumeIfSafe:
         server.agent_metadata = {}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_direct_resume_if_safe
             result = await handle_direct_resume_if_safe({"agent_id": "agent-1"})
             text = result[0].text
@@ -1439,6 +1482,7 @@ class TestDirectResumeIfSafe:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
             from src.mcp_handlers.lifecycle import handle_direct_resume_if_safe
             result = await handle_direct_resume_if_safe({"agent_id": "agent-1"})
@@ -1473,6 +1517,7 @@ class TestSelfRecoveryReview:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.mcp_handlers.lifecycle_stuck.GovernanceConfig") as mock_config:
@@ -1492,6 +1537,7 @@ class TestSelfRecoveryReview:
     async def test_recovery_requires_reflection(self, server):
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             from src.mcp_handlers.lifecycle import handle_self_recovery_review
             result = await handle_self_recovery_review({
@@ -1504,6 +1550,7 @@ class TestSelfRecoveryReview:
     async def test_recovery_reflection_too_short(self, server):
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             from src.mcp_handlers.lifecycle import handle_self_recovery_review
             result = await handle_self_recovery_review({
@@ -1522,6 +1569,7 @@ class TestSelfRecoveryReview:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.mcp_handlers.lifecycle_stuck.GovernanceConfig") as mock_config:
@@ -1546,6 +1594,7 @@ class TestSelfRecoveryReview:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.mcp_handlers.lifecycle_stuck.GovernanceConfig") as mock_config:
             mock_config.compute_proprioceptive_margin.return_value = {"margin": "comfortable"}
@@ -1562,6 +1611,7 @@ class TestSelfRecoveryReview:
     async def test_recovery_ownership_denied(self, server):
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
             from src.mcp_handlers.lifecycle import handle_self_recovery_review
             result = await handle_self_recovery_review({
@@ -1578,6 +1628,7 @@ class TestSelfRecoveryReview:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.mcp_handlers.lifecycle_stuck.GovernanceConfig") as mock_config:
             mock_config.compute_proprioceptive_margin.return_value = {"margin": "comfortable"}
@@ -2432,7 +2483,8 @@ class TestGetAgentMetadataEdgeCases:
         server.monitors = {}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             result = await handle_get_agent_metadata({})
             data = _parse(result)
@@ -2447,7 +2499,8 @@ class TestGetAgentMetadataEdgeCases:
         server.monitors = {}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             result = await handle_get_agent_metadata({})
             data = _parse(result)
@@ -2458,7 +2511,8 @@ class TestGetAgentMetadataEdgeCases:
         """Line 667: agent_id from require_registered_agent but not in agent_metadata."""
         server.agent_metadata = {}
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             # This should raise KeyError since meta = mcp_server.agent_metadata[agent_id]
             # but the handler doesn't protect against that - let's see what happens
@@ -2487,6 +2541,7 @@ class TestUpdateAgentMetadataEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -2507,6 +2562,7 @@ class TestUpdateAgentMetadataEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
@@ -2539,6 +2595,7 @@ class TestArchiveAgentEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.archive_agent = AsyncMock(side_effect=RuntimeError("PG down"))
@@ -2567,6 +2624,7 @@ class TestDeleteAgentEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.delete_agent = AsyncMock()
@@ -2590,6 +2648,7 @@ class TestDeleteAgentEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.delete_agent = AsyncMock()
@@ -2613,6 +2672,7 @@ class TestDeleteAgentEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.delete_agent = AsyncMock(side_effect=RuntimeError("PG down"))
@@ -2803,6 +2863,7 @@ class TestMarkResponseCompleteEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.knowledge_graph.get_knowledge_graph", new_callable=AsyncMock, return_value=mock_graph):
@@ -2834,6 +2895,7 @@ class TestDirectResumeEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             from src.mcp_handlers.lifecycle import handle_direct_resume_if_safe
             result = await handle_direct_resume_if_safe({"agent_id": "agent-1"})
@@ -2855,6 +2917,7 @@ class TestDirectResumeEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             mock_storage.update_agent = AsyncMock(side_effect=RuntimeError("PG down"))
@@ -2891,7 +2954,8 @@ class TestSelfRecoveryReviewEdgeCases:
         error = TextContent(type="text", text='{"error": "not registered"}')
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=(None, error)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=(None, error)):
             from src.mcp_handlers.lifecycle import handle_self_recovery_review
             result = await handle_self_recovery_review({
                 "reflection": "I reflected deeply on what went wrong here",
@@ -2907,6 +2971,7 @@ class TestSelfRecoveryReviewEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.mcp_handlers.lifecycle_stuck.GovernanceConfig") as mock_config:
@@ -2931,6 +2996,7 @@ class TestSelfRecoveryReviewEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.mcp_handlers.lifecycle_stuck.GovernanceConfig") as mock_config:
@@ -2953,6 +3019,7 @@ class TestSelfRecoveryReviewEdgeCases:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.mcp_handlers.lifecycle_stuck.GovernanceConfig") as mock_config:
             mock_config.compute_proprioceptive_margin.return_value = {"margin": "comfortable"}
@@ -3579,7 +3646,8 @@ class TestGetAgentMetadataAdditional:
         server.monitors = {}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)):
+             patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             result = await handle_get_agent_metadata({})
             data = _parse(result)
@@ -3598,6 +3666,7 @@ class TestGetAgentMetadataAdditional:
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.mcp_handlers.lifecycle_resume.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.cache.get_metadata_cache", return_value=mock_cache):
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             result = await handle_get_agent_metadata({})
