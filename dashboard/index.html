@@ -35,7 +35,7 @@
     <a href="#agents-container" class="skip-link">Skip to agents</a>
     <div class="header">
         <h1>UNITARES Governance</h1>
-        <div class="subtitle">Multi-Agent Coordination Dashboard</div>
+        <span class="subtitle">Multi-Agent Coordination</span>
     </div>
 
     <div id="connection-banner" class="banner hidden"></div>
@@ -69,7 +69,6 @@
         <a href="#stats-section" class="section-nav-item active" data-section="stats-section">Stats</a>
         <a href="#governance-pulse-panel" class="section-nav-item" data-section="governance-pulse-panel">Pulse</a>
         <a href="#eisv-chart-panel" class="section-nav-item" data-section="eisv-chart-panel">EISV</a>
-        <a href="#timeline-panel" class="section-nav-item" data-section="timeline-panel">Timeline</a>
         <a href="#agents-section" class="section-nav-item" data-section="agents-section">Agents</a>
         <a href="#discoveries-section" class="section-nav-item" data-section="discoveries-section">Discoveries</a>
         <a href="#dialectic-section" class="section-nav-item" data-section="dialectic-section">Dialectic</a>
@@ -77,32 +76,32 @@
 
     <main>
         <div class="stats-grid" id="stats-section">
-            <div class="stat-card">
+            <div class="stat-card" data-accent="cyan">
                 <h2>Agents</h2>
                 <div class="value"><span id="active-agents">-</span><span class="stat-of"> / <span id="total-agents">-</span></span></div>
                 <div class="change" id="agents-change"></div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" data-accent="green">
                 <h2>Discoveries</h2>
                 <div class="value" id="discoveries-count">-</div>
                 <div class="change" id="discoveries-change"></div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" data-accent="purple">
                 <h2>Dialectic</h2>
                 <div class="value" id="dialectic-sessions">-</div>
                 <div class="change" id="dialectic-change"></div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" data-accent="coherence">
                 <h2>Fleet Coherence</h2>
                 <div class="value" id="fleet-coherence">-</div>
                 <div class="change" id="fleet-health-detail"></div>
             </div>
-            <div class="stat-card expandable" id="stuck-agents-card" title="Click to view stuck agent details">
+            <div class="stat-card expandable" data-accent="orange" id="stuck-agents-card" title="Click to view stuck agent details">
                 <h2>Stuck Agents <span class="expand-icon">&#9662;</span></h2>
                 <div class="value" id="stuck-agents-count">-</div>
                 <div class="change" id="stuck-agents-detail"></div>
             </div>
-            <div class="stat-card" id="system-health-card">
+            <div class="stat-card" data-accent="info" id="system-health-card">
                 <h2>System Health</h2>
                 <div class="value" id="system-health-value">-</div>
                 <div class="change" id="system-health-detail"></div>
@@ -266,24 +265,6 @@
             </div>
             <div class="heatmap-container">
                 <canvas id="fleet-heatmap"></canvas>
-            </div>
-        </div>
-
-        <!-- Agent Activity Timeline -->
-        <div class="live-chart-panel timeline-panel" id="timeline-panel">
-            <div class="panel-header">
-                <h2>Activity Timeline</h2>
-                <div class="panel-controls">
-                    <select id="timeline-range" aria-label="Select timeline range">
-                        <option value="1h">Last hour</option>
-                        <option value="24h" selected>Last 24h</option>
-                        <option value="7d">Last 7 days</option>
-                        <option value="all">All time</option>
-                    </select>
-                </div>
-            </div>
-            <div id="timeline-container" class="timeline-list">
-                <div class="timeline-empty">Loading activity...</div>
             </div>
         </div>
 
