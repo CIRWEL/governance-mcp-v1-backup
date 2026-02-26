@@ -705,14 +705,14 @@ def success_response(data: Dict[str, Any], agent_id: str = None, arguments: Dict
         **data
     }
 
-    # UX FIX (Dec 2025): Echo resolved agent ID to help agents track their identity
-    # Removed resolved_uuid and resolved_client_session_id to reduce verbosity
-    # agent_signature contains full identity details when needed
+    # Echo caller's bound agent ID for identity tracking.
+    # Named caller_agent_id (not resolved_agent_id) to avoid collision with
+    # dialectic resolution fields and handler-level resolved_agent_id values.
     from .context import get_context_agent_id
     current_bound_id = get_context_agent_id()
 
     if current_bound_id:
-        response["resolved_agent_id"] = current_bound_id
+        response["caller_agent_id"] = current_bound_id
 
     # UX FIX (Dec 2025): Support lite_response to reduce output verbosity
     lite_response = (arguments or {}).get("lite_response", False)
@@ -1064,99 +1064,6 @@ def require_registered_agent(arguments: Dict[str, Any]) -> Tuple[str, Optional[T
                 "note": "Identity auto-creates on first tool call. Use onboard() for the best first-time experience."
             }
         )
-
-
-def log_metrics(agent_id: str, metrics: Dict[str, Any], level: str = "info") -> None:
-    """
-    Log metrics with standardized format including agent_id.
-    
-    Ensures all metric logs include agent_id and timestamp for traceability.
-    
-    Args:
-        agent_id: Agent identifier (required)
-        metrics: Dictionary of metrics
-        level: Log level ("info", "debug", "warning", "error")
-    
-    Example:
-        >>> log_metrics("agent_123", {"E": 0.8, "I": 0.9}, level="info")
-        # Logs: [agent_123] E=0.80 I=0.90 S=0.00 V=0.00
-    """
-    standardized = format_metrics_report(
-        metrics=metrics,
-        agent_id=agent_id,
-        include_timestamp=True,
-        include_context=True
-    )
-    
-    # Format for logging
-    log_msg_parts = [f"[{agent_id}]"]
-    
-    # Add EISV if available
-    if "eisv" in standardized:
-        eisv = standardized["eisv"]
-        log_msg_parts.append(f"EISV: E={eisv.get('E', 0):.2f} I={eisv.get('I', 0):.2f} S={eisv.get('S', 0):.2f} V={eisv.get('V', 0):.2f}")
-    elif any(k in standardized for k in ["E", "I", "S", "V"]):
-        e = standardized.get("E", 0)
-        i = standardized.get("I", 0)
-        s = standardized.get("S", 0)
-        v = standardized.get("V", 0)
-        log_msg_parts.append(f"EISV: E={e:.2f} I={i:.2f} S={s:.2f} V={v:.2f}")
-    
-    # Add key metrics
-    if "coherence" in standardized:
-        log_msg_parts.append(f"coherence={standardized['coherence']:.3f}")
-    risk_val = standardized.get("risk_score")
-    if risk_val is not None:
-        log_msg_parts.append(f"risk={risk_val:.3f}")
-    if "health_status" in standardized:
-        log_msg_parts.append(f"health={standardized['health_status']}")
-    
-    log_msg = " ".join(log_msg_parts)
-    
-    # Log at appropriate level
-    if level == "debug":
-        logger.debug(log_msg)
-    elif level == "warning":
-        logger.warning(log_msg)
-    elif level == "error":
-        logger.error(log_msg)
-    else:  # default to info
-        logger.info(log_msg)
-
-
-def print_metrics(agent_id: str, metrics: Dict[str, Any], title: str = "Metrics") -> None:
-    """
-    Print metrics with standardized format including agent_id.
-    
-    For use in scripts and CLI tools. Ensures consistent formatting.
-    
-    Args:
-        agent_id: Agent identifier (required)
-        metrics: Dictionary of metrics
-        title: Optional title for the metrics section
-    
-    Example:
-        >>> print_metrics("agent_123", {"E": 0.8, "I": 0.9})
-        Metrics:
-        Agent: agent_123
-        Timestamp: 2025-12-10T18:30:00.123456
-        EISV: E=0.800 I=0.900 S=0.000 V=0.000
-    """
-    standardized = format_metrics_report(
-        metrics=metrics,
-        agent_id=agent_id,
-        include_timestamp=True,
-        include_context=True
-    )
-    
-    text_output = format_metrics_text(standardized)
-    
-    if title:
-        print(f"\n{title}:")
-        print("-" * 60)
-    print(text_output)
-    if title:
-        print("-" * 60)
 
 
 def verify_agent_ownership(agent_id: str, arguments: Dict[str, Any], allow_operator: bool = False) -> bool:

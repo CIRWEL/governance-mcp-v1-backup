@@ -111,8 +111,7 @@ class TestNormalizeCondition:
 
     def test_empty_string(self):
         result = DialecticSession._normalize_condition_terms("")
-        assert result == {""}  or result == set()  # empty split gives {""}
-        # Either way, no meaningful terms
+        assert result == set()
 
     def test_only_stopwords(self):
         result = DialecticSession._normalize_condition_terms("the a an and or but to for of in on at by with from")

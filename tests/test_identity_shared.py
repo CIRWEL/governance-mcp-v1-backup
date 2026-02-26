@@ -28,7 +28,6 @@ from src.mcp_handlers.identity_shared import (
     require_write_permission,
     _get_identity_record_sync,
     _get_lineage,
-    _get_lineage_depth,
 )
 
 
@@ -352,48 +351,6 @@ class TestLineage:
         mock_server = MagicMock()
         mock_server.agent_metadata = metadata_map
         return mock_server
-
-    def test_lineage_depth_no_parent(self):
-        mock_meta = MagicMock()
-        mock_meta.parent_agent_id = None
-        mock_server = self._make_mock_server({"agent-1": mock_meta})
-
-        with patch(
-            "src.mcp_handlers.shared.get_mcp_server",
-            return_value=mock_server,
-        ):
-            assert _get_lineage_depth("agent-1") == 0
-
-    def test_lineage_depth_with_parent(self):
-        parent_meta = MagicMock()
-        parent_meta.parent_agent_id = None
-        child_meta = MagicMock()
-        child_meta.parent_agent_id = "parent-1"
-        mock_server = self._make_mock_server({
-            "parent-1": parent_meta,
-            "child-1": child_meta,
-        })
-
-        with patch(
-            "src.mcp_handlers.shared.get_mcp_server",
-            return_value=mock_server,
-        ):
-            assert _get_lineage_depth("child-1") == 1
-
-    def test_lineage_depth_cycle_protection(self):
-        """Circular parentage shouldn't infinite loop."""
-        meta_a = MagicMock()
-        meta_a.parent_agent_id = "b"
-        meta_b = MagicMock()
-        meta_b.parent_agent_id = "a"
-        mock_server = self._make_mock_server({"a": meta_a, "b": meta_b})
-
-        with patch(
-            "src.mcp_handlers.shared.get_mcp_server",
-            return_value=mock_server,
-        ):
-            depth = _get_lineage_depth("a")
-            assert depth <= 2  # shouldn't loop forever
 
     def test_get_lineage_single_agent(self):
         mock_meta = MagicMock()

@@ -23,7 +23,6 @@ from src.dialectic_protocol import (
     DialecticMessage,
     DialecticPhase,
     Resolution,
-    calculate_authority_score
 )
 from .utils import success_response, error_response, require_registered_agent
 from .decorators import mcp_tool
@@ -792,6 +791,25 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
                         "related_tools": ["get_dialectic_session", "request_dialectic_review"]
                     }
                 )]
+
+        # First-responder eligibility: if no reviewer assigned, validate the
+        # submitter before the protocol auto-assigns them as reviewer.
+        # Without this, any agent could claim the reviewer slot with no checks.
+        if session.reviewer_agent_id is None and agent_id != session.paused_agent_id:
+            from .dialectic_reviewer import _has_recently_reviewed, is_agent_in_active_session
+            try:
+                if await is_agent_in_active_session(agent_id):
+                    return [error_response(
+                        "Cannot become reviewer: already in an active dialectic session",
+                        recovery={"action": "Wait for your current session to complete"}
+                    )]
+                if await _has_recently_reviewed(agent_id, session.paused_agent_id):
+                    return [error_response(
+                        "Cannot become reviewer: recently reviewed this agent (24h cooldown)",
+                        recovery={"action": "A different agent should review this session"}
+                    )]
+            except Exception as e:
+                logger.warning(f"First-responder eligibility check failed (proceeding): {e}")
 
         # Create antithesis message
         message = DialecticMessage(

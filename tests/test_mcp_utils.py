@@ -37,8 +37,6 @@ from src.mcp_handlers.utils import (
     require_registered_agent,
     verify_agent_ownership,
     generate_actionable_feedback,
-    log_metrics,
-    print_metrics,
 )
 from mcp.types import TextContent
 
@@ -304,7 +302,7 @@ class TestSuccessResponse:
         r = success_response({"msg": "hi"})
         d = _parse_tc(r[0])
         assert d["success"] is True and d["msg"] == "hi"
-        assert d["resolved_agent_id"] == "u1"
+        assert d["caller_agent_id"] == "u1"
 
     @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": "u1"})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value="u1")
@@ -316,7 +314,7 @@ class TestSuccessResponse:
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value=None)
     def test_no_resolved_when_unbound(self, mc, ms):
         d = _parse_tc(success_response({"x": 1})[0])
-        assert "resolved_agent_id" not in d
+        assert "caller_agent_id" not in d
 
     @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": "u1"})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value="u1")
@@ -702,39 +700,6 @@ class TestGenerateActionableFeedback:
     def test_divergent_moderate_no_feedback(self):
         fb = generate_actionable_feedback({"coherence": 0.45, "regime": "transition", "updates": 5}, task_type="divergent")
         assert all("coherence" not in f for f in fb)
-
-
-class TestLogAndPrintMetrics:
-    @patch("src.mcp_handlers.utils.logger")
-    def test_log_info(self, ml):
-        log_metrics("a1", {"E": 0.8, "I": 0.9, "S": 0.1, "V": 0.0})
-        ml.info.assert_called_once()
-        assert "[a1]" in ml.info.call_args[0][0]
-
-    @patch("src.mcp_handlers.utils.logger")
-    def test_log_debug(self, ml):
-        log_metrics("a1", {}, level="debug")
-        ml.debug.assert_called_once()
-
-    @patch("src.mcp_handlers.utils.logger")
-    def test_log_warning(self, ml):
-        log_metrics("a1", {}, level="warning")
-        ml.warning.assert_called_once()
-
-    @patch("src.mcp_handlers.utils.logger")
-    def test_log_error(self, ml):
-        log_metrics("a1", {}, level="error")
-        ml.error.assert_called_once()
-
-    def test_print_with_title(self, capsys):
-        print_metrics("ax", {"E": 0.5, "I": 0.6, "S": 0.1, "V": 0.0}, title="Test")
-        out = capsys.readouterr().out
-        assert "Agent: ax" in out and "Test:" in out
-
-    def test_print_no_title(self, capsys):
-        print_metrics("ax", {"E": 0.5}, title=None)
-        out = capsys.readouterr().out
-        assert "Agent: ax" in out and "----" not in out
 
 
 class TestEdgeCases:

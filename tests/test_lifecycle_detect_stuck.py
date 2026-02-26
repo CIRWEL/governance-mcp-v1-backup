@@ -64,10 +64,10 @@ def _margin_info(margin="comfortable", nearest_edge=None, distance=0.5):
     }
 
 
-# Patches needed for every test
+# Patches needed for every test (lifecycle_stuck has its own mcp_server)
 _PATCHES = {
-    "mcp_server": "src.mcp_handlers.lifecycle.mcp_server",
-    "gov_config": "src.mcp_handlers.lifecycle.GovernanceConfig",
+    "mcp_server": "src.mcp_handlers.lifecycle_stuck.mcp_server",
+    "gov_config": "src.mcp_handlers.lifecycle_stuck.GovernanceConfig",
 }
 
 
@@ -76,7 +76,7 @@ class TestDetectStuckAgentsEmpty:
     @patch(_PATCHES["mcp_server"])
     def test_no_agents_returns_empty(self, mock_server):
         mock_server.agent_metadata = {}
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents()
         assert result == []
 
@@ -88,7 +88,7 @@ class TestDetectStuckAgentsFiltering:
         mock_server.agent_metadata = {
             "a1": _make_agent_meta(status="archived"),
         }
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents()
         assert result == []
 
@@ -97,7 +97,7 @@ class TestDetectStuckAgentsFiltering:
         mock_server.agent_metadata = {
             "a1": _make_agent_meta(status="deleted"),
         }
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents()
         assert result == []
 
@@ -106,7 +106,7 @@ class TestDetectStuckAgentsFiltering:
         mock_server.agent_metadata = {
             "a1": _make_agent_meta(status="paused"),
         }
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents()
         assert result == []
 
@@ -116,7 +116,7 @@ class TestDetectStuckAgentsFiltering:
         mock_server.agent_metadata = {
             "lumen": _make_agent_meta(last_update=old_time, tags=["autonomous"]),
         }
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents()
         assert result == []
 
@@ -126,7 +126,7 @@ class TestDetectStuckAgentsFiltering:
         mock_server.agent_metadata = {
             "creature": _make_agent_meta(last_update=old_time, tags=["embodied"]),
         }
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents()
         assert result == []
 
@@ -136,7 +136,7 @@ class TestDetectStuckAgentsFiltering:
         mock_server.agent_metadata = {
             "x": _make_agent_meta(last_update=old_time, tags=["anima"]),
         }
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents()
         assert result == []
 
@@ -146,7 +146,7 @@ class TestDetectStuckAgentsFiltering:
         mock_server.agent_metadata = {
             "a1": _make_agent_meta(last_update=old_time, total_updates=0),
         }
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(min_updates=1)
         assert result == []
 
@@ -158,7 +158,7 @@ class TestDetectStuckAgentsFiltering:
         }
         mock_server.monitors = {}
         mock_server.load_monitor_state.return_value = None
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(min_updates=5)
         assert result == []
 
@@ -175,7 +175,7 @@ class TestDetectStuckAgentsTimeout:
         mock_server.monitors = {}
         mock_server.load_monitor_state.return_value = None
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(max_age_minutes=30)
         # Without margin info, we can't determine if agent is stuck
         # Inactivity alone does NOT mean stuck
@@ -191,7 +191,7 @@ class TestDetectStuckAgentsTimeout:
         mock_server.monitors = {}
         mock_server.load_monitor_state.return_value = None
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(max_age_minutes=30)
         assert result == []
 
@@ -207,7 +207,7 @@ class TestDetectStuckAgentsTimeout:
         mock_server.monitors = {"a1": monitor}
         mock_config.compute_proprioceptive_margin.return_value = _margin_info("comfortable")
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(max_age_minutes=30, include_pattern_detection=False)
         # Inactivity alone does NOT mean stuck - comfortable margin means healthy
         assert len(result) == 0
@@ -229,7 +229,7 @@ class TestDetectStuckAgentsMarginBased:
             "critical", nearest_edge="risk", distance=0.02
         )
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(
             critical_margin_timeout_minutes=5,
             include_pattern_detection=False,
@@ -251,7 +251,7 @@ class TestDetectStuckAgentsMarginBased:
         mock_server.monitors = {"a1": monitor}
         mock_config.compute_proprioceptive_margin.return_value = _margin_info("critical")
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(
             critical_margin_timeout_minutes=5,
             max_age_minutes=30,
@@ -274,7 +274,7 @@ class TestDetectStuckAgentsMarginBased:
             "tight", nearest_edge="coherence", distance=0.08
         )
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(
             tight_margin_timeout_minutes=15,
             max_age_minutes=30,
@@ -296,7 +296,7 @@ class TestDetectStuckAgentsMarginBased:
         mock_server.monitors = {"a1": monitor}
         mock_config.compute_proprioceptive_margin.return_value = _margin_info("tight")
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(
             tight_margin_timeout_minutes=15,
             max_age_minutes=30,
@@ -335,7 +335,7 @@ class TestDetectStuckAgentsMultiple:
 
         mock_config.compute_proprioceptive_margin.side_effect = margin_side_effect
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(include_pattern_detection=False)
 
         ids = {r["agent_id"] for r in result}
@@ -356,7 +356,7 @@ class TestDetectStuckAgentsEdgeCases:
         meta.last_update = "not-a-timestamp"
         mock_server.agent_metadata = {"a1": meta}
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents()
         assert result == []
 
@@ -373,7 +373,7 @@ class TestDetectStuckAgentsEdgeCases:
         mock_server.load_monitor_state.return_value = None
         mock_config.compute_proprioceptive_margin.return_value = _margin_info("critical", "risk")
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(critical_margin_timeout_minutes=5)
         assert len(result) == 1
         assert result[0]["reason"] == "critical_margin_timeout"
@@ -390,7 +390,7 @@ class TestDetectStuckAgentsEdgeCases:
         mock_server.load_monitor_state.return_value = None
         mock_config.compute_proprioceptive_margin.return_value = _margin_info("critical", "risk")
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(critical_margin_timeout_minutes=5)
         assert len(result) == 1
         assert result[0]["reason"] == "critical_margin_timeout"
@@ -407,7 +407,7 @@ class TestDetectStuckAgentsEdgeCases:
         monitor.get_metrics.side_effect = RuntimeError("broken")
         mock_server.monitors = {"a1": monitor}
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         result = _detect_stuck_agents(max_age_minutes=30, include_pattern_detection=False)
         # Without margin info, we can't know if agent is stuck - don't assume
         assert len(result) == 0
@@ -426,7 +426,7 @@ class TestDetectStuckAgentsEdgeCases:
         mock_server.monitors = {}
         mock_server.load_monitor_state.return_value = None
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         # Function should not crash with tags=None
         result = _detect_stuck_agents(max_age_minutes=30)
         # Without margin info, can't determine if stuck - don't assume
@@ -453,9 +453,9 @@ class TestDetectStuckAgentsEdgeCases:
             "critical", "coherence"
         )
 
-        from src.mcp_handlers.lifecycle import _detect_stuck_agents
+        from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         # Need to also patch UNITARESMonitor since it's used to wrap persisted state
-        with patch("src.mcp_handlers.lifecycle.UNITARESMonitor") as mock_monitor_cls:
+        with patch("src.mcp_handlers.lifecycle_stuck.UNITARESMonitor") as mock_monitor_cls:
             monitor_instance = MagicMock()
             monitor_instance.state = persisted_state
             monitor_instance.get_metrics.return_value = {"mean_risk": 0.7}

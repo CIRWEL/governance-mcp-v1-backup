@@ -252,27 +252,6 @@ def require_write_permission(arguments: Optional[Dict[str, Any]] = None) -> Tupl
 # LINEAGE HELPERS
 # =============================================================================
 
-def _get_lineage_depth(agent_id: str) -> int:
-    """Get depth in lineage tree (0 = no parent)."""
-    from .shared import get_mcp_server
-    mcp_server = get_mcp_server()
-
-    depth = 0
-    current = agent_id
-    seen = set()
-
-    while current and current not in seen:
-        seen.add(current)
-        meta = mcp_server.agent_metadata.get(current)
-        if meta and meta.parent_agent_id:
-            depth += 1
-            current = meta.parent_agent_id
-        else:
-            break
-
-    return depth
-
-
 def _get_lineage(agent_id: str) -> list:
     """Get full lineage as list [oldest_ancestor, ..., parent, self]."""
     from .shared import get_mcp_server
@@ -317,5 +296,4 @@ __all__ = [
     'require_write_permission',
     # Lineage
     '_get_lineage',
-    '_get_lineage_depth',
 ]
