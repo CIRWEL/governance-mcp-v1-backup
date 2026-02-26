@@ -785,6 +785,15 @@ async def handle_submit_antithesis(arguments: Dict[str, Any]) -> Sequence[TextCo
         if result["success"]:
             result["next_step"] = "Both agents should negotiate via submit_synthesis() until convergence"
 
+            # If reviewer was auto-assigned (first-responder pattern), persist to PG
+            if result.get("reviewer_auto_assigned") or session.reviewer_agent_id == agent_id:
+                try:
+                    await pg_update_reviewer(session_id, agent_id)
+                    result["reviewer_auto_assigned"] = True
+                    logger.info(f"Reviewer auto-assigned: {agent_id[:8]}... for session {session_id[:8]}...")
+                except Exception as e:
+                    logger.warning(f"Could not persist reviewer assignment to PostgreSQL: {e}")
+
             # Persist to PostgreSQL
             try:
                 await pg_add_message(
