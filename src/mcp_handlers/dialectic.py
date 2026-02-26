@@ -243,13 +243,24 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
     except Exception:
         paused_agent_state = {}
 
-    # Reviewer selection: NO auto-selection
-    # User facilitates dialectic and assigns reviewer manually
-    # Only self-review mode sets reviewer automatically
+    # Reviewer selection
     if reviewer_mode == "self":
         reviewer_agent_id = agent_uuid
+    elif reviewer_mode == "auto":
+        # Auto-select a reviewer from eligible agents
+        # Falls back to None if no eligible agents (first responder can claim via submit_antithesis)
+        await mcp_server.load_metadata_async(force=True)
+        try:
+            reviewer_agent_id = await select_reviewer(
+                paused_agent_id=agent_uuid,
+                metadata=mcp_server.agent_metadata,
+            )
+        except Exception as e:
+            logger.warning(f"Auto reviewer selection failed, session will await manual assignment: {e}")
+            reviewer_agent_id = None
     else:
-        # No reviewer assigned - user will facilitate and assign one
+        # Manual mode or unknown - no reviewer assigned
+        # First responder can claim via submit_antithesis
         reviewer_agent_id = None
 
     # Create session
@@ -919,7 +930,10 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
             is_safe, violation = session.check_hard_limits(resolution)
 
             if not is_safe:
+                # Safety violation: mark session as FAILED (not RESOLVED)
+                session.phase = DialecticPhase.FAILED
                 result["action"] = "block"
+                result["success"] = False
                 result["reason"] = f"Safety violation: {violation}"
                 try:
                     await pg_resolve_session(session_id=session_id, resolution={"action": "block", "reason": violation}, status="failed")
@@ -934,19 +948,26 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
                     result["execution"] = execution_result
                     result["next_step"] = "Agent resumed successfully with agreed conditions"
 
-                    # Invalidate cache
-                    if session.paused_agent_id in _SESSION_METADATA_CACHE:
-                        del _SESSION_METADATA_CACHE[session.paused_agent_id]
-                    if session.reviewer_agent_id in _SESSION_METADATA_CACHE:
-                        del _SESSION_METADATA_CACHE[session.reviewer_agent_id]
+                    # Execution succeeded - mark resolved in PG
+                    try:
+                        await pg_resolve_session(session_id=session_id, resolution=resolution.to_dict(), status="resolved")
+                    except Exception as e:
+                        logger.warning(f"Could not resolve session in PostgreSQL: {e}")
                 except Exception as e:
+                    # Execution failed - mark FAILED, not resolved
+                    session.phase = DialecticPhase.FAILED
+                    result["success"] = False
                     result["execution_error"] = str(e)
                     result["next_step"] = f"Failed to execute resolution: {e}"
+                    try:
+                        await pg_resolve_session(session_id=session_id, resolution=resolution.to_dict(), status="failed")
+                    except Exception as pg_e:
+                        logger.warning(f"Could not mark failed session in PostgreSQL: {pg_e}")
 
-                try:
-                    await pg_resolve_session(session_id=session_id, resolution=resolution.to_dict(), status="resolved")
-                except Exception as e:
-                    logger.warning(f"Could not resolve session in PostgreSQL: {e}")
+            # Always invalidate cache after convergence (success or failure)
+            for aid in (session.paused_agent_id, session.reviewer_agent_id):
+                if aid and aid in _SESSION_METADATA_CACHE:
+                    del _SESSION_METADATA_CACHE[aid]
 
             await save_session(session)
 

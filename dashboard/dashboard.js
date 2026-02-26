@@ -61,7 +61,7 @@ if (typeof state !== 'undefined') {
         'cachedAgents', 'cachedDiscoveries', 'cachedStuckAgents',
         'cachedDialecticSessions', 'eisvChartUpper', 'eisvChartLower',
         'eisvWebSocket', 'agentEISVHistory', 'knownAgents',
-        'selectedAgentView', 'lastVitalsTimestamp', 'recentDecisions'
+        'selectedAgentView', 'lastVitalsTimestamp'
     ].forEach(function (key) {
         Object.defineProperty(window, key, {
             get: function () { return state.get(key); },
@@ -1655,11 +1655,9 @@ if (exportDiscoveriesJson) exportDiscoveriesJson.addEventListener('click', () =>
 var animateValue = EISVChartsModule.animateValue;
 var updateValueWithGlow = EISVChartsModule.updateValueWithGlow;
 var addEISVDataPoint = EISVChartsModule.addEISVDataPoint;
-var addDecision = EISVChartsModule.addDecision;
 var addEventEntry = EISVChartsModule.addEventEntry;
 var fetchInitialEvents = EISVChartsModule.fetchInitialEvents;
 var getVerdictBadge = EISVChartsModule.getVerdictBadge;
-var renderDecisionsLog = EISVChartsModule.renderDecisionsLog;
 var rebuildChartFromSelection = EISVChartsModule.rebuildChartFromSelection;
 var updateAgentDropdown = EISVChartsModule.updateAgentDropdown;
 var initEISVChart = EISVChartsModule.initEISVChart;
@@ -1675,7 +1673,7 @@ var updateAgentCardFromWS = EISVChartsModule.updateAgentCardFromWS;
 // ============================================
 // Timeline Module (timeline.js)
 // ============================================
-// Skeletons, timeline rendering, WS status label now in TimelineModule.
+// Skeletons and WS status label in TimelineModule.
 // Module self-initializes skeletons, range filter, and click handlers.
 var updateWSStatusLabel = TimelineModule.updateWSStatusLabel;
 

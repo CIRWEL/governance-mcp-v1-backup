@@ -69,8 +69,7 @@
         agentEISVHistory: {},
         knownAgents: new Set(),
         selectedAgentView: '__fleet__',
-        lastVitalsTimestamp: null,
-        recentDecisions: []
+        lastVitalsTimestamp: null
     });
 
     if (typeof window !== 'undefined') {

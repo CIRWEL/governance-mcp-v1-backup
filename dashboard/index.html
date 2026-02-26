@@ -122,11 +122,11 @@
                 </div>
             </div>
             <div class="pulse-grid pulse-grid-simple">
-                <!-- Left: Risk (the main output) + verdict context -->
+                <!-- Left: Risk (main governance output) -->
                 <div class="pulse-metrics">
                     <div class="pulse-metric pulse-metric-large">
                         <div class="pulse-metric-header">
-                            <span class="pulse-metric-label">Risk → Verdict</span>
+                            <span class="pulse-metric-label">Risk</span>
                             <span class="pulse-metric-value" id="vv-risk">—</span>
                             <span class="pulse-metric-detail" id="vv-risk-detail"
                                 title="Risk adjustment from trajectory analysis"></span>
@@ -135,9 +135,9 @@
                             <div class="vital-bar" id="v-risk" style="width:0%"></div>
                         </div>
                         <div class="risk-thresholds">
-                            <span class="threshold" style="left:35%" title="Approve threshold">A</span>
-                            <span class="threshold" style="left:60%" title="Proceed threshold">P</span>
-                            <span class="threshold" style="left:70%" title="Pause threshold">!</span>
+                            <span class="threshold" style="left:35%">Approve</span>
+                            <span class="threshold" style="left:60%">Proceed</span>
+                            <span class="threshold" style="left:70%">Pause</span>
                         </div>
                     </div>
                     <div class="pulse-metric-row">
@@ -161,13 +161,12 @@
                         </div>
                     </div>
                 </div>
-                <!-- Ethical Drift: 70% governance-computed, 30% agent-reported -->
+                <!-- Drift: emotional→calibration, epistemic→coherence, behavioral→stability (governance_monitor) -->
                 <div class="pulse-drift">
                     <h3>Drift</h3>
                     <div class="drift-vector">
                         <div class="drift-axis">
-                            <span class="drift-axis-label"
-                                title="Emotional drift — calibration deviation from baseline">Emotional</span>
+                            <span class="drift-axis-label" title="Emotional drift → calibration deviation from baseline">Emotional</span>
                             <div class="drift-gauge">
                                 <div class="drift-gauge-fill" id="drift-g-0"></div>
                                 <div class="drift-gauge-center"></div>
@@ -176,8 +175,7 @@
                             <span class="drift-trend" id="drift-trend-0" title="Trend"></span>
                         </div>
                         <div class="drift-axis">
-                            <span class="drift-axis-label"
-                                title="Epistemic drift — coherence deviation from baseline">Epistemic</span>
+                            <span class="drift-axis-label" title="Epistemic drift → coherence deviation from baseline">Epistemic</span>
                             <div class="drift-gauge">
                                 <div class="drift-gauge-fill" id="drift-g-1"></div>
                                 <div class="drift-gauge-center"></div>
@@ -186,8 +184,7 @@
                             <span class="drift-trend" id="drift-trend-1" title="Trend"></span>
                         </div>
                         <div class="drift-axis">
-                            <span class="drift-axis-label"
-                                title="Behavioral drift — stability deviation from baseline">Behavioral</span>
+                            <span class="drift-axis-label" title="Behavioral drift → stability deviation from baseline">Behavioral</span>
                             <div class="drift-gauge">
                                 <div class="drift-gauge-fill" id="drift-g-2"></div>
                                 <div class="drift-gauge-center"></div>
@@ -321,7 +318,7 @@
                 <div class="panel-header">
                     <h2>Discoveries</h2>
                     <div class="panel-controls">
-                        <input id="discovery-search" type="text" placeholder="Search" aria-label="Search discoveries">
+                        <input id="discovery-search" type="text" placeholder="Search discoveries" aria-label="Search discoveries">
                         <select id="discovery-type-filter" aria-label="Filter discoveries by type">
                             <option value="all">All types</option>
                             <option value="insight">Insight</option>

@@ -107,6 +107,7 @@ class KnowledgeGraphPostgres:
 
         Supports updating: status, resolved_at, updated_at, tags, severity, type.
         """
+        from src.knowledge_graph import normalize_tags
         db = await self._get_db()
 
         # Build dynamic UPDATE query
@@ -120,8 +121,10 @@ class KnowledgeGraphPostgres:
                 params.append(value)
                 param_idx += 1
             elif key == "tags":
+                # Normalize tags before storage
+                tag_list = value if isinstance(value, list) else [value]
                 set_clauses.append(f"tags = ${param_idx}")
-                params.append(value if isinstance(value, list) else [value])
+                params.append(normalize_tags(tag_list))
                 param_idx += 1
 
         if not set_clauses:

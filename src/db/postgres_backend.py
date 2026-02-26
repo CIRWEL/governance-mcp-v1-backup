@@ -1807,8 +1807,10 @@ class PostgresBackend(DatabaseBackend):
                 params.append(status)
                 param_idx += 1
             if tags:
+                # Normalize search tags to match stored normalized form
+                from src.knowledge_graph import normalize_tags
                 conditions.append(f"tags && ${param_idx}")
-                params.append(tags)
+                params.append(normalize_tags(tags))
                 param_idx += 1
 
             where_clause = " AND ".join(conditions) if conditions else "1=1"
