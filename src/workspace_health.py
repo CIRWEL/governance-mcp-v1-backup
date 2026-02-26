@@ -234,7 +234,7 @@ def check_workspace_status() -> Dict[str, Any]:
         # Try to import the server module
         from src._imports import ensure_project_root
         ensure_project_root()
-        import src.mcp_server_std
+        import src.agent_state
     except Exception:
         mcp_servers_responding = False
     

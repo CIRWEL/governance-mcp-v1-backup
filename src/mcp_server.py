@@ -1675,7 +1675,7 @@ async def main():
             await asyncio.sleep(0.5)
             
             try:
-                from src.mcp_server_std import load_metadata_async
+                from src.agent_state import load_metadata_async
                 await load_metadata_async()
                 logger.info("[STARTUP] Background metadata load complete")
             except Exception as e:

@@ -311,7 +311,7 @@ async def collect_ground_truth_automatically(
     # Load agent metadata from PostgreSQL via server loader.
     metadata = {}
     try:
-        import src.mcp_server_std as mcp_server
+        import src.agent_state as mcp_server
         # Use async version since we're in an async context (avoids event loop conflicts)
         await mcp_server.load_metadata_async()
         # Convert AgentMetadata objects to dicts (this module expects dict-like access)

@@ -1967,7 +1967,7 @@ class TestSetAgentLabelCacheManagement:
         with patch("src.mcp_handlers.identity_v2.get_db", return_value=mock_db), \
              patch("src.mcp_handlers.identity_v2._redis_cache", False), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_server), \
-             patch("src.mcp_server_std.AgentMetadata", mock_meta_class), \
+             patch("src.agent_state.AgentMetadata", mock_meta_class), \
              patch("src.mcp_handlers.identity_v2.detect_interface_context", return_value={"type": "test"}, create=True), \
              patch("src.mcp_handlers.identity_v2.generate_structured_id", return_value="test_1", create=True), \
              patch("src.mcp_handlers.context.get_context_client_hint", return_value="test"):

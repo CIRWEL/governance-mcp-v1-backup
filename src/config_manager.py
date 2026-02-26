@@ -103,11 +103,11 @@ class ConfigManager:
         """
         Get server-level constants (MAX_KEEP_PROCESSES, etc.).
         
-        These are NOT runtime-changeable. Modify mcp_server_std.py to change.
+        These are NOT runtime-changeable. Modify agent_state.py to change.
         """
         # Import here to avoid circular dependencies
         try:
-            import src.mcp_server_std as mcp_server
+            import src.agent_state as mcp_server
             return {
                 "MAX_KEEP_PROCESSES": mcp_server.MAX_KEEP_PROCESSES,
                 "SERVER_VERSION": mcp_server.SERVER_VERSION,

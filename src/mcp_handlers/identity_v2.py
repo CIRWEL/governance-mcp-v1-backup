@@ -663,7 +663,7 @@ async def set_agent_label(agent_uuid: str, label: str, session_key: Optional[str
                 else:
                     # Agent not in cache yet - create proper AgentMetadata entry
                     # Import the real AgentMetadata class to avoid missing attribute errors
-                    from src.mcp_server_std import AgentMetadata
+                    from src.agent_state import AgentMetadata
                     from datetime import datetime
                     now = datetime.now().isoformat()
                     meta = AgentMetadata(
