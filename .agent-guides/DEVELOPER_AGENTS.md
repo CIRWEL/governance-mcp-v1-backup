@@ -282,5 +282,79 @@ Future agents will find it via `search_knowledge_graph()`.
 
 ---
 
-**Updated:** Feb 22, 2026
+## Repo Protection: What Agents Can Destroy
+
+This section exists because agents have destroyed work in this repo. February 2026: a Claude session force-pushed origin/master (rewriting all commit SHAs), left uncommitted bug fixes in the working tree, and caused hours of confusion by spawning the wrong PostgreSQL instance.
+
+### Destructive operations to NEVER run without explicit user approval
+
+- **History rewriting** via `filter-repo`, `rebase -i`, `commit --amend` followed by `push --force`
+- **Working tree destruction** via `reset --hard`, `checkout .`, `clean -f`
+- **Branch deletion** via `branch -D`, `push --delete`
+- **File deletion** via `rm -rf`, `git clean`
+- **Service disruption** via unintended restarts, config changes, dependency modifications
+- **Database destruction** via `DROP SCHEMA`, `TRUNCATE`, `DELETE FROM` without WHERE
+- **Credential exposure** via committing `.env` files or printing secrets
+
+### Pre-session backup
+
+```bash
+# Quick backup of working state (includes untracked files)
+git stash push -u -m "pre-agent-session-$(date +%Y%m%d-%H%M%S)"
+
+# Verify the stash captured everything
+git stash show -u stash@{0}
+
+# After the session, restore if needed
+git stash pop
+```
+
+The `-u` flag is critical — without it, `git stash` only saves tracked files. Untracked files (new code, configs, test data) remain exposed to `clean -f` or `reset --hard`.
+
+### Database access (the right way)
+
+There is ONE PostgreSQL and it's in Docker:
+
+```bash
+# Correct — always go through Docker
+docker exec postgres-age psql -U postgres -d governance -c "\dt core.*"
+
+# WRONG — hits Homebrew PostgreSQL (empty, different instance)
+psql -d governance  # DO NOT USE
+```
+
+The Homebrew `postgresql@17` (port 5433) is unrelated. It has caused false "database is empty" panics. Never start it for UNITARES work.
+
+### Post-session audit
+
+After any agent session, check:
+
+```bash
+# What changed?
+git status
+git log --oneline -5
+
+# Are we ahead/behind remote?
+git log origin/master..master --oneline
+git log master..origin/master --oneline
+
+# Any force-push evidence?
+git reflog | grep forced
+
+# Database intact?
+docker exec postgres-age psql -U postgres -d governance \
+  -c "SELECT count(*) FROM core.dialectic_sessions; SELECT count(*) FROM core.agents;"
+```
+
+### Incident log
+
+| Date | What happened | Root cause | Prevention |
+|------|---------------|------------|------------|
+| 2026-02-25 | origin/master force-pushed, all SHAs rewritten | Agent ran rebase + force push | Branch protection on GitHub |
+| 2026-02-25 | "Database empty" false alarm | Homebrew PG intercepting connections | Always use `docker exec` |
+| 2026-02-25 | 5 bug fixes left uncommitted in working tree | Agent didn't commit before ending session | Post-session audit |
+
+---
+
+**Updated:** Feb 26, 2026
 **For:** Future developer/debugger agents
