@@ -13,11 +13,41 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Literal, Any
 from datetime import datetime
 import os
+import re
 import asyncio
 
 # Import structured logging
 from src.logging_utils import get_logger
 logger = get_logger(__name__)
+
+
+def normalize_tags(tags: List[str]) -> List[str]:
+    """Normalize tags to canonical form for consistent search.
+
+    Applies: lowercase, strip whitespace, collapse separators (hyphens/underscores/spaces)
+    to single hyphens, deduplicate while preserving order.
+
+    Examples:
+        ["EISV", "eisv-dynamics", "eisv_framework"] → ["eisv", "eisv-dynamics", "eisv-framework"]
+        ["bug", "Bug Fix", "bug-fix", "bug_fix"] → ["bug", "bug-fix"]
+    """
+    seen = set()
+    result = []
+    for tag in tags:
+        # Lowercase and strip
+        t = tag.strip().lower()
+        if not t:
+            continue
+        # Replace underscores and spaces with hyphens, collapse runs
+        t = re.sub(r'[\s_]+', '-', t)
+        # Collapse multiple hyphens
+        t = re.sub(r'-{2,}', '-', t)
+        # Strip leading/trailing hyphens
+        t = t.strip('-')
+        if t and t not in seen:
+            seen.add(t)
+            result.append(t)
+    return result
 
 
 @dataclass

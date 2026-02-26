@@ -1717,6 +1717,11 @@ class PostgresBackend(DatabaseBackend):
     async def kg_add_discovery(self, discovery) -> None:
         """Add a discovery to the knowledge graph."""
         from datetime import datetime as dt
+        from src.knowledge_graph import normalize_tags
+
+        # Normalize tags before storage for consistent search
+        if hasattr(discovery, 'tags') and discovery.tags:
+            discovery.tags = normalize_tags(discovery.tags)
 
         async with self.acquire() as conn:
             # Handle response_to
