@@ -3211,6 +3211,209 @@ body {
     .agent-name {
         max-width: 140px;
     }
+
+    /* Scroll section-nav horizontally rather than wrapping to multiple rows */
+    .section-nav {
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+    }
+
+    .section-nav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .section-nav-item {
+        flex-shrink: 0;
+    }
+}
+
+/* Mobile-first: smaller phones and touch-friendly */
+@media (max-width: 480px) {
+    body {
+        padding: var(--spacing-sm) var(--spacing-md);
+        padding-left: max(var(--spacing-md), env(safe-area-inset-left));
+        padding-right: max(var(--spacing-md), env(safe-area-inset-right));
+        padding-bottom: max(var(--spacing-md), env(safe-area-inset-bottom));
+    }
+
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        margin-bottom: 16px;
+    }
+
+    .header h1 {
+        font-size: 1.6rem;
+    }
+
+    .header .subtitle {
+        font-size: 0.7rem;
+    }
+
+    .section-nav {
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        padding: 8px 12px;
+        gap: 4px;
+    }
+
+    .section-nav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .section-nav-item {
+        flex-shrink: 0;
+        padding: 10px 14px;
+        font-size: 0.75rem;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .toolbar-status {
+        font-size: 0.75rem;
+        text-align: center;
+    }
+
+    .toolbar-status-verbose {
+        display: none;
+    }
+
+    .stat-card {
+        padding: var(--spacing-md);
+    }
+
+    .stat-card .value {
+        font-size: 1.4em;
+    }
+
+    .panel {
+        padding: var(--spacing-md);
+        max-height: none;
+    }
+
+    .panel h2 {
+        font-size: 1.1rem;
+    }
+
+    .live-chart-panel {
+        padding: var(--spacing-md);
+    }
+
+    .eisv-chart-container {
+        height: 180px;
+    }
+
+    .eisv-chart-label {
+        font-size: 0.85em;
+    }
+
+    .pulse-layout .pulse-primary {
+        padding: var(--spacing-sm) 0;
+    }
+
+    .pulse-metric-large .pulse-metric-value {
+        font-size: 1.2em;
+    }
+
+    .risk-thresholds .threshold {
+        font-size: 0.65rem;
+    }
+
+    .agent-item,
+    .discovery-item,
+    .dialectic-item {
+        padding: var(--spacing-md);
+    }
+
+    .dialectic-header,
+    .dialectic-detail-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .panel-modal {
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+        border-radius: 0;
+        max-height: 100vh;
+        padding-top: env(safe-area-inset-top);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .panel-modal-overlay.visible .panel-modal {
+        transform: translateY(0);
+    }
+
+    .panel-modal-body {
+        padding: var(--spacing-md);
+    }
+
+    .scroll-top-btn {
+        bottom: max(20px, env(safe-area-inset-bottom));
+        right: max(20px, env(safe-area-inset-right));
+        width: 48px;
+        height: 48px;
+        font-size: 1.3em;
+    }
+
+    .agent-filters-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .agent-filters-row select,
+    .agent-filters-row .toolbar-toggle {
+        width: 100%;
+    }
+
+    /* Toolbar group wraps on very small screens */
+    .toolbar-group {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: var(--spacing-sm);
+    }
+
+    /* Agent EISV metrics: 2×2 grid instead of a single cramped row */
+    .agent-metrics {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .agent-metrics .metric {
+        flex: 0 0 calc(50% - 4px);
+        min-width: 0;
+    }
+
+    /* Pulse confidence/complexity stack vertically */
+    .pulse-metric-row {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    /* Full-width form controls in panel control bars */
+    .panel-controls input[type="text"],
+    .panel-controls select {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .panel-select {
+        min-width: 0;
+        width: 100%;
+    }
 }
 
 /* ============================================
