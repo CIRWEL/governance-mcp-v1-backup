@@ -1,5 +1,26 @@
 # Identity System Refactor — AGI-Forward Design
 
+## Current State (Feb 2026)
+
+- **identity_v2.py is authoritative.** identity.py (v1) removed.
+- **onboard()** uses `name` for PATH 2.5 (name-based claim). Name lookup finds existing agent by label.
+- **resume=True** in arguments enables name lookup in middleware; otherwise only `agent_name` is used.
+- **No candidate lists** in identity() — returns bound or unbound. No "helpful" suggestions.
+- **X-Agent-Id** header used for UUID recovery on reconnection (PATH 2.75).
+- **Three-tier identity:** UUID (canonical), agent_id (model+date display), display_name/label (user-chosen).
+
+## Remaining Work (Prioritized)
+
+1. **Terminology (agent_id → identity_id in API surface)** — Breaking change. Requires client coordination.
+
+2. **Active session protection** — Refuse auth if identity is active elsewhere. New feature.
+
+3. **hello = new only, authenticate = prove existing** — Behavior change. Currently onboard() silently resumes by name.
+
+4. **who_am_i / authenticate tool aliases** — Add new names, deprecate old. Non-breaking.
+
+5. **Legacy format branch removal** — Remove pre-v2.5.2 is_uuid branches in identity_v2. Requires confirming no Redis/Postgres data has legacy format.
+
 ## Background
 
 The current identity system was designed with scaffolding for confused LLMs: candidate suggestions, helpful recovery workflows, auto-binding heuristics. This creates a fundamental problem: AI instances treat agent IDs as *resources to use* rather than *identities to respect*.
@@ -32,7 +53,9 @@ This refactor removes the scaffolding and designs for AGI with genuine self-conc
 
 ## File Changes
 
-### 1. `src/mcp_handlers/identity.py`
+> **Note:** identity.py was replaced by identity_v2.py. The following sections describe target state; current implementation is in identity_v2.py.
+
+### 1. `src/mcp_handlers/identity.py` (now identity_v2.py)
 
 #### `handle_recall_identity` → `handle_who_am_i`
 
