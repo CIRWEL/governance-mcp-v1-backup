@@ -35,7 +35,7 @@
     <a href="#agents-container" class="skip-link">Skip to agents</a>
     <div class="header">
         <h1>UNITARES Governance</h1>
-        <div class="subtitle">Multi-Agent Coordination Dashboard</div>
+        <span class="subtitle">Multi-Agent Coordination</span>
     </div>
 
     <div id="connection-banner" class="banner hidden"></div>
@@ -69,7 +69,6 @@
         <a href="#stats-section" class="section-nav-item active" data-section="stats-section">Stats</a>
         <a href="#governance-pulse-panel" class="section-nav-item" data-section="governance-pulse-panel">Pulse</a>
         <a href="#eisv-chart-panel" class="section-nav-item" data-section="eisv-chart-panel">EISV</a>
-        <a href="#timeline-panel" class="section-nav-item" data-section="timeline-panel">Timeline</a>
         <a href="#agents-section" class="section-nav-item" data-section="agents-section">Agents</a>
         <a href="#discoveries-section" class="section-nav-item" data-section="discoveries-section">Discoveries</a>
         <a href="#dialectic-section" class="section-nav-item" data-section="dialectic-section">Dialectic</a>
@@ -77,32 +76,32 @@
 
     <main>
         <div class="stats-grid" id="stats-section">
-            <div class="stat-card">
+            <div class="stat-card" data-accent="cyan">
                 <h2>Agents</h2>
                 <div class="value"><span id="active-agents">-</span><span class="stat-of"> / <span id="total-agents">-</span></span></div>
                 <div class="change" id="agents-change"></div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" data-accent="green">
                 <h2>Discoveries</h2>
                 <div class="value" id="discoveries-count">-</div>
                 <div class="change" id="discoveries-change"></div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" data-accent="purple">
                 <h2>Dialectic</h2>
                 <div class="value" id="dialectic-sessions">-</div>
                 <div class="change" id="dialectic-change"></div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" data-accent="coherence">
                 <h2>Fleet Coherence</h2>
                 <div class="value" id="fleet-coherence">-</div>
                 <div class="change" id="fleet-health-detail"></div>
             </div>
-            <div class="stat-card expandable" id="stuck-agents-card" title="Click to view stuck agent details">
+            <div class="stat-card expandable" data-accent="orange" id="stuck-agents-card" title="Click to view stuck agent details">
                 <h2>Stuck Agents <span class="expand-icon">&#9662;</span></h2>
                 <div class="value" id="stuck-agents-count">-</div>
                 <div class="change" id="stuck-agents-detail"></div>
             </div>
-            <div class="stat-card" id="system-health-card">
+            <div class="stat-card" data-accent="info" id="system-health-card">
                 <h2>System Health</h2>
                 <div class="value" id="system-health-value">-</div>
                 <div class="change" id="system-health-detail"></div>
@@ -123,11 +122,11 @@
                 </div>
             </div>
             <div class="pulse-grid pulse-grid-simple">
-                <!-- Left: Risk (the main output) + verdict context -->
+                <!-- Left: Risk (main governance output) -->
                 <div class="pulse-metrics">
                     <div class="pulse-metric pulse-metric-large">
                         <div class="pulse-metric-header">
-                            <span class="pulse-metric-label">Risk → Verdict</span>
+                            <span class="pulse-metric-label">Risk</span>
                             <span class="pulse-metric-value" id="vv-risk">—</span>
                             <span class="pulse-metric-detail" id="vv-risk-detail"
                                 title="Risk adjustment from trajectory analysis"></span>
@@ -136,9 +135,9 @@
                             <div class="vital-bar" id="v-risk" style="width:0%"></div>
                         </div>
                         <div class="risk-thresholds">
-                            <span class="threshold" style="left:35%" title="Approve threshold">A</span>
-                            <span class="threshold" style="left:60%" title="Proceed threshold">P</span>
-                            <span class="threshold" style="left:70%" title="Pause threshold">!</span>
+                            <span class="threshold" style="left:35%">Approve</span>
+                            <span class="threshold" style="left:60%">Proceed</span>
+                            <span class="threshold" style="left:70%">Pause</span>
                         </div>
                     </div>
                     <div class="pulse-metric-row">
@@ -162,13 +161,12 @@
                         </div>
                     </div>
                 </div>
-                <!-- Ethical Drift: 70% governance-computed, 30% agent-reported -->
+                <!-- Drift: emotional→calibration, epistemic→coherence, behavioral→stability (governance_monitor) -->
                 <div class="pulse-drift">
                     <h3>Drift</h3>
                     <div class="drift-vector">
                         <div class="drift-axis">
-                            <span class="drift-axis-label"
-                                title="Emotional drift — calibration deviation from baseline">Emotional</span>
+                            <span class="drift-axis-label" title="Emotional drift → calibration deviation from baseline">Emotional</span>
                             <div class="drift-gauge">
                                 <div class="drift-gauge-fill" id="drift-g-0"></div>
                                 <div class="drift-gauge-center"></div>
@@ -177,8 +175,7 @@
                             <span class="drift-trend" id="drift-trend-0" title="Trend"></span>
                         </div>
                         <div class="drift-axis">
-                            <span class="drift-axis-label"
-                                title="Epistemic drift — coherence deviation from baseline">Epistemic</span>
+                            <span class="drift-axis-label" title="Epistemic drift → coherence deviation from baseline">Epistemic</span>
                             <div class="drift-gauge">
                                 <div class="drift-gauge-fill" id="drift-g-1"></div>
                                 <div class="drift-gauge-center"></div>
@@ -187,8 +184,7 @@
                             <span class="drift-trend" id="drift-trend-1" title="Trend"></span>
                         </div>
                         <div class="drift-axis">
-                            <span class="drift-axis-label"
-                                title="Behavioral drift — stability deviation from baseline">Behavioral</span>
+                            <span class="drift-axis-label" title="Behavioral drift → stability deviation from baseline">Behavioral</span>
                             <div class="drift-gauge">
                                 <div class="drift-gauge-fill" id="drift-g-2"></div>
                                 <div class="drift-gauge-center"></div>
@@ -269,24 +265,6 @@
             </div>
         </div>
 
-        <!-- Agent Activity Timeline -->
-        <div class="live-chart-panel timeline-panel" id="timeline-panel">
-            <div class="panel-header">
-                <h2>Activity Timeline</h2>
-                <div class="panel-controls">
-                    <select id="timeline-range" aria-label="Select timeline range">
-                        <option value="1h">Last hour</option>
-                        <option value="24h" selected>Last 24h</option>
-                        <option value="7d">Last 7 days</option>
-                        <option value="all">All time</option>
-                    </select>
-                </div>
-            </div>
-            <div id="timeline-container" class="timeline-list">
-                <div class="timeline-empty">Loading activity...</div>
-            </div>
-        </div>
-
         <div class="main-content">
             <!-- Left Column: Agents -->
             <div class="panel agents-panel" id="agents-section">
@@ -340,7 +318,7 @@
                 <div class="panel-header">
                     <h2>Discoveries</h2>
                     <div class="panel-controls">
-                        <input id="discovery-search" type="text" placeholder="Search" aria-label="Search discoveries">
+                        <input id="discovery-search" type="text" placeholder="Search discoveries" aria-label="Search discoveries">
                         <select id="discovery-type-filter" aria-label="Filter discoveries by type">
                             <option value="all">All types</option>
                             <option value="insight">Insight</option>

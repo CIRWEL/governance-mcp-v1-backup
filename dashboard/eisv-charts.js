@@ -2,7 +2,7 @@
  * UNITARES Dashboard — EISV Charts Module
  *
  * EISV time-series charts, WebSocket handler, governance pulse,
- * decisions log, drift gauges, and animated value updates.
+ * events log, drift gauges, and animated value updates.
  * Extracted from dashboard.js to reduce monolith size.
  */
 (function () {
@@ -19,10 +19,8 @@
     var EISV_WINDOW_MS = 30 * 60 * 1000;
     var EISV_BUCKET_MS = 30000;
     var EISV_MAX_POINTS = 60;
-    var COALESCE_WINDOW_MS = 30000;
     var SCROLL_FEEDBACK_MS = 2000;
     var MAX_LOG_ENTRIES = 8;
-    var MAX_DECISIONS = 8;
 
     var DRIFT_AXES = ['emotional', 'epistemic', 'behavioral'];
     var TREND_ICONS = {
@@ -43,7 +41,8 @@
         trajectory_adjustment: '\uD83C\uDFAF',
         drift_alert: '\uD83C\uDF0A',
         agent_new: '\u2728',
-        agent_idle: '\uD83D\uDCA4'
+        agent_idle: '\uD83D\uDCA4',
+        checkin: '\u2713'
     };
     var SEVERITY_CLASSES = {
         info: 'event-info',
@@ -586,97 +585,6 @@
         return badges[v] || badges['safe'];
     }
 
-    function formatCompactTime(timestamp) {
-        var now = Date.now();
-        var ts = new Date(timestamp).getTime();
-        var diff = Math.floor((now - ts) / 1000);
-        if (diff < 5) return 'now';
-        if (diff < 60) return diff + 's';
-        if (diff < 3600) return Math.floor(diff / 60) + 'm';
-        if (diff < 86400) return Math.floor(diff / 3600) + 'h';
-        return Math.floor(diff / 86400) + 'd';
-    }
-
-    function truncateAgentName(name, maxLen) {
-        maxLen = maxLen || 15;
-        if (!name) return 'unknown';
-        if (name.length <= maxLen) return name;
-        return name.substring(0, maxLen - 3) + '...';
-    }
-
-    // ========================================================================
-    // Decisions log
-    // ========================================================================
-
-    function addDecision(data) {
-        var agentId = data.agent_id || 'unknown';
-        var agentName = data.agent_name || agentId;
-        var metrics = data.metrics || {};
-        var decision = data.decision || {};
-        var verdict = metrics.verdict || decision.action || 'safe';
-        var risk = data.risk != null ? data.risk : 0;
-        var timestamp = data.timestamp || new Date().toISOString();
-        var now = Date.now();
-        var recentDecisions = state.get('recentDecisions');
-
-        // Check if we should coalesce with existing entry
-        var existing = null;
-        for (var i = 0; i < recentDecisions.length; i++) {
-            if (recentDecisions[i].agent_id === agentId &&
-                (now - new Date(recentDecisions[i].timestamp).getTime()) < COALESCE_WINDOW_MS) {
-                existing = recentDecisions[i];
-                break;
-            }
-        }
-
-        if (existing) {
-            existing.verdict = verdict;
-            existing.risk = risk;
-            existing.timestamp = timestamp;
-            existing.count++;
-        } else {
-            recentDecisions.unshift({
-                agent_id: agentId,
-                agent_name: agentName,
-                verdict: verdict,
-                risk: risk,
-                timestamp: timestamp,
-                count: 1
-            });
-            while (recentDecisions.length > MAX_DECISIONS) {
-                recentDecisions.pop();
-            }
-        }
-
-        renderDecisionsLog();
-    }
-
-    function renderDecisionsLog() {
-        var container = document.getElementById('decisions-log-entries');
-        if (!container) return;
-        var recentDecisions = state.get('recentDecisions');
-
-        if (recentDecisions.length === 0) {
-            container.innerHTML = '<div class="pulse-log-empty">No decisions yet</div>';
-            return;
-        }
-
-        container.innerHTML = recentDecisions.map(function (d) {
-            var badge = getVerdictBadge(d.verdict, d.risk);
-            var countStr = d.count > 1 ? ' <span class="decision-count">\u00D7' + d.count + '</span>' : '';
-            var nameDisplay = truncateAgentName(d.agent_name);
-            var timeStr = formatCompactTime(d.timestamp);
-            var riskStr = d.risk != null ? d.risk.toFixed(2) : '\u2014';
-
-            return '<div class="decision-entry" title="' + escapeHtml(d.agent_name) + ' \u2022 Risk: ' + riskStr + ' \u2022 ' + badge.title + '">' +
-                '<span class="decision-badge ' + badge.cls + '" title="' + badge.title + '">' + badge.text + '</span>' +
-                '<span class="decision-agent">' + escapeHtml(nameDisplay) + countStr + '</span>' +
-                '<span class="decision-risk">(' + riskStr + ')</span>' +
-                '<span class="decision-time">' + timeStr + '</span>' +
-                '</div>';
-        }).join('');
-    }
-
     // ========================================================================
     // Events log
     // ========================================================================
@@ -973,7 +881,6 @@
 
     // Periodic updates
     setInterval(updateFreshnessDisplay, 5000);
-    setInterval(renderDecisionsLog, 5000);
 
     // ========================================================================
     // Public API
@@ -988,10 +895,8 @@
         updateValueWithGlow: updateValueWithGlow,
         animateValue: animateValue,
         getVerdictBadge: getVerdictBadge,
-        addDecision: addDecision,
         addEventEntry: addEventEntry,
         fetchInitialEvents: fetchInitialEvents,
-        renderDecisionsLog: renderDecisionsLog,
         rebuildChartFromSelection: rebuildChartFromSelection,
         updateAgentDropdown: updateAgentDropdown
     };

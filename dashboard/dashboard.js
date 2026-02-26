@@ -61,7 +61,7 @@ if (typeof state !== 'undefined') {
         'cachedAgents', 'cachedDiscoveries', 'cachedStuckAgents',
         'cachedDialecticSessions', 'eisvChartUpper', 'eisvChartLower',
         'eisvWebSocket', 'agentEISVHistory', 'knownAgents',
-        'selectedAgentView', 'lastVitalsTimestamp', 'recentDecisions'
+        'selectedAgentView', 'lastVitalsTimestamp'
     ].forEach(function (key) {
         Object.defineProperty(window, key, {
             get: function () { return state.get(key); },
@@ -165,10 +165,9 @@ document.querySelector('.panel-modal-close')?.addEventListener('click', closeMod
         '1': 'stats-section',
         '2': 'governance-pulse-panel',
         '3': 'eisv-chart-panel',
-        '4': 'timeline-panel',
-        '5': 'agents-section',
-        '6': 'discoveries-section',
-        '7': 'dialectic-section'
+        '4': 'agents-section',
+        '5': 'discoveries-section',
+        '6': 'dialectic-section'
     };
 
     function isInputFocused() {
@@ -1656,11 +1655,9 @@ if (exportDiscoveriesJson) exportDiscoveriesJson.addEventListener('click', () =>
 var animateValue = EISVChartsModule.animateValue;
 var updateValueWithGlow = EISVChartsModule.updateValueWithGlow;
 var addEISVDataPoint = EISVChartsModule.addEISVDataPoint;
-var addDecision = EISVChartsModule.addDecision;
 var addEventEntry = EISVChartsModule.addEventEntry;
 var fetchInitialEvents = EISVChartsModule.fetchInitialEvents;
 var getVerdictBadge = EISVChartsModule.getVerdictBadge;
-var renderDecisionsLog = EISVChartsModule.renderDecisionsLog;
 var rebuildChartFromSelection = EISVChartsModule.rebuildChartFromSelection;
 var updateAgentDropdown = EISVChartsModule.updateAgentDropdown;
 var initEISVChart = EISVChartsModule.initEISVChart;
@@ -1676,18 +1673,9 @@ var updateAgentCardFromWS = EISVChartsModule.updateAgentCardFromWS;
 // ============================================
 // Timeline Module (timeline.js)
 // ============================================
-// Skeletons, timeline rendering, WS status label now in TimelineModule.
+// Skeletons and WS status label in TimelineModule.
 // Module self-initializes skeletons, range filter, and click handlers.
-var renderTimeline = TimelineModule.renderTimeline;
 var updateWSStatusLabel = TimelineModule.updateWSStatusLabel;
-
-// Hook timeline into refresh cycle — update after agents load
-const originalLoadAgents = loadAgents;
-loadAgents = async function () {
-    const result = await originalLoadAgents();
-    renderTimeline();
-    return result;
-};
 
 // Patch EISV WebSocket to update status label
 if (typeof EISVWebSocket !== 'undefined') {

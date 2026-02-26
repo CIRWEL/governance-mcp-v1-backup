@@ -130,13 +130,18 @@ class KnowledgeGraphAGE:
     ) -> None:
         """
         Add a discovery to the graph.
-        
+
         Args:
             discovery: DiscoveryNode to add
-            
+
         NOTE: Temporal/similarity linking is now query-time, not write-time.
         Use get_related_discoveries(id, temporal_window=300) or find_similar(id) at query time.
         """
+        # Normalize tags before storage for consistent search
+        from src.knowledge_graph import normalize_tags
+        if discovery.tags:
+            discovery.tags = normalize_tags(discovery.tags)
+
         # Rate limiting check (security measure)
         await self._check_rate_limit(discovery.agent_id)
         
