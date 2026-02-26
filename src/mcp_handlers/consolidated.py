@@ -35,6 +35,7 @@ from .lifecycle import (
     handle_get_agent_metadata,
     handle_update_agent_metadata,
     handle_archive_agent,
+    handle_resume_agent,
     handle_delete_agent,
 )
 from .admin import (
@@ -43,9 +44,6 @@ from .admin import (
     handle_backfill_calibration_from_dialectic,
     handle_rebuild_calibration,
     handle_get_telemetry_metrics,
-)
-from .roi_metrics import (
-    handle_get_roi_metrics,
 )
 from .config import (
     handle_get_thresholds,
@@ -104,6 +102,7 @@ handle_knowledge = action_router(
     description="Unified knowledge graph operations: store, search, get, list, update, details, note, cleanup, stats, supersede",
     param_maps={
         "search": {"query": "search_query"},
+        "store": {"content": "details"},  # Allow 'content' as alias for 'details'
         "note": {"content": "note"},
     },
     examples=[
@@ -125,15 +124,17 @@ handle_agent = action_router(
         "get": handle_get_agent_metadata,
         "update": handle_update_agent_metadata,
         "archive": handle_archive_agent,
+        "resume": handle_resume_agent,
         "delete": handle_delete_agent,
     },
     timeout=20.0,
-    description="Unified agent lifecycle operations: list, get, update, archive, delete",
+    description="Unified agent lifecycle operations: list, get, update, archive, resume, delete",
     examples=[
         "agent(action='list')",
         "agent(action='get', agent_id='claude-opus-20251215')",
         "agent(action='update', tags=['explorer', 'governance'])",
         "agent(action='archive', agent_id='old-agent-id')",
+        "agent(action='resume', agent_id='stuck-agent-id')",
     ],
 )
 
@@ -213,10 +214,9 @@ handle_observe = action_router(
         "anomalies": handle_detect_anomalies,
         "aggregate": handle_aggregate_metrics,
         "telemetry": handle_get_telemetry_metrics,
-        "roi": handle_get_roi_metrics,
     },
     timeout=15.0,
-    description="Unified observability operations: agent, compare, similar, anomalies, aggregate, telemetry, roi",
+    description="Unified observability operations: agent, compare, similar, anomalies, aggregate, telemetry",
     examples=[
         "observe(action='agent', agent_id='claude-opus-20251215')",
         "observe(action='compare', agent_ids=['agent1', 'agent2'])",
@@ -224,7 +224,6 @@ handle_observe = action_router(
         "observe(action='anomalies')",
         "observe(action='aggregate')",
         "observe(action='telemetry')",
-        "observe(action='roi')",
     ],
 )
 

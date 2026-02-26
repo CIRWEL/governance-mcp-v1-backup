@@ -109,13 +109,15 @@ class TestApplyGenericCoercion:
         result = _apply_generic_coercion({"complexity": "0.7"})
         assert result["complexity"] == 0.7
 
-    def test_float_01_clamp_high(self):
+    def test_float_01_coerce_high(self):
+        """Generic coercion converts type but does not clamp range."""
         result = _apply_generic_coercion({"complexity": "1.5"})
-        assert result["complexity"] == 1.0
+        assert result["complexity"] == 1.5
 
-    def test_float_01_clamp_low(self):
+    def test_float_01_coerce_low(self):
+        """Generic coercion converts type but does not clamp range."""
         result = _apply_generic_coercion({"complexity": "-0.5"})
-        assert result["complexity"] == 0.0
+        assert result["complexity"] == -0.5
 
     def test_float_from_string(self):
         result = _apply_generic_coercion({"max_age_days": "3.5"})
@@ -522,6 +524,30 @@ class TestConvenienceValidators:
     def test_task_type_valid(self):
         val, err = validate_task_type("convergent")
         assert val == "convergent"
+
+    def test_task_type_alias_convergent(self):
+        val, err = validate_task_type("refactoring")
+        assert val == "convergent"
+        assert err is None
+
+    def test_task_type_alias_divergent(self):
+        val, err = validate_task_type("feature")
+        assert val == "divergent"
+        assert err is None
+
+    def test_task_type_alias_mixed(self):
+        val, err = validate_task_type("debugging")
+        assert val == "mixed"
+        assert err is None
+
+    def test_task_type_alias_case_insensitive(self):
+        val, err = validate_task_type("Refactoring")
+        assert val == "convergent"
+        assert err is None
+
+    def test_task_type_unknown_errors(self):
+        val, err = validate_task_type("parallel")
+        assert err is not None
 
     def test_response_type_valid(self):
         val, err = validate_response_type("support")

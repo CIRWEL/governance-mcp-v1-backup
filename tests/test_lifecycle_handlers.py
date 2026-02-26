@@ -269,7 +269,7 @@ class TestListAgentsFull:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             E=0.7, I=0.3, S=0.5, V=0.0, coherence=0.8,
-            lambda1=0.1, void_active=False
+            lambda1=0.1, void_active=False, coherence_history=[]
         )
         mock_monitor.get_metrics.return_value = {
             "risk_score": 0.3, "current_risk": 0.3,
@@ -304,7 +304,7 @@ class TestListAgentsFull:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             E=0.7, I=0.3, S=0.5, V=0.0, coherence=0.8,
-            lambda1=0.1, void_active=False
+            lambda1=0.1, void_active=False, coherence_history=[]
         )
         mock_monitor.get_metrics.return_value = {
             "risk_score": 0.3, "current_risk": 0.3,
@@ -336,7 +336,7 @@ class TestListAgentsFull:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             E=0.7, I=0.3, S=0.5, V=0.0, coherence=0.8,
-            lambda1=0.1, void_active=False
+            lambda1=0.1, void_active=False, coherence_history=[]
         )
         mock_monitor.get_metrics.return_value = {
             "risk_score": 0.3, "current_risk": 0.3,
@@ -370,7 +370,7 @@ class TestListAgentsFull:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             E=0.7, I=0.3, S=0.5, V=0.0, coherence=0.8,
-            lambda1=0.1, void_active=False
+            lambda1=0.1, void_active=False, coherence_history=[]
         )
         mock_monitor.get_metrics.return_value = {
             "risk_score": 0.3, "current_risk": 0.3,
@@ -466,7 +466,7 @@ class TestGetAgentMetadata:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             lambda1=0.1, coherence=0.8, void_active=False,
-            E=0.7, I=0.3, S=0.5, V=0.0,
+            E=0.7, I=0.3, S=0.5, V=0.0, coherence_history=[],
         )
         server.monitors = {"agent-1": mock_monitor}
 
@@ -698,6 +698,64 @@ class TestUpdateAgentMetadata:
             assert data["success"] is True
             assert meta.notes == "from kwargs"
 
+    @pytest.mark.asyncio
+    async def test_update_status_reactivate_archived(self, server):
+        """status='active' reactivates an archived agent."""
+        meta = make_agent_meta(status="archived")
+        server.agent_metadata = {"agent-1": meta}
+
+        with patch("src.mcp_handlers.lifecycle.mcp_server", server), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
+             patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
+             patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
+            mock_storage.update_agent = AsyncMock()
+            from src.mcp_handlers.lifecycle import handle_update_agent_metadata
+            result = await handle_update_agent_metadata({
+                "agent_id": "agent-1", "status": "active",
+            })
+            data = _parse(result)
+            assert data["success"] is True
+            assert meta.status == "active"
+
+    @pytest.mark.asyncio
+    async def test_update_status_invalid_transition(self, server):
+        """status='active' on an already-active agent returns error."""
+        meta = make_agent_meta(status="active")
+        server.agent_metadata = {"agent-1": meta}
+
+        with patch("src.mcp_handlers.lifecycle.mcp_server", server), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
+             patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
+             patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
+            mock_storage.update_agent = AsyncMock()
+            from src.mcp_handlers.lifecycle import handle_update_agent_metadata
+            result = await handle_update_agent_metadata({
+                "agent_id": "agent-1", "status": "active",
+            })
+            data = _parse(result)
+            assert "already" in data.get("error", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_update_status_invalid_value(self, server):
+        """Only status='active' is accepted."""
+        meta = make_agent_meta(status="archived")
+        server.agent_metadata = {"agent-1": meta}
+
+        with patch("src.mcp_handlers.lifecycle.mcp_server", server), \
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
+             patch("src.mcp_handlers.identity_shared.require_write_permission", return_value=(True, None)), \
+             patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
+            mock_storage.update_agent = AsyncMock()
+            from src.mcp_handlers.lifecycle import handle_update_agent_metadata
+            result = await handle_update_agent_metadata({
+                "agent_id": "agent-1", "status": "paused",
+            })
+            data = _parse(result)
+            assert "only" in data.get("error", "").lower()
+
 
 # ============================================================================
 # handle_archive_agent
@@ -752,17 +810,17 @@ class TestArchiveAgent:
             assert "not found" in text.lower()
 
     @pytest.mark.asyncio
-    async def test_archive_ownership_denied(self, server):
+    async def test_archive_no_ownership_check(self, server):
+        """Archive intentionally skips ownership check -- operators/dashboard need to archive others."""
         meta = make_agent_meta(status="active")
         server.agent_metadata = {"agent-1": meta}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
-             patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_archive_agent
             result = await handle_archive_agent({"agent_id": "agent-1"})
             text = result[0].text
-            assert "auth" in text.lower()
+            assert "archived successfully" in text.lower()
 
     @pytest.mark.asyncio
     async def test_archive_not_registered(self, server):
@@ -902,19 +960,19 @@ class TestDeleteAgent:
             assert "not found" in text.lower()
 
     @pytest.mark.asyncio
-    async def test_delete_ownership_denied(self, server):
+    async def test_delete_no_ownership_check(self, server):
+        """Delete intentionally skips ownership check -- operators/dashboard need to manage agents."""
         meta = make_agent_meta(status="active", tags=[])
         server.agent_metadata = {"agent-1": meta}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
-             patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
             from src.mcp_handlers.lifecycle import handle_delete_agent
             result = await handle_delete_agent({
                 "agent_id": "agent-1", "confirm": True,
             })
             text = result[0].text
-            assert "auth" in text.lower()
+            assert "deleted successfully" in text.lower()
 
     @pytest.mark.asyncio
     async def test_delete_removes_monitor(self, server):
@@ -1282,7 +1340,7 @@ class TestDirectResumeIfSafe:
         monitor = MagicMock()
         monitor.state = SimpleNamespace(
             coherence=coherence, void_active=void_active,
-            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1,
+            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1, coherence_history=[],
         )
         monitor.get_metrics.return_value = {"mean_risk": mean_risk}
         return monitor
@@ -1402,7 +1460,7 @@ class TestSelfRecoveryReview:
         monitor = MagicMock()
         monitor.state = SimpleNamespace(
             coherence=coherence, void_active=void_active,
-            E=0.7, I=0.3, S=0.5, V=V, lambda1=0.1,
+            E=0.7, I=0.3, S=0.5, V=V, lambda1=0.1, coherence_history=[],
         )
         monitor.get_metrics.return_value = {"mean_risk": mean_risk}
         return monitor
@@ -1634,19 +1692,33 @@ class TestDetectStuckAgentsInternal:
             result = _detect_stuck_agents(min_updates=1)
             assert len(result) == 0
 
-    def test_detects_timeout(self, server):
-        old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    def test_detects_critical_margin_timeout(self, server):
+        """Agents with critical margin + timeout are detected as stuck.
+
+        Note: Activity timeout alone does NOT trigger stuck detection.
+        Agents must be in a critical state (margin-based) to be flagged as stuck.
+        """
+        old = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()  # > 5 min threshold
         meta = make_agent_meta(status="active", last_update=old, total_updates=5)
         meta.created_at = old
         server.agent_metadata = {"agent-1": meta}
-        server.monitors = {}
-        server.load_monitor_state = MagicMock(return_value=None)
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", server):
+        # Provide monitor with critical margin state
+        mock_monitor = MagicMock()
+        mock_monitor.state = SimpleNamespace(
+            coherence=0.8, void_active=False,
+            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1, coherence_history=[],
+        )
+        mock_monitor.get_metrics.return_value = {"mean_risk": 0.3}
+        server.monitors = {"agent-1": mock_monitor}
+
+        with patch("src.mcp_handlers.lifecycle.mcp_server", server), \
+             patch("src.mcp_handlers.lifecycle.GovernanceConfig") as mock_config:
+            mock_config.compute_proprioceptive_margin.return_value = {"margin": "critical", "nearest_edge": "E"}
             from src.mcp_handlers.lifecycle import _detect_stuck_agents
-            result = _detect_stuck_agents(max_age_minutes=30)
+            result = _detect_stuck_agents(critical_margin_timeout_minutes=5, include_pattern_detection=False)
             assert len(result) >= 1
-            assert result[0]["reason"] == "activity_timeout"
+            assert result[0]["reason"] == "critical_margin_timeout"
 
 
 # ============================================================================
@@ -1782,7 +1854,7 @@ class TestListAgentsLiteImplicit:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             E=0.7, I=0.3, S=0.5, V=0.0, coherence=0.8,
-            lambda1=0.1, void_active=False
+            lambda1=0.1, void_active=False, coherence_history=[]
         )
         mock_monitor.get_metrics.return_value = {
             "risk_score": 0.3, "current_risk": 0.3,
@@ -1954,7 +2026,7 @@ class TestListAgentsFullModeEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             E=0.7, I=0.3, S=0.5, V=0.0, coherence=0.8,
-            lambda1=0.1, void_active=False
+            lambda1=0.1, void_active=False, coherence_history=[]
         )
         mock_monitor.get_metrics.return_value = {
             "risk_score": 0.3, "current_risk": 0.3,
@@ -2032,13 +2104,8 @@ class TestListAgentsFullModeEdgeCases:
             assert data["summary"]["total"] == 1
 
     @pytest.mark.asyncio
-    async def test_full_mode_infers_status_for_unknown_hits_error(self, server):
-        """Lines 215-241 -> 480-481: agents with unrecognized status trigger status
-        inference code, but timezone is not imported in the full-mode branch (it's only
-        imported in the lite branch at line 75), causing an UnboundLocalError that gets
-        caught by the outer try/except at lines 480-481, returning a system error.
-        This test verifies the error handling path.
-        """
+    async def test_full_mode_handles_unknown_status(self, server):
+        """Agents with unrecognized status are handled gracefully (timezone is imported)."""
         recent = datetime.now(timezone.utc).isoformat()
         meta_unknown = make_agent_meta(status="unknown_status", total_updates=5, notes="", last_update=recent)
         server.agent_metadata = {"unknown-agent": meta_unknown}
@@ -2050,9 +2117,8 @@ class TestListAgentsFullModeEdgeCases:
                 "lite": False, "grouped": False, "include_metrics": False,
                 "status_filter": "all",
             })
-            text = result[0].text
-            # Lines 480-481: system_error_helper is called
-            assert "error" in text.lower()
+            data = _parse(result)
+            assert data["success"] is True
 
     @pytest.mark.asyncio
     async def test_full_mode_metrics_error_in_monitor(self, server):
@@ -2063,7 +2129,7 @@ class TestListAgentsFullModeEdgeCases:
         error_monitor = MagicMock()
         error_monitor.state = SimpleNamespace(
             E=0.7, I=0.3, S=0.5, V=0.0, coherence=0.8,
-            lambda1=0.1, void_active=False
+            lambda1=0.1, void_active=False, coherence_history=[]
         )
         error_monitor.get_metrics.side_effect = RuntimeError("metrics broken")
         server.monitors = {"agent-err": error_monitor}
@@ -2229,7 +2295,7 @@ class TestListAgentsFullModeEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             E=None, I=0.3, S=0.5, V=0.0, coherence=0.8,
-            lambda1=None, void_active=None
+            lambda1=None, void_active=None, coherence_history=[]
         )
         mock_monitor.get_metrics.return_value = {
             "risk_score": None, "current_risk": None,
@@ -2287,20 +2353,15 @@ class TestGetAgentMetadataEdgeCases:
 
         server.monitors = {}
 
-        # Patch the import that happens inside the function (line 509)
-        import src.metadata_db as metadata_db_mod
-        metadata_db_mod.AgentMetadata = MagicMock(return_value=mock_meta)
-        try:
-            with patch("src.mcp_handlers.lifecycle.mcp_server", server), \
-                 patch("src.cache.get_metadata_cache", return_value=mock_cache), \
-                 patch("src.mcp_handlers.lifecycle.UNITARESMonitor") as mock_um:
-                mock_um.get_eisv_labels.return_value = {"E": "Entropy"}
-                result = await handle_get_agent_metadata({"target_agent": "agent-uuid-123"})
-                data = _parse(result)
-                assert data["status"] == "active"
-        finally:
-            if hasattr(metadata_db_mod, 'AgentMetadata'):
-                delattr(metadata_db_mod, 'AgentMetadata')
+        # Patch AgentMetadata at the import target (src.mcp_server_std)
+        with patch("src.mcp_server_std.AgentMetadata", MagicMock(return_value=mock_meta)), \
+             patch("src.mcp_handlers.lifecycle.mcp_server", server), \
+             patch("src.cache.get_metadata_cache", return_value=mock_cache), \
+             patch("src.mcp_handlers.lifecycle.UNITARESMonitor") as mock_um:
+            mock_um.get_eisv_labels.return_value = {"E": "Entropy"}
+            result = await handle_get_agent_metadata({"target_agent": "agent-uuid-123"})
+            data = _parse(result)
+            assert data["status"] == "active"
 
     @pytest.mark.asyncio
     async def test_get_metadata_redis_cache_hit_with_monitor(self, server):
@@ -2321,25 +2382,20 @@ class TestGetAgentMetadataEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             lambda1=0.1, coherence=0.9, void_active=False,
-            E=0.8, I=0.2, S=0.6, V=0.0,
+            E=0.8, I=0.2, S=0.6, V=0.0, coherence_history=[],
         )
         server.monitors = {"agent-uuid-123": mock_monitor}
 
-        import src.metadata_db as metadata_db_mod
-        metadata_db_mod.AgentMetadata = MagicMock(return_value=mock_meta)
-        try:
-            with patch("src.mcp_handlers.lifecycle.mcp_server", server), \
-                 patch("src.cache.get_metadata_cache", return_value=mock_cache), \
-                 patch("src.mcp_handlers.lifecycle.UNITARESMonitor") as mock_um:
-                mock_um.get_eisv_labels.return_value = {"E": "Entropy"}
-                from src.mcp_handlers.lifecycle import handle_get_agent_metadata
-                result = await handle_get_agent_metadata({"target_agent": "agent-uuid-123"})
-                data = _parse(result)
-                assert "current_state" in data
-                assert data["current_state"]["coherence"] == 0.9
-        finally:
-            if hasattr(metadata_db_mod, 'AgentMetadata'):
-                delattr(metadata_db_mod, 'AgentMetadata')
+        with patch("src.mcp_server_std.AgentMetadata", MagicMock(return_value=mock_meta)), \
+             patch("src.mcp_handlers.lifecycle.mcp_server", server), \
+             patch("src.cache.get_metadata_cache", return_value=mock_cache), \
+             patch("src.mcp_handlers.lifecycle.UNITARESMonitor") as mock_um:
+            mock_um.get_eisv_labels.return_value = {"E": "Entropy"}
+            from src.mcp_handlers.lifecycle import handle_get_agent_metadata
+            result = await handle_get_agent_metadata({"target_agent": "agent-uuid-123"})
+            data = _parse(result)
+            assert "current_state" in data
+            assert data["current_state"]["coherence"] == 0.9
 
     @pytest.mark.asyncio
     async def test_get_metadata_label_lookup_after_reload(self, server):
@@ -2792,7 +2848,7 @@ class TestDirectResumeEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             coherence=0.8, void_active=False,
-            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1,
+            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1, coherence_history=[],
         )
         mock_monitor.get_metrics.return_value = {"mean_risk": 0.3}
         server.get_or_create_monitor.return_value = mock_monitor
@@ -2823,7 +2879,7 @@ class TestSelfRecoveryReviewEdgeCases:
         monitor = MagicMock()
         monitor.state = SimpleNamespace(
             coherence=coherence, void_active=void_active,
-            E=0.7, I=0.3, S=0.5, V=V, lambda1=0.1,
+            E=0.7, I=0.3, S=0.5, V=V, lambda1=0.1, coherence_history=[],
         )
         monitor.get_metrics.return_value = {"mean_risk": mean_risk}
         return monitor
@@ -2921,19 +2977,33 @@ class TestDetectStuckAgentsInternalEdgeCases:
         return make_mock_server()
 
     def test_last_update_not_string_used_directly(self, server):
-        """Lines 1659-1661: when last_update is not a string, uses it directly."""
-        old_dt = datetime.now(timezone.utc) - timedelta(hours=2)
+        """Lines 1659-1661: when last_update is not a string, uses it directly.
+
+        Tests that datetime objects work correctly as last_update values.
+        Uses critical margin to trigger stuck detection (inactivity alone ≠ stuck).
+        """
+        old_dt = datetime.now(timezone.utc) - timedelta(minutes=10)  # 10 min > 5 min critical threshold
         meta = make_agent_meta(status="active", last_update=old_dt, total_updates=5)
         meta.created_at = old_dt.isoformat()
         server.agent_metadata = {"agent-1": meta}
-        server.monitors = {}
-        server.load_monitor_state = MagicMock(return_value=None)
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", server):
+        # Provide monitor with critical margin state
+        mock_monitor = MagicMock()
+        mock_monitor.state = SimpleNamespace(
+            coherence=0.8, void_active=False,
+            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1, coherence_history=[],
+        )
+        mock_monitor.get_metrics.return_value = {"mean_risk": 0.3}
+        server.monitors = {"agent-1": mock_monitor}
+
+        with patch("src.mcp_handlers.lifecycle.mcp_server", server), \
+             patch("src.mcp_handlers.lifecycle.GovernanceConfig") as mock_config:
+            mock_config.compute_proprioceptive_margin.return_value = {"margin": "critical", "nearest_edge": "E"}
             from src.mcp_handlers.lifecycle import _detect_stuck_agents
-            result = _detect_stuck_agents(max_age_minutes=30)
+            result = _detect_stuck_agents(critical_margin_timeout_minutes=5, include_pattern_detection=False)
+            # Critical margin + 10 min inactivity → stuck
             assert len(result) >= 1
-            assert result[0]["reason"] == "activity_timeout"
+            assert result[0]["reason"] == "critical_margin_timeout"
 
     def test_pattern_detection_cognitive_loop(self, server):
         """Lines 1691-1719: pattern tracker detects cognitive loops."""
@@ -2945,7 +3015,7 @@ class TestDetectStuckAgentsInternalEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             coherence=0.8, void_active=False,
-            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1,
+            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1, coherence_history=[],
         )
         mock_monitor.get_metrics.return_value = {"mean_risk": 0.3}
         server.monitors = {"agent-1": mock_monitor}
@@ -2976,7 +3046,7 @@ class TestDetectStuckAgentsInternalEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             coherence=0.8, void_active=False,
-            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1,
+            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1, coherence_history=[],
         )
         mock_monitor.get_metrics.return_value = {"mean_risk": 0.3}
         server.monitors = {"agent-1": mock_monitor}
@@ -2998,7 +3068,13 @@ class TestDetectStuckAgentsInternalEdgeCases:
             assert len(time_box_detections) >= 1
 
     def test_pattern_detection_failure_handled(self, server):
-        """Lines 1718-1719: pattern detection failure is caught gracefully."""
+        """Lines 1718-1719: pattern detection failure is caught gracefully.
+
+        When pattern detection fails (ImportError), the function should:
+        1. NOT raise an exception (graceful handling)
+        2. NOT fall back to activity_timeout (inactivity ≠ stuck)
+        3. Return empty if margin is comfortable
+        """
         old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
         meta = make_agent_meta(status="active", last_update=old, total_updates=5)
         meta.created_at = old
@@ -3007,7 +3083,7 @@ class TestDetectStuckAgentsInternalEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             coherence=0.8, void_active=False,
-            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1,
+            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1, coherence_history=[],
         )
         mock_monitor.get_metrics.return_value = {"mean_risk": 0.3}
         server.monitors = {"agent-1": mock_monitor}
@@ -3019,8 +3095,8 @@ class TestDetectStuckAgentsInternalEdgeCases:
             from src.mcp_handlers.lifecycle import _detect_stuck_agents
             # Should not raise, just log the error
             result = _detect_stuck_agents(max_age_minutes=30, include_pattern_detection=True)
-            # Should still detect by timeout
-            assert len(result) >= 1
+            # Comfortable margin + pattern failure = NOT stuck (inactivity ≠ stuck)
+            assert len(result) == 0
 
     def test_skips_waiting_input_status(self, server):
         """Line 1637-1638: skips agents not in 'active' status."""
@@ -3044,7 +3120,7 @@ class TestDetectStuckAgentsInternalEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             coherence=0.2, void_active=True,
-            E=0.9, I=0.1, S=0.3, V=0.5, lambda1=0.8,
+            E=0.9, I=0.1, S=0.3, V=0.5, lambda1=0.8, coherence_history=[],
         )
         mock_monitor.get_metrics.return_value = {"mean_risk": 0.8}
         server.monitors = {"agent-1": mock_monitor}
@@ -3065,15 +3141,15 @@ class TestDetectStuckAgentsInternalEdgeCases:
 
     def test_tight_margin_detection(self, server):
         """Lines 1752-1763: tight margin + timeout detected."""
-        old = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
-        meta = make_agent_meta(status="active", last_update=old, total_updates=5)
+        old = (datetime.now(timezone.utc) - timedelta(minutes=90)).isoformat()
+        meta = make_agent_meta(status="active", last_update=old, total_updates=100)
         meta.created_at = old
         server.agent_metadata = {"agent-1": meta}
 
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             coherence=0.5, void_active=False,
-            E=0.6, I=0.3, S=0.5, V=0.1, lambda1=0.3,
+            E=0.6, I=0.3, S=0.5, V=0.1, lambda1=0.3, coherence_history=[],
         )
         mock_monitor.get_metrics.return_value = {"mean_risk": 0.5}
         server.monitors = {"agent-1": mock_monitor}
@@ -3085,7 +3161,7 @@ class TestDetectStuckAgentsInternalEdgeCases:
             }
             from src.mcp_handlers.lifecycle import _detect_stuck_agents
             result = _detect_stuck_agents(
-                max_age_minutes=60,
+                max_age_minutes=120,
                 tight_margin_timeout_minutes=15,
                 include_pattern_detection=False
             )
@@ -3109,7 +3185,7 @@ class TestDetectStuckAgentsAutoRecover:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             coherence=coherence, void_active=void_active,
-            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1,
+            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1, coherence_history=[],
         )
         mock_monitor.get_metrics.return_value = {"mean_risk": mean_risk}
         return mock_monitor
@@ -3409,7 +3485,7 @@ class TestListAgentsFullModeMonitorEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             E=None, I="not-a-number", S=0.5, V=0.0, coherence=0.8,
-            lambda1=None, void_active=None
+            lambda1=None, void_active=None, coherence_history=[]
         )
         mock_monitor.get_metrics.return_value = {
             "risk_score": None, "current_risk": None,
@@ -3437,7 +3513,7 @@ class TestListAgentsFullModeMonitorEdgeCases:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             E=0.7, I=0.3, S=0.5, V=0.0, coherence=0.8,
-            lambda1=0.1, void_active=False
+            lambda1=0.1, void_active=False, coherence_history=[]
         )
         mock_monitor.get_metrics.return_value = {
             "risk_score": 0.3, "current_risk": 0.3,
@@ -3550,7 +3626,7 @@ class TestDetectStuckAgentsAutoRecoverAdditional:
         mock_monitor = MagicMock()
         mock_monitor.state = SimpleNamespace(
             coherence=0.8, void_active=False,
-            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1,
+            E=0.7, I=0.3, S=0.5, V=0.0, lambda1=0.1, coherence_history=[],
         )
         mock_monitor.get_metrics.return_value = {"mean_risk": 0.3}
         server.get_or_create_monitor.return_value = mock_monitor

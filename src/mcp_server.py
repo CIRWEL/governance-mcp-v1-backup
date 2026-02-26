@@ -61,6 +61,7 @@ from src._imports import ensure_project_root
 project_root = ensure_project_root()
 
 from src.logging_utils import get_logger
+from src.versioning import load_version_from_file
 logger = get_logger(__name__)
 
 # Process management (prevent multiple instances)
@@ -519,12 +520,26 @@ def _session_id_from_ctx(ctx: Context | None) -> str | None:
     """
     Resolve a stable per-client session identifier for identity binding.
 
-    Priority order:
-    1. MCP session ID from mcp-session-id header (implicit, protocol-level)
-    2. FastMCP's Context.client_id (OAuth-based)
-    3. Starlette request state from ConnectionTrackingMiddleware
+    Uses SessionSignals when available (set by ASGI wrapper), otherwise
+    falls back to legacy extraction paths.
     """
-    # 1. Try MCP session ID from contextvar (set by ASGI wrapper from header)
+    # Check SessionSignals first (set by ASGI wrapper / ConnectionTrackingMiddleware)
+    try:
+        from src.mcp_handlers.context import get_session_signals
+        signals = get_session_signals()
+        if signals:
+            # Same priority as derive_session_key, minus async pin lookup
+            return (
+                signals.x_session_id
+                or (f"mcp:{signals.mcp_session_id}" if signals.mcp_session_id else None)
+                or signals.oauth_client_id
+                or signals.x_client_id
+                or signals.ip_ua_fingerprint
+            )
+    except Exception:
+        pass
+
+    # Fallback: legacy extraction (for callers before signals are set)
     try:
         from src.mcp_handlers.context import get_mcp_session_id
         mcp_sid = get_mcp_session_id()
@@ -536,7 +551,6 @@ def _session_id_from_ctx(ctx: Context | None) -> str | None:
     if ctx is None:
         return None
 
-    # 2. Try Starlette request state (Our fingerprinting logic from middleware)
     try:
         req = ctx.request_context.request
         if req is not None:
@@ -546,7 +560,6 @@ def _session_id_from_ctx(ctx: Context | None) -> str | None:
     except Exception:
         pass
 
-    # 3. Try FastMCP's Context.client_id (Fallback)
     try:
         if ctx.client_id:
             return ctx.client_id
@@ -561,10 +574,7 @@ def _session_id_from_ctx(ctx: Context | None) -> str | None:
 
 def _load_version():
     """Load version from VERSION file."""
-    version_file = project_root / "VERSION"
-    if version_file.exists():
-        return version_file.read_text().strip()
-    return "2.7.0"  # Fallback if VERSION file missing
+    return load_version_from_file(project_root)
 
 SERVER_VERSION = _load_version()
 
@@ -583,7 +593,7 @@ _auth_settings = None
 
 if _oauth_issuer_url:
     try:
-        from mcp.server.auth.settings import AuthSettings
+        from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
         from src.oauth_provider import GovernanceOAuthProvider
 
         _oauth_secret = os.environ.get("UNITARES_OAUTH_SECRET")
@@ -592,6 +602,11 @@ if _oauth_issuer_url:
         _auth_settings = AuthSettings(
             issuer_url=_oauth_issuer_url,
             resource_server_url=_oauth_issuer_url,
+            client_registration_options=ClientRegistrationOptions(
+                enabled=True,
+                valid_scopes=["mcp:tools"],
+                default_scopes=["mcp:tools"],
+            ),
         )
         print(f"[FastMCP] OAuth 2.1 enabled (issuer: {_oauth_issuer_url})", file=sys.stderr, flush=True)
     except Exception as e:
@@ -977,106 +992,6 @@ async def debug_request_context(ctx: Context = None) -> dict:
     # SSE transport deprecated by MCP — use Streamable HTTP (/mcp/) instead.
 
 
-# ============================================================================
-# Startup Reconciliation: Postgres → SQLite Metadata
-# ============================================================================
-
-async def _reconcile_postgres_to_metadata(db) -> Dict[str, Any]:
-    """
-    Reconcile Postgres identities to SQLite agent_metadata on startup.
-
-    Finds identities in Postgres that don't exist in SQLite metadata and
-    creates minimal metadata entries for them. This catches drift from:
-    - state_db creating identities without metadata
-    - Failed async metadata saves
-    - Direct Postgres operations
-
-    Returns:
-        Dict with reconciliation statistics
-    """
-    from src.metadata_db import AgentMetadataDB
-    from datetime import datetime
-
-    result = {
-        "success": True,
-        "postgres_count": 0,
-        "metadata_count": 0,
-        "missing_in_metadata": 0,
-        "synced": 0,
-        "failed": 0,
-    }
-
-    try:
-        # Get all Postgres identities
-        postgres_identities = await db.list_identities(limit=10000)
-        postgres_ids = {i.agent_id for i in postgres_identities}
-        result["postgres_count"] = len(postgres_ids)
-
-        # Get all SQLite metadata agent_ids
-        metadata_db = AgentMetadataDB(Path(project_root) / "data" / "governance.db")
-        existing_metadata = metadata_db.load_all()
-        metadata_ids = set(existing_metadata.keys())
-        result["metadata_count"] = len(metadata_ids)
-
-        # Find missing
-        missing_in_metadata = postgres_ids - metadata_ids
-        result["missing_in_metadata"] = len(missing_in_metadata)
-
-        if not missing_in_metadata:
-            logger.info("Startup reconciliation: Postgres and metadata are in sync")
-            return result
-
-        logger.info(
-            f"Startup reconciliation: Found {len(missing_in_metadata)} identities "
-            f"in Postgres missing from metadata"
-        )
-
-        # Create minimal metadata for missing agents
-        now = datetime.utcnow().isoformat()
-        new_metadata = {}
-        for agent_id in missing_in_metadata:
-            # Find the identity to get created_at
-            identity = await db.get_identity(agent_id)
-            created = identity.created_at.isoformat() if identity and identity.created_at else now
-
-            new_metadata[agent_id] = {
-                "agent_id": agent_id,
-                "agent_uuid": agent_id,
-                "label": None,
-                "status": "active",
-                "created_at": created,
-                "last_update": created,
-                "version": "v1.0",
-                "total_updates": 0,
-                "tags": [],
-                "notes": "[Reconciled from Postgres on startup]",
-                "lifecycle_events": [
-                    {"event": "reconciled", "timestamp": now, "reason": "missing_from_metadata"}
-                ],
-                "health_status": "unknown",
-                "api_key": "",
-            }
-
-        # Upsert to metadata
-        try:
-            metadata_db.upsert_many(new_metadata)
-            result["synced"] = len(new_metadata)
-            logger.info(
-                f"Startup reconciliation: Synced {len(new_metadata)} agents "
-                f"from Postgres to metadata"
-            )
-        except Exception as e:
-            logger.error(f"Failed to sync metadata: {e}")
-            result["failed"] = len(new_metadata)
-            result["success"] = False
-
-        return result
-
-    except Exception as e:
-        logger.error(f"Reconciliation error: {e}")
-        result["success"] = False
-        result["error"] = str(e)
-        return result
 
 
 # ============================================================================
@@ -1333,14 +1248,6 @@ async def main():
         print(f"\n❌ Database initialization failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # PostgreSQL is now the sole backend - reconciliation no longer needed
-    # SQLite metadata is legacy and not being written to
-    logger.debug("PostgreSQL-only backend: skipping SQLite reconciliation (deprecated)")
-    # try:
-    #     await _reconcile_postgres_to_metadata(db)
-    # except Exception as e:
-    #     logger.warning(f"Startup reconciliation failed (non-fatal): {e}")
-
     # Register cleanup handlers
     def cleanup():
         # Close database connections
@@ -1496,21 +1403,43 @@ async def main():
                     return
 
                 # Generate base id (stable per SSE connection, unique per HTTP request)
-                # Prioritize explicit client identity headers
-                base_id = headers.get("x-client-id") or headers.get("x-mcp-client-id")
-                
-                if not base_id:
-                    # Fallback: Disambiguate by IP + User-Agent to handle shared tunnels (ngrok)
-                    client = scope.get("client")
-                    client_ip = client[0] if (client and len(client) >= 1) else "unknown"
-                    
-                    # Use User-Agent to separate different client types (Claude vs Gemini vs Cursor)
+                # For /mcp/ path, SessionSignals are already set by the ASGI wrapper
+                # so we just read from scope.state if available, otherwise compute here.
+                from src.mcp_handlers.context import get_session_signals, SessionSignals, set_session_signals
+                signals = get_session_signals()
+
+                if signals and signals.transport == "mcp":
+                    # ASGI wrapper already set signals — reuse computed client_id
+                    state = scope.get("state", {})
+                    base_id = state.get("governance_client_id")
+                    if not base_id:
+                        base_id = signals.x_client_id or signals.ip_ua_fingerprint or "unknown"
+                else:
+                    # Legacy paths (SSE, REST) — compute fingerprint and build signals
+                    base_id = headers.get("x-client-id") or headers.get("x-mcp-client-id")
                     ua = headers.get("user-agent", "unknown")
-                    
-                    # Create a simple stable fingerprint from the User-Agent
-                    import hashlib
-                    ua_fingerprint = hashlib.md5(ua.encode()).hexdigest()[:6]
-                    base_id = f"{client_ip}:{ua_fingerprint}"
+
+                    if not base_id:
+                        client = scope.get("client")
+                        client_ip = client[0] if (client and len(client) >= 1) else "unknown"
+                        import hashlib
+                        ua_fingerprint = hashlib.md5(ua.encode()).hexdigest()[:6]
+                        base_id = f"{client_ip}:{ua_fingerprint}"
+
+                    # Build SessionSignals for legacy paths (if not already set)
+                    if not signals:
+                        from src.mcp_handlers.context import detect_client_from_user_agent
+                        legacy_signals = SessionSignals(
+                            x_client_id=headers.get("x-client-id") or headers.get("x-mcp-client-id"),
+                            x_session_id=headers.get("x-session-id"),
+                            ip_ua_fingerprint=base_id,
+                            user_agent=ua,
+                            client_hint=detect_client_from_user_agent(ua),
+                            x_agent_name=headers.get("x-agent-name"),
+                            x_agent_id=headers.get("x-agent-id"),
+                            transport="sse" if is_sse else "rest",
+                        )
+                        set_session_signals(legacy_signals)
 
                 if is_sse:
                     client_id = base_id
@@ -1711,6 +1640,25 @@ async def main():
         # Start auto calibration task (non-blocking)
         asyncio.create_task(startup_auto_calibration())
 
+        # === Background task: KG lifecycle cleanup (daily) ===
+        async def startup_kg_lifecycle():
+            """Start periodic KG lifecycle cleanup after server init."""
+            await asyncio.sleep(5.0)  # Wait for KG to be available
+            try:
+                from src.knowledge_graph_lifecycle import kg_lifecycle_background_task, run_kg_lifecycle_cleanup
+                # Run initial cleanup at startup
+                result = await run_kg_lifecycle_cleanup(dry_run=False)
+                archived = result.get("ephemeral_archived", 0) + result.get("discoveries_archived", 0)
+                if archived > 0:
+                    logger.info(f"KG lifecycle startup: archived {archived} entries")
+                # Start periodic task (runs every 24 hours)
+                asyncio.create_task(kg_lifecycle_background_task(interval_hours=24.0))
+                logger.info("Started periodic KG lifecycle cleanup (runs every 24 hours)")
+            except Exception as e:
+                logger.warning(f"Could not start KG lifecycle task: {e}", exc_info=True)
+
+        asyncio.create_task(startup_kg_lifecycle())
+
         # === Background task: Metadata loading (non-blocking) ===
         async def background_metadata_load():
             """Load metadata in background after server starts accepting connections."""
@@ -1850,16 +1798,95 @@ async def main():
         except Exception as e:
             logger.warning(f"[EISV_SYNC] Could not start: {e}")
 
+        # === Periodic expired session cleanup (PG + Redis) ===
+        async def session_cleanup_task(interval_hours: float = 6.0):
+            """Delete expired sessions from PG and orphaned Redis session cache keys."""
+            while True:
+                await asyncio.sleep(interval_hours * 3600)
+                pg_deleted = 0
+                redis_deleted = 0
+
+                # 1. Get expired session keys from PG before deleting
+                expired_session_keys = []
+                try:
+                    db = get_db()
+                    pool = db._pool
+                    if pool:
+                        async with pool.acquire() as conn:
+                            # Collect expired session keys for Redis cleanup
+                            rows = await conn.fetch(
+                                "SELECT session_key FROM core.sessions WHERE expires_at <= now()"
+                            )
+                            expired_session_keys = [r["session_key"] for r in rows]
+                            # Delete expired PG rows
+                            result = await conn.execute("DELETE FROM core.sessions WHERE expires_at <= now()")
+                            pg_deleted = int(result.split()[-1]) if result else 0
+                except Exception as e:
+                    logger.warning(f"[SESSION_CLEANUP] PG cleanup failed: {e}")
+
+                # 2. Delete matching Redis session cache keys
+                if expired_session_keys:
+                    try:
+                        from src.cache.redis_client import get_redis
+                        redis = await get_redis()
+                        if redis is not None:
+                            for sk in expired_session_keys:
+                                try:
+                                    removed = await redis.delete(f"session:{sk}")
+                                    if removed:
+                                        redis_deleted += 1
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        logger.warning(f"[SESSION_CLEANUP] Redis cleanup failed: {e}")
+
+                if pg_deleted or redis_deleted:
+                    logger.info(
+                        f"[SESSION_CLEANUP] Deleted {pg_deleted} expired PG sessions, "
+                        f"{redis_deleted} Redis cache keys"
+                    )
+
+        asyncio.create_task(session_cleanup_task(interval_hours=6.0))
+        logger.info("[SESSION_CLEANUP] Started periodic expired session cleanup (every 6h)")
+
         # === HTTP REST endpoints for non-MCP clients (Llama, Mistral, etc.) ===
         # Any model that can make HTTP calls can use governance
         HTTP_API_TOKEN = os.getenv("UNITARES_HTTP_API_TOKEN")
         HTTP_CORS_ALLOW_ORIGIN = os.getenv("UNITARES_HTTP_CORS_ALLOW_ORIGIN")  # e.g. "*" or "http://localhost:3000"
 
+        # Trusted networks: localhost, Tailscale CGNAT, private RFC1918 ranges
+        import ipaddress as _ipaddress
+        _TRUSTED_NETWORKS = [
+            _ipaddress.ip_network("127.0.0.0/8"),
+            _ipaddress.ip_network("::1/128"),
+            _ipaddress.ip_network("100.64.0.0/10"),   # Tailscale CGNAT
+            _ipaddress.ip_network("192.168.0.0/16"),
+            _ipaddress.ip_network("10.0.0.0/8"),
+            _ipaddress.ip_network("172.16.0.0/12"),
+        ]
+
+        def _is_trusted_network(request) -> bool:
+            """Check if request originates from a trusted network."""
+            forwarded = request.headers.get("x-forwarded-for")
+            if forwarded:
+                client_ip = forwarded.split(",")[0].strip()
+            else:
+                client_ip = request.client.host if request.client else None
+            if not client_ip:
+                return False
+            try:
+                addr = _ipaddress.ip_address(client_ip)
+                return any(addr in net for net in _TRUSTED_NETWORKS)
+            except ValueError:
+                return False
+
         def _http_unauthorized():
             return JSONResponse({"success": False, "error": "Unauthorized"}, status_code=401)
 
         def _check_http_auth(request) -> bool:
-            """Optional bearer token auth for HTTP endpoints."""
+            """Bearer token auth for HTTP endpoints. Trusted networks bypass auth."""
+            if _is_trusted_network(request):
+                return True
             if not HTTP_API_TOKEN:
                 return True
             auth = request.headers.get("authorization") or request.headers.get("Authorization")
@@ -1873,38 +1900,56 @@ async def main():
         async def _extract_client_session_id(request) -> str:
             """
             Stable per-client session id for HTTP callers.
-            - Prefer explicit header X-Session-ID (agents should echo this back)
-            - Check UA-hash pin from recent onboard
-            - Fall back to ConnectionTrackingMiddleware id if present
-            - Otherwise generate a unique session ID per request chain
+            Uses SessionSignals + derive_session_key() for unified derivation.
+            Falls back to legacy logic if signals unavailable.
             """
-            sid = request.headers.get("X-Session-ID") or request.headers.get("x-session-id")
-            if sid:
-                return str(sid)
-            try:
-                from src.mcp_handlers.identity_v2 import ua_hash_from_header, lookup_onboard_pin
-                ua = request.headers.get("user-agent", "")
-                base_fp = ua_hash_from_header(ua)
-                pinned_sid = await lookup_onboard_pin(base_fp)
-                if pinned_sid:
-                    logger.info(f"[REST_PIN] Injected {pinned_sid} from {base_fp}")
-                    return pinned_sid
-            except Exception as e:
-                logger.debug(f"[REST_PIN] Pin lookup failed: {e}")
-            try:
-                if hasattr(request, "state") and hasattr(request.state, "governance_client_id"):
-                    return str(getattr(request.state, "governance_client_id"))
-            except Exception:
-                pass
-            # Generate unique session ID - agents must echo back client_session_id
-            # from onboard() response to maintain identity across calls
-            import uuid
-            unique_id = str(uuid.uuid4())[:12]
+            from src.mcp_handlers.context import SessionSignals
+            from src.mcp_handlers.identity_v2 import derive_session_key, ua_hash_from_header
+
+            # Build SessionSignals from request headers
+            ua = request.headers.get("user-agent", "")
+            x_session_id = request.headers.get("X-Session-ID") or request.headers.get("x-session-id")
+
+            # Compute IP:UA fingerprint
+            ip_ua_fp = None
             try:
                 host = request.client.host if request.client else "unknown"
-                return f"http:{host}:{unique_id}"
+                import hashlib
+                ua_fp = hashlib.md5(ua.encode()).hexdigest()[:6] if ua else "000000"
+                ip_ua_fp = f"{host}:{ua_fp}"
             except Exception:
-                return f"http:unknown:{unique_id}"
+                pass
+
+            signals = SessionSignals(
+                x_session_id=x_session_id,
+                x_client_id=request.headers.get("x-client-id") or request.headers.get("x-mcp-client-id"),
+                ip_ua_fingerprint=ip_ua_fp,
+                user_agent=ua,
+                x_agent_name=request.headers.get("x-agent-name"),
+                x_agent_id=request.headers.get("x-agent-id"),
+                transport="rest",
+            )
+
+            result = await derive_session_key(signals)
+
+            # If derive_session_key returned the raw IP:UA fingerprint (no pin found),
+            # and there's no explicit session header, generate a unique ID so REST
+            # clients without session headers get distinct identities per request chain.
+            if result == ip_ua_fp and not x_session_id:
+                try:
+                    if hasattr(request, "state") and hasattr(request.state, "governance_client_id"):
+                        return str(getattr(request.state, "governance_client_id"))
+                except Exception:
+                    pass
+                import uuid as _uuid
+                unique_id = str(_uuid.uuid4())[:12]
+                try:
+                    host = request.client.host if request.client else "unknown"
+                    return f"http:{host}:{unique_id}"
+                except Exception:
+                    return f"http:unknown:{unique_id}"
+
+            return result
         
         async def http_list_tools(request):
             """List all tools in OpenAI-compatible format
@@ -2204,9 +2249,7 @@ async def main():
                 }, status_code=500)
         
         async def http_health(request):
-            """Health check endpoint with uptime and monitoring info"""
-            if not _check_http_auth(request):
-                return _http_unauthorized()
+            """Health check endpoint — always public (monitoring, load balancers)"""
             
             # Calculate uptime
             uptime_seconds = time.time() - SERVER_START_TIME
@@ -2362,8 +2405,16 @@ async def main():
             """Serve the web dashboard"""
             dashboard_path = Path(__file__).parent.parent / "dashboard" / "index.html"
             if dashboard_path.exists():
+                html = dashboard_path.read_text()
+                # Inject API token so dashboard JS can authenticate
+                if HTTP_API_TOKEN:
+                    token_script = (
+                        f'<script>if(!localStorage.getItem("unitares_api_token"))'
+                        f'{{localStorage.setItem("unitares_api_token","{HTTP_API_TOKEN}")}}</script>'
+                    )
+                    html = html.replace("</head>", f"{token_script}</head>", 1)
                 return Response(
-                    content=dashboard_path.read_text(),
+                    content=html,
                     media_type="text/html"
                 )
             return JSONResponse({
@@ -2379,7 +2430,12 @@ async def main():
                 return JSONResponse({"error": "Invalid file path"}, status_code=400)
             
             # Only allow specific files for security
-            allowed_files = ["utils.js", "components.js", "styles.css"]
+            allowed_files = [
+                "utils.js", "state.js", "colors.js", "components.js",
+                "visualizations.js", "agents.js", "discoveries.js",
+                "dialectic.js", "eisv-charts.js", "timeline.js",
+                "styles.css", "dashboard.js",
+            ]
             if file_path not in allowed_files:
                 return JSONResponse({
                     "error": "File not allowed",
@@ -2441,17 +2497,22 @@ async def main():
         # Events API endpoint for dashboard
         async def http_events(request):
             """Return recent governance events for dashboard."""
+            if not _check_http_auth(request):
+                return _http_unauthorized()
             try:
                 from src.event_detector import event_detector
 
                 limit = int(request.query_params.get("limit", 50))
                 agent_id = request.query_params.get("agent_id")
                 event_type = request.query_params.get("type")
+                since_raw = request.query_params.get("since")
+                since = int(since_raw) if since_raw is not None else None
 
                 events = event_detector.get_recent_events(
                     limit=limit,
                     agent_id=agent_id,
-                    event_type=event_type
+                    event_type=event_type,
+                    since=since
                 )
 
                 return JSONResponse({
@@ -2516,27 +2577,22 @@ async def main():
                     await response(scope, receive, send)
                     return
 
-                # AUTO-DETECT CLIENT TYPE from User-Agent for better auto-naming
-                # CAPTURE MCP SESSION ID for implicit identity binding
-                # Use contextvars so tool handlers can access it
+                # BUILD SESSION SIGNALS — single capture of all transport headers
+                # No priority decisions here; derive_session_key() handles that.
                 client_hint_token = None
                 mcp_session_token = None
+                signals_token = None
                 try:
                     from starlette.datastructures import Headers
                     from src.mcp_handlers.context import (
+                        SessionSignals, set_session_signals, reset_session_signals,
                         detect_client_from_user_agent, set_transport_client_hint, reset_transport_client_hint,
                         set_mcp_session_id, reset_mcp_session_id
                     )
                     headers = Headers(scope=scope)
 
-                    # Capture mcp-session-id header for implicit identity binding
+                    # Extract all headers into SessionSignals (no priority decisions)
                     mcp_sid = headers.get("mcp-session-id")
-                    if mcp_sid:
-                        mcp_session_token = set_mcp_session_id(mcp_sid)
-                        logger.debug(f"[/mcp] Captured mcp-session-id={mcp_sid[:16]}...")
-
-                    # FINGERPRINTING: Disambiguate by IP + User-Agent for shared tunnels
-                    # This must match logic in ConnectionTrackingMiddleware
                     client = scope.get("client")
                     client_ip = client[0] if (client and len(client) >= 1) else "unknown"
                     ua = headers.get("user-agent", "unknown")
@@ -2544,51 +2600,56 @@ async def main():
                     ua_fingerprint = hashlib.md5(ua.encode()).hexdigest()[:6]
                     x_session_id = headers.get("x-session-id")
                     x_client_id = headers.get("x-client-id") or headers.get("x-mcp-client-id")
-                    if x_session_id:
-                        client_id = x_session_id
-                        logger.info(f"[/mcp] Using X-Session-ID: {x_session_id[:20]}...")
-                    elif x_client_id:
-                        client_id = x_client_id
-                    else:
-                        client_id = f"{client_ip}:{ua_fingerprint}"
 
+                    # Extract OAuth client identity from Bearer token
+                    oauth_client_id = None
+                    auth_header = headers.get("authorization", "")
+                    if auth_header.startswith("Bearer "):
+                        token = auth_header[7:]
+                        try:
+                            token_data = _oauth_provider._access_tokens.get(token) if _oauth_provider else None
+                            if token_data and hasattr(token_data, "client_id"):
+                                oauth_client_id = f"oauth:{token_data.client_id}"
+                        except Exception:
+                            pass
+
+                    detected_client = detect_client_from_user_agent(ua)
+                    ip_ua_fp = f"{client_ip}:{ua_fingerprint}"
+
+                    signals = SessionSignals(
+                        mcp_session_id=mcp_sid,
+                        x_session_id=x_session_id,
+                        x_client_id=x_client_id,
+                        oauth_client_id=oauth_client_id,
+                        ip_ua_fingerprint=ip_ua_fp,
+                        user_agent=ua,
+                        client_hint=detected_client,
+                        x_agent_name=headers.get("x-agent-name"),
+                        x_agent_id=headers.get("x-agent-id"),
+                        transport="mcp",
+                    )
+                    signals_token = set_session_signals(signals)
+
+                    # Backward compat: set individual contextvars that downstream code reads
+                    if mcp_sid:
+                        mcp_session_token = set_mcp_session_id(mcp_sid)
+
+                    # Backward compat: expose client_id in scope.state for ConnectionTrackingMiddleware consumers
+                    client_id = x_session_id or oauth_client_id or x_client_id or ip_ua_fp
                     state = scope.setdefault("state", {})
                     state["governance_client_id"] = client_id
 
-                    # PROPAGATE IDENTITY via contextvars
+                    # Backward compat: set session context
                     from src.mcp_handlers.context import set_session_context, reset_session_context
-                    effective_session_key = x_session_id or mcp_sid or x_client_id or client_id
                     session_context_token = set_session_context(
-                        session_key=effective_session_key,
-                        client_session_id=x_session_id or x_client_id or mcp_sid,
+                        session_key=signals.ip_ua_fingerprint or "unknown",
+                        client_session_id=x_session_id or x_client_id,
                         user_agent=ua,
                     )
 
-                    # Detect client type from User-Agent
-                    detected_client = detect_client_from_user_agent(ua)
                     if detected_client:
                         client_hint_token = set_transport_client_hint(detected_client)
-                        logger.debug(f"[/mcp] Detected client_hint={detected_client} from UA")
 
-                    # Auto-resume identity from X-Agent-Name header
-                    # This allows MCP clients to reconnect as a named agent across sessions
-                    x_agent_name = headers.get("x-agent-name")
-                    if x_agent_name:
-                        try:
-                            from src.mcp_handlers.identity_v2 import resolve_by_name_claim
-                            name_result = await resolve_by_name_claim(x_agent_name, effective_session_key)
-                            if name_result:
-                                # Update context with resolved agent ID
-                                reset_session_context(session_context_token)
-                                session_context_token = set_session_context(
-                                    session_key=effective_session_key,
-                                    client_session_id=x_session_id or x_client_id or mcp_sid,
-                                    agent_id=name_result["agent_uuid"],
-                                    user_agent=ua,
-                                )
-                                logger.info(f"[/mcp] Auto-resumed identity '{x_agent_name}' -> {name_result['agent_uuid'][:12]}...")
-                        except Exception as e:
-                            logger.debug(f"[/mcp] X-Agent-Name resolution failed: {e}")
                 except Exception as e:
                     logger.debug(f"[/mcp] Could not capture context: {e}")
 
@@ -2620,6 +2681,12 @@ async def main():
                         try:
                             from src.mcp_handlers.context import reset_transport_client_hint
                             reset_transport_client_hint(client_hint_token)
+                        except Exception:
+                            pass
+                    if signals_token is not None:
+                        try:
+                            from src.mcp_handlers.context import reset_session_signals
+                            reset_session_signals(signals_token)
                         except Exception:
                             pass
 

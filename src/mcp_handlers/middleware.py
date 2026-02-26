@@ -48,71 +48,50 @@ class DispatchContext:
 
 async def resolve_identity(name: str, arguments: Dict[str, Any], ctx: DispatchContext) -> MiddlewareResult:
     """Extract session identity, resolve onboard pin, bind agent."""
+    # Unified session key derivation via SessionSignals + derive_session_key()
+    from .context import get_session_signals
+    from .identity_v2 import derive_session_key
+
+    signals = get_session_signals()
+    session_key = await derive_session_key(signals, arguments)
     client_session_id = arguments.get("client_session_id")
-    request_state_id = None
-
-    try:
-        from .context import get_session_context
-        session_ctx = get_session_context()
-        request_state_id = session_ctx.get('governance_client_id')
-        if not request_state_id:
-            req = session_ctx.get('request')
-            if req and hasattr(req, 'state'):
-                request_state_id = getattr(req.state, 'governance_client_id', None)
-    except Exception:
-        pass
-
-    # Onboard pin lookup
-    transport_fingerprint = request_state_id
-    if not transport_fingerprint:
-        try:
-            from .context import get_context_session_key
-            transport_fingerprint = get_context_session_key()
-        except Exception:
-            pass
 
     logger.debug(
-        f"[ONBOARD_PIN] dispatch entry: tool={name} client_session_id={client_session_id!r} "
-        f"request_state_id={request_state_id!r} transport_fingerprint={transport_fingerprint!r}"
+        f"[SESSION] dispatch entry: tool={name} session_key={session_key[:30] if session_key else 'None'}... "
+        f"client_session_id={client_session_id!r} signals={signals.transport if signals else 'None'}"
     )
-
-    if not client_session_id and transport_fingerprint:
-        try:
-            from .identity_v2 import _extract_base_fingerprint, lookup_onboard_pin
-            base_fp = _extract_base_fingerprint(transport_fingerprint)
-            pinned_session_id = await lookup_onboard_pin(base_fp)
-            if pinned_session_id:
-                client_session_id = pinned_session_id
-                arguments["client_session_id"] = pinned_session_id
-                logger.info(
-                    f"[ONBOARD_PIN] Injected client_session_id={pinned_session_id} "
-                    f"for tool={name} from pin recent_onboard:{base_fp}"
-                )
-        except Exception as e:
-            logger.debug(f"[ONBOARD_PIN] Pin lookup failed: {e}")
-
-    # Derive session key
-    from .identity_v2 import _derive_session_key
-    session_key = client_session_id or request_state_id or _derive_session_key(arguments)
 
     # Resolve identity (Redis → PostgreSQL → Name Claim → Create)
     from .identity_v2 import resolve_session_identity
     agent_name_hint = None
     if arguments:
-        agent_name_hint = arguments.get("agent_name") or (
-            arguments.get("name") if name in ("identity", "onboard") else None
-        )
-    # Always extract X-Agent-Id header — needed for both name-claim fallback
-    # and PATH 2.75 UUID recovery (even when agent_name is in arguments).
-    x_agent_id_header = None
-    try:
-        from .context import get_session_context
-        ctx_data = get_session_context()
-        req = ctx_data.get('request')
-        if req and hasattr(req, 'headers'):
-            x_agent_id_header = req.headers.get("x-agent-id") or req.headers.get("X-Agent-Id")
-    except Exception:
-        pass
+        # Only use name for identity lookup if resume=True is explicitly passed
+        # This prevents accidental identity collision when multiple sessions use same name
+        resume_requested = arguments.get("resume", False)
+        if resume_requested:
+            agent_name_hint = arguments.get("agent_name") or (
+                arguments.get("name") if name in ("identity", "onboard") else None
+            )
+        else:
+            # Without resume, only use agent_name (not "name" parameter)
+            agent_name_hint = arguments.get("agent_name")
+    # Extract X-Agent-Id from SessionSignals (set at transport layer) or fallback to request headers
+    x_agent_id_header = signals.x_agent_id if signals else None
+    if not x_agent_id_header:
+        try:
+            from .context import get_session_context
+            ctx_data = get_session_context()
+            req = ctx_data.get('request')
+            if req and hasattr(req, 'headers'):
+                x_agent_id_header = req.headers.get("x-agent-id") or req.headers.get("X-Agent-Id")
+        except Exception:
+            pass
+
+    # X-Agent-Name auto-resume (from SessionSignals, previously in ASGI wrapper)
+    if not agent_name_hint and signals and signals.x_agent_name:
+        agent_name_hint = signals.x_agent_name
+        logger.debug(f"[DISPATCH] Using X-Agent-Name from signals: {signals.x_agent_name}")
+
     # Use header as name-claim fallback only when no name hint from arguments
     if not agent_name_hint and x_agent_id_header:
         is_uuid = len(x_agent_id_header) == 36 and x_agent_id_header.count("-") == 4
@@ -328,7 +307,14 @@ async def inject_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCon
                 except Exception:
                     pass
 
-                if name not in identity_tools and name not in dialectic_tools and not is_label_match:
+                # Operator tools that act on OTHER agents (dashboard resume/archive/observe)
+                operator_tools = {
+                    "agent", "observe_agent", "detect_stuck_agents",
+                    "archive_agent", "archive_old_test_agents",
+                    "direct_resume_if_safe", "operator_resume_agent",
+                    "ping_agent",
+                }
+                if name not in identity_tools and name not in dialectic_tools and name not in operator_tools and not is_label_match:
                     return [error_response(
                         f"Session mismatch: you are bound as '{bound_id}' but requested '{provided_id}'",
                         details={
@@ -418,7 +404,7 @@ async def check_rate_limit(name: str, arguments: Dict[str, Any], ctx: DispatchCo
         tool_history.append(now)
 
     # General rate limiting (skip for read-only tools)
-    read_only_tools = {'health_check', 'get_server_info', 'list_tools', 'get_thresholds'}
+    read_only_tools = {'health_check', 'get_server_info', 'list_tools', 'get_thresholds', 'search_knowledge_graph', 'get_governance_metrics'}
     if name not in read_only_tools:
         agent_id = arguments.get('agent_id') or 'anonymous'
         rate_limiter = get_rate_limiter()

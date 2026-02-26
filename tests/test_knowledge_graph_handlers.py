@@ -88,7 +88,7 @@ def mock_mcp_server():
     server = MagicMock()
     server.agent_metadata = {}
     server.monitors = {}
-    server.save_metadata = MagicMock()
+
     return server
 
 
@@ -204,11 +204,11 @@ class TestStoreKnowledgeGraph:
 
     @pytest.mark.asyncio
     async def test_store_truncates_long_summary(self, patch_common, registered_agent):
-        """Long summaries are truncated to 300 chars."""
+        """Long summaries are truncated to 1000 chars."""
         mock_mcp_server, mock_graph = patch_common
         from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
 
-        long_summary = "A" * 500
+        long_summary = "A" * 1100  # Exceeds 1000 char limit
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
             "summary": long_summary,
@@ -221,11 +221,11 @@ class TestStoreKnowledgeGraph:
 
     @pytest.mark.asyncio
     async def test_store_truncates_long_details(self, patch_common, registered_agent):
-        """Long details are truncated to 2000 chars."""
+        """Long details are truncated to 5000 chars."""
         mock_mcp_server, mock_graph = patch_common
         from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
 
-        long_details = "B" * 3000
+        long_details = "B" * 5500  # Exceeds 5000 char limit
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
             "summary": "Test",
@@ -1205,11 +1205,11 @@ class TestLeaveNote:
 
     @pytest.mark.asyncio
     async def test_leave_note_truncation(self, patch_common, registered_agent):
-        """Long notes are truncated to 500 chars."""
+        """Long notes are truncated to 1000 chars (MAX_SUMMARY_LEN)."""
         mock_mcp_server, mock_graph = patch_common
         from src.mcp_handlers.knowledge_graph import handle_leave_note
 
-        long_text = "X" * 600
+        long_text = "X" * 1200
         result = await handle_leave_note({
             "agent_id": registered_agent,
             "summary": long_text,
@@ -1220,7 +1220,7 @@ class TestLeaveNote:
         # The stored discovery's summary should be truncated
         call_args = mock_graph.add_discovery.call_args
         discovery = call_args[0][0]
-        assert len(discovery.summary) <= 504  # 500 + "..."
+        assert len(discovery.summary) <= 1004  # 1000 + "..."
 
     @pytest.mark.asyncio
     async def test_leave_note_auto_links_with_tags(self, patch_common, registered_agent):
@@ -2317,7 +2317,7 @@ class TestSearchKnowledgeGraphAdditional:
         data = parse_result(result)
         assert data["success"] is True
         if data["count"] > 0:
-            assert "similarity_threshold_explanation" in data
+            assert "similarity_threshold_explanation" not in data
 
     @pytest.mark.asyncio
     async def test_search_similarity_scores_included(self, patch_common):
@@ -2442,18 +2442,19 @@ class TestSearchKnowledgeGraphAdditional:
 
     @pytest.mark.asyncio
     async def test_search_no_details_tip(self, patch_common):
-        """Search without include_details shows tip (line 829)."""
+        """Search without include_details shows tip when >3 results (auto-detail for ≤3)."""
         mock_mcp_server, mock_graph = patch_common
         from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
 
-        discoveries = [make_discovery(id="d-1")]
+        # >3 results avoids auto-detail promotion
+        discoveries = [make_discovery(id=f"d-{i}") for i in range(5)]
         mock_graph.query = AsyncMock(return_value=discoveries)
 
         result = await handle_search_knowledge_graph({})
 
         data = parse_result(result)
         assert data["success"] is True
-        if data["count"] > 0:
+        if data["count"] > 3:
             assert "_tip" in data
 
 
@@ -2948,7 +2949,14 @@ class TestSearchArchivedFiltering:
             make_discovery(id="d-archived", status="archived"),
             make_discovery(id="d-resolved", status="resolved"),
         ]
-        mock_graph.query = AsyncMock(return_value=discoveries)
+
+        # Mock query to respect exclude_archived parameter (like real backend)
+        async def query_with_filtering(**kwargs):
+            if kwargs.get("exclude_archived", False):
+                return [d for d in discoveries if d.status != "archived"]
+            return discoveries
+
+        mock_graph.query = AsyncMock(side_effect=query_with_filtering)
 
         result = await handle_search_knowledge_graph({})
         data = parse_result(result)

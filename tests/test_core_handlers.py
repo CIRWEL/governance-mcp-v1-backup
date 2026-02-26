@@ -774,7 +774,7 @@ class TestProcessAgentUpdate:
         stack.enter_context(patch("src.mcp_handlers.context.get_context_agent_id", return_value=patches_dict["ctx_agent_id"]))
         stack.enter_context(patch("src.mcp_handlers.context.get_context_session_key", return_value=patches_dict["ctx_session_key"]))
         stack.enter_context(patch("src.mcp_handlers.identity_v2.ensure_agent_persisted", new_callable=AsyncMock, return_value=False))
-        stack.enter_context(patch("src.mcp_handlers.core.agent_storage", patches_dict["storage"]))
+        stack.enter_context(patch("src.mcp_handlers.update_phases.agent_storage", patches_dict["storage"]))
         return stack
 
     @pytest.mark.asyncio
@@ -856,7 +856,7 @@ class TestProcessAgentUpdate:
         mock_error = _make_error_text_content("complexity out of range")
 
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.core.validate_complexity", return_value=(None, mock_error)):
+             patch("src.mcp_handlers.update_phases.validate_complexity", return_value=(None, mock_error)):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -878,7 +878,7 @@ class TestProcessAgentUpdate:
         mock_error = _make_error_text_content("confidence invalid")
 
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.core.validate_confidence", return_value=(None, mock_error)):
+             patch("src.mcp_handlers.update_phases.validate_confidence", return_value=(None, mock_error)):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -898,7 +898,7 @@ class TestProcessAgentUpdate:
         mock_error = _make_error_text_content("ethical_drift invalid")
 
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.core.validate_ethical_drift", return_value=(None, mock_error)):
+             patch("src.mcp_handlers.update_phases.validate_ethical_drift", return_value=(None, mock_error)):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -918,7 +918,7 @@ class TestProcessAgentUpdate:
         mock_error = _make_error_text_content("response_text too long")
 
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.core.validate_response_text", return_value=(None, mock_error)):
+             patch("src.mcp_handlers.update_phases.validate_response_text", return_value=(None, mock_error)):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -1854,16 +1854,16 @@ class TestProcessAgentUpdateExtended:
         stack.enter_context(patch("src.mcp_handlers.context.get_context_agent_id", return_value=patches_dict["ctx_agent_id"]))
         stack.enter_context(patch("src.mcp_handlers.context.get_context_session_key", return_value=patches_dict["ctx_session_key"]))
         stack.enter_context(patch("src.mcp_handlers.identity_v2.ensure_agent_persisted", new_callable=AsyncMock, return_value=False))
-        stack.enter_context(patch("src.mcp_handlers.core.agent_storage", patches_dict["storage"]))
+        stack.enter_context(patch("src.mcp_handlers.update_phases.agent_storage", patches_dict["storage"]))
         return stack
 
     # ------------------------------------------------------------------
-    # Lines 30-32: EISV_VALIDATION_AVAILABLE import fallback
+    # EISV validation: enrichment function exists
     # ------------------------------------------------------------------
-    def test_eisv_validation_available_flag_exists(self):
-        """EISV_VALIDATION_AVAILABLE flag is set at module level."""
-        from src.mcp_handlers.core import EISV_VALIDATION_AVAILABLE
-        assert isinstance(EISV_VALIDATION_AVAILABLE, bool)
+    def test_eisv_validation_enrichment_exists(self):
+        """EISV validation enrichment is available."""
+        from src.mcp_handlers.update_enrichments import enrich_eisv_validation
+        assert callable(enrich_eisv_validation)
 
     # ------------------------------------------------------------------
     # Lines 185-186: complexity calibration exception in get_metrics
@@ -2021,25 +2021,17 @@ class TestProcessAgentUpdateExtended:
     # Lines 726-766: Auto-resume archived agent
     # ------------------------------------------------------------------
     @pytest.mark.asyncio
-    async def test_auto_resume_archived_agent(self, mock_server, mock_monitor):
-        """Archived agent is auto-resumed on engagement via second check (line 724).
+    async def test_archived_agent_reactivated_on_checkin(self, mock_server, mock_monitor):
+        """Archived agent is reactivated when it checks in via process_agent_update.
 
-        The auto-resume at line 724 fires when the agent is NOT in metadata during
-        the first check (lines 526-549), then found as archived in the second check
-        (lines 718+). This happens when metadata is loaded lazily.
-
-        Note: archived_at=None avoids the datetime scoping issue in Python 3.14
-        (local import at line 1232 shadows module-level import used at line 732).
+        The core handler does not block archived agents — checking in
+        implicitly reactivates them (status becomes 'active').
         """
         agent_uuid = "test-uuid-archived-resume"
-        # NOT in metadata initially (skips first check at line 526)
         mock_server.agent_metadata = {}
         mock_server.get_or_create_monitor.return_value = mock_monitor
         mock_server.monitors = {agent_uuid: mock_monitor}
 
-        # After ensure_agent_persisted and is_new_agent=False check at line 560,
-        # the metadata will be populated with archived status
-        # Use archived_at=None to skip the datetime.fromisoformat path
         archived_meta = _make_metadata(status="archived", archived_at=None)
 
         async def populate_metadata(*args, **kwargs):
@@ -2047,13 +2039,8 @@ class TestProcessAgentUpdateExtended:
             return False
 
         p = self._common_patches(mock_server, agent_uuid=agent_uuid)
-        mock_audit_logger = MagicMock()
-        mock_audit_logger.log_auto_resume = MagicMock()
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.identity_v2.ensure_agent_persisted", new_callable=AsyncMock, side_effect=populate_metadata), \
-             patch.dict("sys.modules", {
-                 "src.audit_log": MagicMock(audit_logger=mock_audit_logger),
-             }):
+             patch("src.mcp_handlers.identity_v2.ensure_agent_persisted", new_callable=AsyncMock, side_effect=populate_metadata):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -2063,9 +2050,8 @@ class TestProcessAgentUpdateExtended:
 
             data = _parse(result)
             assert isinstance(data, dict)
-            # Agent status should be changed to active by auto-resume
+            # Agent is reactivated by check-in
             assert archived_meta.status == "active"
-            assert archived_meta.archived_at is None
 
     # ------------------------------------------------------------------
     # Lines 776: Paused agent error (second check, after metadata loaded)
@@ -3222,8 +3208,7 @@ class TestProcessAgentUpdateExtended:
 
         p = self._common_patches(mock_server, agent_uuid=agent_uuid)
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.core.EISV_VALIDATION_AVAILABLE", True), \
-             patch("src.mcp_handlers.core.validate_governance_response", side_effect=ValueError("Missing V metric")):
+             patch("src.eisv_validator.validate_governance_response", side_effect=ValueError("Missing V metric")):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({

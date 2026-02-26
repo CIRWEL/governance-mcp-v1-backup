@@ -2,6 +2,7 @@
 Observability tool handlers.
 """
 
+import asyncio
 from typing import Dict, Any, Sequence
 from mcp.types import TextContent
 import sys
@@ -35,6 +36,15 @@ async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
         except Exception:
             target = explicit_id
     if not target:
+        # Default to self-observe when session is bound
+        try:
+            from .context import get_context_agent_id
+            caller_uuid = get_context_agent_id()
+            if caller_uuid:
+                target = caller_uuid
+        except Exception:
+            pass
+    if not target:
         return [error_response(
             "target_agent_id required: specify which agent to observe",
             recovery={
@@ -59,23 +69,13 @@ async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
                 )]
     except Exception:
         pass  # Use target as-is
-    # Verify agent exists in metadata
-    try:
-        if agent_id not in mcp_server.agent_metadata:
-            # Try loading from disk
-            mcp_server.load_metadata()
-            if agent_id not in mcp_server.agent_metadata:
-                return [error_response(
-                    f"Agent '{target}' not found in active metadata. They may need to check in first.",
-                    recovery={"related_tools": ["list_agents"]}
-                )]
-    except Exception:
-        pass
-    
-    # Reload metadata to get latest state (handles multi-process sync) - non-blocking
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
+    # Reload metadata from PostgreSQL (async) and verify agent exists
+    await mcp_server.load_metadata_async(force=True)
+    if agent_id not in mcp_server.agent_metadata:
+        return [error_response(
+            f"Agent '{target}' not found in active metadata. They may need to check in first.",
+            recovery={"related_tools": ["list_agents"]}
+        )]
     
     include_history = arguments.get("include_history", True)
     analyze_patterns_flag = arguments.get("analyze_patterns", True)
@@ -125,9 +125,7 @@ async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
 async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Compare governance patterns across multiple agents"""
     # Reload metadata to get latest state (handles multi-process sync) - non-blocking
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
+    await mcp_server.load_metadata_async(force=True)
     
     agent_ids = arguments.get("agent_ids", [])
     if not agent_ids or len(agent_ids) < 2:
@@ -179,18 +177,22 @@ async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextConte
                 void_active=void_active
             )
             
+            # Guard against None values for agents with 0 updates
+            # dict.get default is only used when key is ABSENT; if key exists with value=None, it returns None
+            _risk = metrics.get("risk_score") or metrics.get("current_risk") or metrics.get("mean_risk") or 0.0
+            _state = monitor.state
             agents_data.append({
                 "agent_id": agent_id,
                 "current_risk": metrics.get("current_risk"),  # Recent trend (last 10) - USED FOR HEALTH STATUS
-                "risk_score": float(metrics.get("risk_score") or metrics.get("current_risk") or metrics.get("mean_risk", 0.0)),  # Governance/operational risk
+                "risk_score": float(_risk),  # Governance/operational risk
                 "phi": metrics.get("phi"),  # Primary physics signal
                 "verdict": metrics.get("verdict"),  # Primary governance signal
-                "mean_risk": metrics.get("mean_risk", 0.0),  # Overall mean (all-time average) - for historical context
-                "coherence": float(monitor.state.coherence),
-                "E": float(monitor.state.E),
-                "I": float(monitor.state.I),
-                "S": float(monitor.state.S),
-                "V": float(monitor.state.V),  # Added missing V
+                "mean_risk": metrics.get("mean_risk") or 0.0,  # Overall mean (all-time average) - for historical context
+                "coherence": float(_state.coherence if _state and _state.coherence is not None else 0.5),
+                "E": float(_state.E if _state and _state.E is not None else 0.5),
+                "I": float(_state.I if _state and _state.I is not None else 0.5),
+                "S": float(_state.S if _state and _state.S is not None else 0.5),
+                "V": float(_state.V if _state and _state.V is not None else 0.0),
                 "health_status": health_status_obj.value  # Use consistent calculation
             })
     
@@ -270,9 +272,7 @@ async def handle_compare_me_to_similar(arguments: Dict[str, Any]) -> Sequence[Te
         return [error]
     
     # Reload metadata to get latest state
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
+    await mcp_server.load_metadata_async(force=True)
     
     # Get current agent's metrics
     monitor = mcp_server.get_or_create_monitor(agent_id)
@@ -513,9 +513,8 @@ async def handle_detect_anomalies(arguments: Dict[str, Any]) -> Sequence[TextCon
     """Detect anomalies across agents"""
     import asyncio
     
-    # Reload metadata to get latest state (handles multi-process sync) - non-blocking
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
+    # Reload metadata from PostgreSQL (async)
+    await mcp_server.load_metadata_async(force=True)
     
     agent_ids = arguments.get("agent_ids")
     anomaly_types = arguments.get("anomaly_types", ["risk_spike", "coherence_drop"])
@@ -612,9 +611,7 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
     import numpy as np
     
     # Reload metadata to get latest state (handles multi-process sync) - non-blocking
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
+    await mcp_server.load_metadata_async(force=True)
     
     agent_ids = arguments.get("agent_ids")
     include_health_breakdown = arguments.get("include_health_breakdown", True)

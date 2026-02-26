@@ -305,7 +305,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
 
-    # Check calibration DB - uses PostgreSQL when DB_BACKEND=postgres, SQLite otherwise
+    # Check calibration DB (PostgreSQL)
     try:
         from src.calibration_db import calibration_health_check_async
         info = await calibration_health_check_async()
@@ -333,9 +333,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
 
-    # Check PRIMARY database backend (PostgreSQL/SQLite/Dual) via src.db abstraction.
-    # Note: calibration_db/audit_db below are legacy SQLite indexes; this check reports
-    # the backend that migration work targets (DB_BACKEND).
+    # Check PRIMARY database backend (PostgreSQL) via src.db abstraction.
     try:
         import os
         configured = os.getenv("DB_BACKEND", "postgres").lower()
@@ -368,7 +366,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e),
         }
 
-    # Check audit DB - uses PostgreSQL when DB_BACKEND=postgres, else SQLite.
+    # Check audit DB (PostgreSQL)
     try:
         from src.audit_db import audit_health_check_async
         info = await audit_health_check_async()
@@ -444,13 +442,13 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
 
-    # Check knowledge graph backend (SQLite or JSON) - best effort, kept lightweight.
+    # Check knowledge graph backend (AGE or PostgreSQL FTS) - best effort, kept lightweight.
     try:
         from src.knowledge_graph import get_knowledge_graph
         graph = await get_knowledge_graph()
         backend_name = type(graph).__name__
 
-        # If SQLite backend is active, run its self-check (already offloaded to a thread).
+        # Run backend self-check if available.
         if hasattr(graph, "health_check"):
             kg_info = await graph.health_check()
         else:
@@ -468,8 +466,7 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
 
-    # Agent metadata - PostgreSQL is the canonical backend via agent_storage module.
-    # Legacy SQLite/JSON backends are deprecated and will be removed.
+    # Agent metadata - PostgreSQL via agent_storage module.
     checks["agent_metadata"] = {
         "status": "healthy",
         "backend": "postgres",
@@ -490,6 +487,38 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
             "error": str(e)
         }
     
+    # Check Pi (anima-mcp) connectivity — lightweight probe, warning (not error) if unreachable
+    try:
+        from .pi_orchestration import call_pi_tool, PI_MCP_URLS
+        import time as _time
+        pi_start = _time.time()
+        pi_result = await asyncio.wait_for(
+            call_pi_tool("get_health", {}, timeout=5.0),
+            timeout=6.0
+        )
+        pi_latency = (_time.time() - pi_start) * 1000
+        if isinstance(pi_result, dict) and "error" not in pi_result:
+            checks["pi_connectivity"] = {
+                "status": "healthy",
+                "reachable": True,
+                "latency_ms": round(pi_latency, 1),
+                "urls_configured": PI_MCP_URLS,
+            }
+        else:
+            error_msg = str(pi_result.get("error", "unknown")) if isinstance(pi_result, dict) else str(pi_result)
+            checks["pi_connectivity"] = {
+                "status": "warning",
+                "reachable": False,
+                "error": error_msg,
+                "urls_configured": PI_MCP_URLS,
+            }
+    except (asyncio.TimeoutError, Exception) as e:
+        checks["pi_connectivity"] = {
+            "status": "warning",
+            "reachable": False,
+            "error": str(e),
+        }
+
     # Overall health status - three-tier logic:
     # - healthy: all checks pass
     # - moderate: some warnings/deprecated but no errors
@@ -560,14 +589,19 @@ async def handle_check_calibration(arguments: Dict[str, Any]) -> Sequence[TextCo
     
     if confidence_values:
         import numpy as np
+        n_samples = len(confidence_values)
         conf_dist = {
             "mean": float(np.mean(confidence_values)),
-            "std": float(np.std(confidence_values)),
-            "min": float(np.min(confidence_values)),
-            "max": float(np.max(confidence_values))
+            "samples": n_samples,
         }
+        if n_samples >= 5:
+            conf_dist["std"] = float(np.std(confidence_values))
+            conf_dist["min"] = float(np.min(confidence_values))
+            conf_dist["max"] = float(np.max(confidence_values))
+        else:
+            conf_dist["note"] = f"Only {n_samples} sample(s) — std/min/max suppressed (need >= 5)"
     else:
-        conf_dist = {"mean": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}
+        conf_dist = {"mean": 0.0, "samples": 0, "note": "No calibration data yet"}
     
     response = {
         "calibrated": is_calibrated,
@@ -1268,7 +1302,48 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             "depends_on": [],
             "related_to": ["request_dialectic_review", "process_agent_update"],
             "category": "dialectic"
-        }
+        },
+        # Consolidated tools (common tier) - Feb 2026 dogfood fix
+        "agent": {
+            "depends_on": [],
+            "related_to": ["onboard", "identity", "observe"],
+            "category": "lifecycle"
+        },
+        "calibration": {
+            "depends_on": ["process_agent_update"],
+            "related_to": ["process_agent_update", "observe"],
+            "category": "core"
+        },
+        "call_model": {
+            "depends_on": [],
+            "related_to": ["knowledge", "dialectic"],
+            "category": "core"
+        },
+        "config": {
+            "depends_on": [],
+            "related_to": ["get_thresholds", "set_thresholds"],
+            "category": "config"
+        },
+        "export": {
+            "depends_on": [],
+            "related_to": ["get_system_history", "observe"],
+            "category": "export"
+        },
+        "knowledge": {
+            "depends_on": [],
+            "related_to": ["search_knowledge_graph", "leave_note"],
+            "category": "knowledge"
+        },
+        "observe": {
+            "depends_on": [],
+            "related_to": ["agent", "process_agent_update"],
+            "category": "observability"
+        },
+        "pi": {
+            "depends_on": [],
+            "related_to": ["config"],
+            "category": "admin"
+        },
     }
     
     # Define common workflows
@@ -1292,7 +1367,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         ],
         "recovery": [
             "dialectic",  # View dialectic sessions (action=get/list)
-            "direct_resume_if_safe"  # Resume if state is safe
+            "self_recovery"  # Resume if state is safe
         ],
         "export_analysis": [
             "get_system_history",
@@ -1321,7 +1396,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         "delete_agent": "🗑️ Delete agent (protected for pioneers)",
         "archive_old_test_agents": "🧹 Auto-archive stale test agents",
         "mark_response_complete": "✅ Mark agent as having completed response, waiting for input",
-        "direct_resume_if_safe": "▶️ Direct resume without dialectic if agent state is safe",
+        "self_recovery": "▶️ Self-recovery: use action='quick' for safe states, action='review' for full recovery with reflection",
         "get_system_history": "📜 Export time-series history (inline)",
         "export_to_file": "💾 Export history to JSON/CSV file",
         "reset_monitor": "🔄 Reset agent state",
@@ -1677,7 +1752,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             "lifecycle": {
                 "name": "👥 Agent Lifecycle",
                 "description": "Manage agents, view metadata, and handle agent states",
-                "tools": ["list_agents", "get_agent_metadata", "update_agent_metadata", "archive_agent", "delete_agent", "archive_old_test_agents", "mark_response_complete", "direct_resume_if_safe"],
+                "tools": ["list_agents", "get_agent_metadata", "update_agent_metadata", "archive_agent", "delete_agent", "archive_old_test_agents", "mark_response_complete", "self_recovery"],
                 "priority": 3,
                 "for_new_agents": False
             },
@@ -1951,7 +2026,19 @@ async def handle_describe_tool(arguments: Dict[str, Any]) -> Sequence[TextConten
                 params_simple = []
                 for param in required:
                     params_simple.append(f"{param} (required)")
-                for param, spec in list(optional.items())[:5]:  # Top 5 optional
+                # Always show client_session_id first if present
+                shown_optional = set()
+                if "client_session_id" in optional:
+                    spec = optional["client_session_id"]
+                    params_simple.append("client_session_id: string (recommended for identity continuity)")
+                    shown_optional.add("client_session_id")
+                max_shown = 5
+                for param, spec in list(optional.items()):
+                    if param in shown_optional:
+                        continue
+                    if len(shown_optional) >= max_shown:
+                        break
+                    shown_optional.add(param)
                     param_type = spec.get("type", "any")
                     default = spec.get("default")
                     values = spec.get("values", [])
@@ -1977,6 +2064,9 @@ async def handle_describe_tool(arguments: Dict[str, Any]) -> Sequence[TextConten
                         params_simple.append(f"{param}: {param_type} (default: {default})")
                     else:
                         params_simple.append(f"{param}: {param_type}")
+                remaining = len(optional) - len(shown_optional)
+                if remaining > 0:
+                    params_simple.append(f"... and {remaining} more (use lite=false for full schema)")
                 
                 # Get common patterns
                 common_patterns = get_common_patterns(tool_name)
@@ -2029,10 +2119,19 @@ async def handle_describe_tool(arguments: Dict[str, Any]) -> Sequence[TextConten
                 params_simple = []
                 for param in required:
                     params_simple.append(f"{param} (required)")
+                # Always show client_session_id first if present
+                shown_count = 0
+                if "client_session_id" in properties and "client_session_id" not in required:
+                    params_simple.append("client_session_id: string (recommended)")
+                    shown_count += 1
                 for param, prop in list(properties.items())[:8]:
-                    if param not in required:
+                    if param not in required and param != "client_session_id":
                         ptype = prop.get("type", "any")
                         params_simple.append(f"{param}: {ptype}")
+                        shown_count += 1
+                total_optional = sum(1 for p in properties if p not in required)
+                if total_optional > shown_count:
+                    params_simple.append(f"... and {total_optional - shown_count} more (use lite=false for full schema)")
                 
                 # Get common patterns using shared helper
                 common_patterns = get_common_patterns(tool_name)

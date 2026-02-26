@@ -17,6 +17,7 @@ from pathlib import Path
 from src.logging_utils import get_logger
 from src.knowledge_graph import DiscoveryNode, ResponseTo
 from src.db import get_db
+from src.db.acquire_compat import compatible_acquire
 from src.db.age_queries import (
     create_discovery_node,
     create_agent_node,
@@ -118,7 +119,7 @@ class KnowledgeGraphAGE:
         if pool is None:
             raise RuntimeError("PostgreSQL pool unavailable (AGE SQL execution requires Postgres backend)")
 
-        async with pool.acquire() as conn:
+        async with compatible_acquire(pool) as conn:
             await conn.execute("LOAD 'age'")
             await conn.execute("SET search_path = ag_catalog, core, audit, public")
             await conn.execute(sql)
@@ -290,8 +291,8 @@ class KnowledgeGraphAGE:
         """
         Get a response chain for a discovery using AGE graph traversal.
 
-        This mirrors the SQLite KnowledgeGraphDB behavior, where `RESPONDS_TO`
-        edges represent replies pointing to their parent.
+        Uses AGE graph traversal where `RESPONDS_TO` edges represent
+        replies pointing to their parent.
 
         Returns:
             Discoveries ordered by depth (root first, then replies).
@@ -343,6 +344,7 @@ class KnowledgeGraphAGE:
         severity: Optional[str] = None,
         tags: Optional[List[str]] = None,
         limit: int = 100,
+        exclude_archived: bool = False,
     ) -> List[DiscoveryNode]:
         """
         Query discoveries with filters.
@@ -382,6 +384,12 @@ class KnowledgeGraphAGE:
         if severity:
             conditions.append("d.severity = ${severity}")
             params["severity"] = severity
+
+        # Exclude archived at the Cypher level so LIMIT applies to non-archived rows.
+        # Without this, LIMIT N grabs the N most recent rows (mostly archived noise),
+        # then post-hoc filtering removes them, returning far fewer than N results.
+        if exclude_archived and not status:
+            conditions.append("d.status <> 'archived'")
 
         where_clause = " AND ".join(conditions) if conditions else ""
         
@@ -549,7 +557,7 @@ class KnowledgeGraphAGE:
         params = {"discovery_id": discovery_id}
 
         for key, value in updates.items():
-            if key in ("status", "resolved_at", "updated_at", "severity", "type"):
+            if key in ("status", "resolved_at", "updated_at", "severity", "type", "last_referenced"):
                 param_name = f"val_{key}"
                 set_parts.append(f"d.{key} = ${{{param_name}}}")
                 params[param_name] = value

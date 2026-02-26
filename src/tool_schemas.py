@@ -316,7 +316,7 @@ EXAMPLE RESPONSE:
 {
   "success": true,
   "status": "healthy",
-  "version": "2.7.0",
+  "version": "2.7.3",
   "components": {
     "calibration": {"status": "healthy", "pending_updates": 5},
     "telemetry": {"status": "healthy", "metrics_count": 1234},
@@ -630,7 +630,7 @@ EXAMPLE REQUEST:
 EXAMPLE RESPONSE:
 {
   "success": true,
-  "server_version": "2.7.0",
+  "server_version": "2.7.3",
   "build_date": "2025-11-25",
   "current_pid": 12345,
   "current_uptime_seconds": 3600,
@@ -891,8 +891,8 @@ DEPENDENCIES:
                     },
                     "task_type": {
                         "type": "string",
-                        "enum": ["convergent", "divergent", "mixed"],
-                        "description": "Optional task type context. Valid values: \"convergent\" | \"divergent\" | \"mixed\". 'convergent' (standardization, formatting) vs 'divergent' (creative exploration). System interprets S=0 differently: convergent S=0 is healthy compliance, divergent S=0 may indicate lack of exploration. Prevents false positives on 'compliance vs health'.",
+                        "description": "Task type context. Core types: convergent | divergent | mixed. Also accepts natural names: refactoring, bugfix, testing, documentation → convergent; feature, exploration, research, design → divergent; debugging, review, deployment → mixed. Default: mixed.",
+                        "enum": ["convergent", "divergent", "mixed", "refactoring", "bugfix", "testing", "documentation", "feature", "exploration", "research", "design", "debugging", "review", "deployment"],
                         "default": "mixed"
                     },
                     "trajectory_signature": {
@@ -2024,6 +2024,11 @@ DEPENDENCIES:
                         "type": "string",
                         "description": "Agent identifier"
                     },
+                    "status": {
+                        "type": "string",
+                        "enum": ["active"],
+                        "description": "Set to 'active' to reactivate an archived agent"
+                    },
                     "tags": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -2770,107 +2775,56 @@ DEPENDENCIES:
             }
         ),
         Tool(
-            name="get_roi_metrics",
-            description="""Calculate ROI metrics showing value delivered by multi-agent coordination.
+            name="outcome_event",
+            description="""Record an outcome event for EISV validation.
 
-Returns time saved, coordination efficiency, knowledge sharing metrics, and cost savings estimates.
+Pairs a measurable outcome (drawing completion, test result, task completion)
+with the agent's current EISV snapshot. This enables correlation analysis:
+do EISV verdicts and phi values predict real outcomes?
 
-USE CASES:
-- Show customers the value they're getting
-- Justify pricing/ROI
-- Track coordination effectiveness
-- Measure knowledge sharing impact
+VALID OUTCOME TYPES:
+- drawing_completed: Lumen finished a drawing (score = satisfaction)
+- drawing_abandoned: Drawing was abandoned before completion
+- test_passed: A test or validation passed
+- test_failed: A test or validation failed
+- tool_rejected: A tool call was rejected by governance
+- task_completed: Agent completed a significant task
+- task_failed: Agent failed to complete a task
 
-RETURNS:
-{
-  "success": true,
-  "time_saved": {
-    "hours": float,
-    "days": float,
-    "description": "Estimated time saved from preventing duplicate work"
-  },
-  "duplicates_prevented": int,
-  "coordination_efficiency": {
-    "score": float (0-1),
-    "percentage": float,
-    "description": "How well agents coordinate (0.0 = no coordination, 1.0 = perfect)"
-  },
-  "knowledge_sharing": {
-    "total_discoveries": int,
-    "unique_agents_contributing": int,
-    "avg_discoveries_per_agent": float
-  },
-  "cost_savings": {
-    "estimated_usd": float,
-    "hourly_rate_used": int,
-    "description": "Estimated cost savings at developer hourly rate"
-  },
-  "system_health": {
-    "total_agents": int,
-    "active_agents": int,
-    "coordination_active": boolean
-  }
-}
+PARAMETERS:
+- outcome_type (required): One of the valid types above
+- outcome_score (optional float 0-1): Quality metric. Inferred from type if omitted.
+- is_bad (optional bool): Whether this is a negative outcome. Inferred from type if omitted.
+- detail (optional dict): Type-specific metadata (e.g., mark_count, test_name)
+- agent_id (optional): Falls back to session-bound agent_id
 
-SEE ALSO:
-- aggregate_metrics() - Fleet-wide health overview
-- get_telemetry_metrics() - System telemetry
-- list_knowledge_graph() - Knowledge graph stats
-
-ALTERNATIVES:
-- Want fleet health? → Use aggregate_metrics() (system-wide)
-- Want telemetry? → Use get_telemetry_metrics() (operational)
-- Want knowledge stats? → Use list_knowledge_graph() (knowledge-specific)
-
-EXAMPLE REQUEST:
-{
-  "hourly_rate": 100  // Optional: Developer hourly rate (default: $100/hour)
-}
-
-EXAMPLE RESPONSE:
-{
-  "success": true,
-  "time_saved": {
-    "hours": 12.5,
-    "days": 1.56,
-    "description": "Estimated time saved from preventing 25 duplicate work items"
-  },
-  "duplicates_prevented": 25,
-  "coordination_efficiency": {
-    "score": 0.85,
-    "percentage": 85.0,
-    "description": "Measures how well agents coordinate and share knowledge"
-  },
-  "knowledge_sharing": {
-    "total_discoveries": 150,
-    "unique_agents_contributing": 12,
-    "avg_discoveries_per_agent": 12.5
-  },
-  "cost_savings": {
-    "estimated_usd": 1250.0,
-    "hourly_rate_used": 100,
-    "description": "Estimated cost savings at $100/hour developer rate"
-  },
-  "system_health": {
-    "total_agents": 50,
-    "active_agents": 12,
-    "coordination_active": true
-  }
-}
-
-DEPENDENCIES:
-- Requires: Knowledge graph access
-- Optional: hourly_rate parameter (default: $100/hour)""",
+RETURNS: outcome_id, embedded EISV snapshot at time of outcome""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "hourly_rate": {
+                    "outcome_type": {
+                        "type": "string",
+                        "enum": ["drawing_completed", "drawing_abandoned", "test_passed", "test_failed", "tool_rejected", "task_completed", "task_failed"],
+                        "description": "Type of outcome event"
+                    },
+                    "outcome_score": {
                         "type": "number",
-                        "description": "Optional: Developer hourly rate for cost calculations (default: $100/hour)",
-                        "default": 100
+                        "description": "Quality score 0.0 (worst) to 1.0 (best). Inferred from type if omitted."
+                    },
+                    "is_bad": {
+                        "type": "boolean",
+                        "description": "Whether this is a negative outcome. Inferred from type if omitted."
+                    },
+                    "detail": {
+                        "type": "object",
+                        "description": "Type-specific metadata (e.g., mark_count, test_name, error_message)"
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent ID. Falls back to session-bound agent_id if omitted."
                     }
                 },
-                "required": []
+                "required": ["outcome_type"]
             }
         ),
         Tool(
@@ -3041,7 +2995,7 @@ EXAMPLE REQUEST:
 EXAMPLE RESPONSE:
 {
   "success": true,
-  "server_version": "2.7.0",
+  "server_version": "2.7.3",
   "tools": [...],
   "categories": {...},
   "total_tools": 44,
@@ -3479,14 +3433,16 @@ DEPENDENCIES:
         ),
         Tool(
             name="search_knowledge_graph",
-            description="""Search knowledge graph - returns summaries only (use get_discovery_details for full content).
+            description="""DEPRECATED: Prefer knowledge(action="search", query="...") instead — same backend, simpler interface.
+
+Search knowledge graph - returns summaries only (use get_discovery_details for full content).
 
 USE CASES:
 - Find discoveries by tags
 - Search by agent, type, severity
 - Query system knowledge
 - Learn from past discoveries
-- Full-text search (SQLite FTS) when available
+- Full-text search (PostgreSQL FTS or AGE)
 - Semantic search (vector embeddings) - find similar meaning, not just keywords
 
 SEE ALSO:
@@ -3547,7 +3503,7 @@ EXAMPLE REQUEST:
   "limit": 10
 }
 
-FULL-TEXT EXAMPLE (SQLite backend):
+FULL-TEXT EXAMPLE:
 {
   "query": "coherence",
   "limit": 10
@@ -3580,7 +3536,7 @@ DEPENDENCIES:
 
                     "query": {
                         "type": "string",
-                        "description": "Optional text query. Uses SQLite FTS5 when available; otherwise performs a bounded substring scan. If semantic=true, uses vector embeddings for semantic similarity search. Multi-term queries (e.g., 'coherence basin') use OR operator by default - finds discoveries matching ANY term. If 0 results, automatically retries with individual terms (more permissive)."
+                        "description": "Optional text query. Uses PostgreSQL full-text search or AGE graph search. If semantic=true, uses vector embeddings for semantic similarity search. Multi-term queries (e.g., 'coherence basin') use OR operator by default - finds discoveries matching ANY term. If 0 results, automatically retries with individual terms (more permissive)."
                     },
                     "semantic": {
                         "type": "boolean",
@@ -3589,8 +3545,8 @@ DEPENDENCIES:
                     },
                     "min_similarity": {
                         "type": "number",
-                        "description": "Minimum cosine similarity threshold for semantic search (0.0-1.0). Higher values return more similar results. Default: 0.25 (lowered from 0.3 for better discovery). If 0 results, automatically retries with 0.2 threshold.",
-                        "default": 0.25,
+                        "description": "Minimum cosine similarity threshold for semantic search (0.0-1.0). Higher values return more similar results. Default: 0.3. If 0 results, automatically retries with 0.2 threshold.",
+                        "default": 0.3,
                         "minimum": 0.0,
                         "maximum": 1.0
                     },
@@ -3951,7 +3907,8 @@ DEPENDENCIES:
             description="""Leave a quick note in the knowledge graph - minimal friction contribution.
 
 Just agent_id + summary + optional tags. Auto-sets type='note', severity='low'.
-For when you want to jot something down without the full store_knowledge_graph ceremony.
+Notes are ephemeral by default — auto-archived after 7 days unless lasting=true or tags include a permanent signal (e.g. "architecture", "decision").
+For lasting knowledge, use store_knowledge_graph instead.
 
 USE CASES:
 - Quick observations during exploration
@@ -4050,6 +4007,11 @@ DEPENDENCIES:
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Optional tags for categorization and auto-linking"
+                    },
+                    "lasting": {
+                        "type": "boolean",
+                        "description": "Set true to prevent auto-archival. Notes are ephemeral by default (archived after 7 days). Use for observations worth keeping long-term.",
+                        "default": False
                     },
                     "response_to": {
                         "type": "object",
@@ -4550,7 +4512,8 @@ EXAMPLE: knowledge(action="search", query="authentication bugs")
                         "description": "Operation to perform"
                     },
                     "query": {"type": "string", "description": "Search query (for action=search)"},
-                    "content": {"type": "string", "description": "Note content (for action=note)"},
+                    "content": {"type": "string", "description": "Extended content/details (for action=store or action=note)"},
+                    "details": {"type": "string", "description": "Extended details for discovery (for action=store). Alias: content"},
                     "summary": {"type": "string", "description": "Discovery summary (for action=store)"},
                     "discovery_type": {"type": "string", "description": "Type: bug, insight, pattern, question (for action=store)"},
                     "discovery_id": {"type": "string", "description": "Discovery ID (for action=details, update)"},
@@ -4745,16 +4708,16 @@ RETURNS:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "agent_id": {
+                    "target_agent_id": {
                         "type": "string",
-                        "description": "Agent to resume"
+                        "description": "UUID of the agent to resume (target, not caller)"
                     },
                     "reason": {
                         "type": "string",
                         "description": "Operator's reason for override"
                     }
                 },
-                "required": ["agent_id", "reason"]
+                "required": ["target_agent_id", "reason"]
             }
         ),
 
@@ -4992,7 +4955,12 @@ RETURNS:
                     "screen": {
                         "type": "string",
                         "enum": ["face", "sensors", "identity", "diagnostics", "notepad", "learning", "messages", "qa", "self_graph"],
-                        "description": "Screen to switch to (for display action)"
+                        "description": "Screen to switch to (for display action). If provided, automatically uses 'switch' display sub-action."
+                    },
+                    "display_action": {
+                        "type": "string",
+                        "enum": ["switch", "face", "next", "previous", "list_eras", "get_era", "set_era"],
+                        "description": "Display sub-action (for display action). Default: 'switch' if screen provided, else 'next'."
                     },
                     "text": {
                         "type": "string",

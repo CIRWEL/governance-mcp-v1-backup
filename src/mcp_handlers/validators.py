@@ -278,11 +278,12 @@ def _apply_generic_coercion(arguments: Dict[str, Any]) -> Dict[str, Any]:
 
         try:
             if param_type == "float_01":
-                # Float with 0.0-1.0 range - coerce and clamp
+                # Float with 0.0-1.0 range - coerce type only
+                # Range validation is done by schema (with proper error messages)
                 if isinstance(value, str):
-                    coerced[param] = max(0.0, min(1.0, float(value)))
+                    coerced[param] = float(value)
                 elif isinstance(value, (int, float)):
-                    coerced[param] = max(0.0, min(1.0, float(value)))
+                    coerced[param] = float(value)
 
             elif param_type == "float":
                 # Float without range restriction
@@ -611,6 +612,22 @@ DISCOVERY_TYPES = {"bug_found", "insight", "pattern", "improvement", "question",
 SEVERITY_LEVELS = {"low", "medium", "high", "critical"}
 DISCOVERY_STATUSES = {"open", "resolved", "archived", "disputed"}
 TASK_TYPES = {"convergent", "divergent", "mixed"}
+
+# Semantic aliases for task types (maps natural-language task names to governance types)
+TASK_TYPE_ALIASES = {
+    # convergent: standardization, compliance, reducing entropy
+    "refactoring": "convergent", "formatting": "convergent", "cleanup": "convergent",
+    "linting": "convergent", "bugfix": "convergent", "bug_fix": "convergent",
+    "testing": "convergent", "documentation": "convergent", "migration": "convergent",
+    "fix": "convergent", "lint": "convergent", "test": "convergent",
+    # divergent: creative exploration, increasing possibility space
+    "feature": "divergent", "exploration": "divergent", "research": "divergent",
+    "design": "divergent", "brainstorming": "divergent", "prototyping": "divergent",
+    "experiment": "divergent", "spike": "divergent",
+    # mixed: both convergent and divergent elements
+    "debugging": "mixed", "review": "mixed", "integration": "mixed",
+    "deployment": "mixed", "maintenance": "mixed", "ops": "mixed",
+}
 RESPONSE_TYPES = {"extend", "question", "disagree", "support"}
 LIFECYCLE_STATUSES = {"active", "waiting_input", "paused", "archived", "deleted"}
 HEALTH_STATUSES = {"healthy", "moderate", "critical", "unknown"}
@@ -855,8 +872,24 @@ def validate_discovery_status(value: Any) -> Tuple[Optional[str], Optional[TextC
 
 
 def validate_task_type(value: Any) -> Tuple[Optional[str], Optional[TextContent]]:
-    """Validate task_type parameter."""
-    return validate_enum(value, TASK_TYPES, "task_type", list(TASK_TYPES))
+    """Validate task_type parameter. Accepts governance types or natural-language aliases."""
+    if value is None:
+        return "mixed", None
+    value_str = str(value).strip().lower()
+    if not value_str:
+        return "mixed", None
+    # Exact match
+    if value_str in TASK_TYPES:
+        return value_str, None
+    # Alias match
+    if value_str in TASK_TYPE_ALIASES:
+        return TASK_TYPE_ALIASES[value_str], None
+    # Unknown — return error with valid options
+    return None, error_response(
+        f"Invalid task_type: '{value}'. Must be one of: {', '.join(sorted(TASK_TYPES))} "
+        f"(or aliases like refactoring, feature, debugging, etc.)",
+        details={"valid_types": sorted(TASK_TYPES), "aliases": dict(TASK_TYPE_ALIASES)},
+    )
 
 
 def validate_response_type(value: Any) -> Tuple[Optional[str], Optional[TextContent]]:
@@ -1017,6 +1050,16 @@ def validate_response_text(value: Any, max_length: int = 50000) -> Tuple[Optiona
     """
     if value is None:
         return "", None  # Empty string if None
+
+    if isinstance(value, str) and not value.strip():
+        return None, error_response(
+            "response_text cannot be empty. Provide a brief summary of what you did.",
+            details={"error_type": "empty_value", "param_name": "response_text"},
+            recovery={
+                "action": "Provide a non-empty response_text describing your work",
+                "example": 'process_agent_update(response_text="Completed code review", complexity=0.5)',
+            }
+        )
 
     if not isinstance(value, str):
         return None, error_response(

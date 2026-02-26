@@ -1,8 +1,7 @@
 """
 PostgreSQL-Only Agent Storage
 
-Single source of truth for agent data. Replaces the old dual-write pattern
-where data was written to both SQLite/JSON and PostgreSQL.
+Single source of truth for agent data. PostgreSQL-only.
 
 Usage:
     from src.agent_storage import (
@@ -83,6 +82,7 @@ class AgentRecord:
     status: str = "active"  # active, paused, archived, deleted, waiting_input
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    last_activity_at: Optional[datetime] = None
 
     # Metadata
     tags: List[str] = field(default_factory=list)
@@ -134,6 +134,7 @@ async def get_agent(agent_id: str) -> Optional[AgentRecord]:
         status=identity.status,
         created_at=identity.created_at,
         updated_at=identity.updated_at,
+        last_activity_at=identity.last_activity_at,
         tags=identity.metadata.get("tags", []),
         notes=identity.metadata.get("notes"),
         purpose=identity.metadata.get("purpose"),
@@ -370,10 +371,9 @@ async def list_agents(
     # Fetch labels from core.agents in one batch query
     agent_labels = {}
     try:
-        if hasattr(db, '_pool') and db._pool:
-            async with db._pool.acquire() as conn:
-                rows = await conn.fetch("SELECT id, label FROM core.agents WHERE label IS NOT NULL AND label != ''")
-                agent_labels = {row['id']: row['label'] for row in rows}
+        async with db.acquire() as conn:
+            rows = await conn.fetch("SELECT id, label FROM core.agents WHERE label IS NOT NULL AND label != ''")
+            agent_labels = {row['id']: row['label'] for row in rows}
     except Exception as e:
         import logging
         logging.getLogger(__name__).debug(f"Could not fetch labels from core.agents: {e}")
@@ -409,6 +409,7 @@ async def list_agents(
             status=identity.status,
             created_at=identity.created_at,
             updated_at=identity.updated_at,
+            last_activity_at=identity.last_activity_at,
             tags=identity.metadata.get("tags", []),
             notes=identity.metadata.get("notes"),
             purpose=identity.metadata.get("purpose"),

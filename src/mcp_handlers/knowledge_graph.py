@@ -28,6 +28,41 @@ from .llm_delegation import synthesize_results
 
 logger = get_logger(__name__)
 
+import re
+
+def normalize_tag(tag: str) -> str:
+    """Normalize a tag to canonical form: lowercase, strip, collapse separators to hyphens.
+
+    Examples:
+        "EISV" → "eisv"
+        "bug_fix" → "bug-fix"
+        "  Bug Fix  " → "bug-fix"
+        "eisv-dynamics" → "eisv-dynamics" (unchanged)
+        "eisv_dynamics" → "eisv-dynamics"
+    """
+    t = tag.strip().lower()
+    # Replace underscores and spaces with hyphens
+    t = re.sub(r'[\s_]+', '-', t)
+    # Collapse multiple hyphens
+    t = re.sub(r'-{2,}', '-', t)
+    # Strip leading/trailing hyphens
+    t = t.strip('-')
+    return t
+
+
+def normalize_tags(tags: list) -> list:
+    """Normalize and deduplicate a list of tags."""
+    seen = set()
+    result = []
+    for tag in tags:
+        if not isinstance(tag, str) or not tag.strip():
+            continue
+        normalized = normalize_tag(tag)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return result
+
 
 async def _discovery_not_found(discovery_id: str, graph) -> TextContent:
     """Build a 'not found' error with prefix-match suggestions.
@@ -126,7 +161,6 @@ def _check_display_name_required(agent_id: str, arguments: Dict[str, Any]) -> tu
             try:
                 meta.label = auto_name
                 meta.display_name = auto_name
-                mcp_server.save_metadata()  # Persist for future use
             except Exception as e:
                 logger.debug(f"Could not save auto-generated display_name: {e}")
 
@@ -239,26 +273,39 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
     
     try:
         # SECURITY: Rate limiting is handled by the knowledge graph backend
-        # JSON backend uses efficient timestamp tracking (O(1) per store)
-        # SQLite backend uses dedicated rate_limits table (O(1) per store)
+        # Backend handles rate limiting internally (O(1) per store)
         # No need for inefficient O(n) query here - let graph handle it
         graph = await get_knowledge_graph()
         
         # Truncate fields to prevent context overflow
-        # Summary: brief identifier, keep short
-        # Details: substantive content, allow more space (2000 chars ≈ 400 words)
-        MAX_SUMMARY_LEN = 300
-        MAX_DETAILS_LEN = 2000
-        
+        # Summary: concise but complete thoughts (1000 chars ≈ 160 words)
+        # Details: substantive content, allow more space (5000 chars ≈ 800 words)
+        MAX_SUMMARY_LEN = 1000
+        MAX_DETAILS_LEN = 5000
+
         raw_summary = summary
-        raw_details = arguments.get("details", "")
+        # Accept both 'details' and 'content' as parameter names
+        raw_details = arguments.get("details") or arguments.get("content") or ""
 
         # Track truncation for visibility (v2.5.0+)
         truncation_info = {}
 
         if len(raw_summary) > MAX_SUMMARY_LEN:
             truncation_info["summary"] = f"Truncated from {len(raw_summary)} to {MAX_SUMMARY_LEN} chars"
-            summary = raw_summary[:MAX_SUMMARY_LEN] + "..."
+            # Try to cut at sentence boundary, else word boundary
+            truncated = raw_summary[:MAX_SUMMARY_LEN]
+            # Look for last sentence end in final 100 chars
+            for end_char in ['. ', '! ', '? ']:
+                last_end = truncated.rfind(end_char, MAX_SUMMARY_LEN - 100)
+                if last_end > 0:
+                    truncated = truncated[:last_end + 1]
+                    break
+            else:
+                # No sentence boundary, cut at word
+                last_space = truncated.rfind(' ')
+                if last_space > MAX_SUMMARY_LEN - 50:
+                    truncated = truncated[:last_space]
+            summary = truncated.rstrip() + "..."
 
         if len(raw_details) > MAX_DETAILS_LEN:
             truncation_info["details"] = f"Truncated from {len(raw_details)} to {MAX_DETAILS_LEN} chars"
@@ -372,14 +419,14 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
             type=discovery_type,
             summary=summary,
             details=raw_details,
-            tags=arguments.get("tags", []),
+            tags=normalize_tags(arguments.get("tags", [])),
             severity=severity,
             status=arguments.get("status", "open"),
             response_to=response_to,
             references_files=arguments.get("related_files", []),
             provenance=provenance
         )
-        
+
         # Find similar discoveries (fast with tag index) - DEFAULT: true for better linking
         similar_discoveries = []
         if arguments.get("auto_link_related", True):  # Default to true - new graph uses indexes (fast)
@@ -430,7 +477,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
         # Add truncation warning if content was truncated (v2.5.0+)
         if truncation_info:
             response["_truncated"] = truncation_info
-            response["_tip"] = "Content was truncated. For longer content, split into multiple discoveries or use details field (2000 char limit)."
+            response["_tip"] = "Content was truncated. For longer content, split into multiple discoveries or use details field (5000 char limit)."
 
         # Add human review flag if needed
         if requires_review:
@@ -461,7 +508,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
 
 @mcp_tool("search_knowledge_graph", timeout=15.0, rate_limit_exempt=True)
 async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Search knowledge graph (indexed filters; optional FTS query when SQLite backend is active).
+    """Search knowledge graph (indexed filters; optional FTS query).
 
     Use include_provenance=True to get provenance and lineage chain for each discovery.
     """
@@ -479,11 +526,11 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
         # When enabled, uses Ollama to summarize key patterns from multiple discoveries
         synthesize = arguments.get("synthesize", False)
 
-        # Optional full-text query (SQLite FTS5 if available; bounded substring scan fallback for JSON backend)
+        # Optional full-text query (PostgreSQL FTS or AGE)
         # Accept both "query" and "text" as parameter names for better UX
         query_text = arguments.get("query") or arguments.get("text")
         agent_id = arguments.get("agent_id")
-        tags = arguments.get("tags")
+        tags = normalize_tags(arguments.get("tags", [])) or None
         dtype = arguments.get("discovery_type")
         severity = arguments.get("severity")
         status = arguments.get("status")
@@ -507,15 +554,15 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
                 # User explicitly chose - respect their choice
                 use_semantic = explicit_semantic and has_semantic
             else:
-                # Auto-detect: use semantic for multi-word queries when available
-                query_words = len(str(query_text).split())
-                use_semantic = has_semantic and query_words >= 2
+                # Auto-detect: use semantic search when available for any text query
+                # Single-word queries benefit from semantic search too (substring_scan
+                # is limited to 50 recent entries and misses most results)
+                use_semantic = has_semantic
             
             if use_semantic:
                 # Semantic search using vector embeddings
-                # UX FIX: Lower default threshold for better discovery (0.25 instead of 0.3)
-                # 0.3 was too strict, causing many queries to return 0 results
-                min_similarity = arguments.get("min_similarity", 0.25)
+                # Default 0.3 for precision; auto-fallback to 0.2 catches edge cases
+                min_similarity = arguments.get("min_similarity", 0.3)
                 semantic_results = await graph.semantic_search(
                     str(query_text),
                     limit=limit * 2,  # Get extra for filtering
@@ -578,17 +625,19 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
             fields_searched = ["summary", "details", "tags"]
         else:
             # Indexed filter query (fast)
+            # Push exclude_archived into the query so LIMIT applies after filtering.
+            # Without this, LIMIT grabs N most recent (mostly archived junk), then
+            # post-hoc filtering removes them, returning far fewer than N results.
+            should_exclude_archived = not status and not include_archived
             results = await graph.query(
                 agent_id=agent_id,
                 tags=tags,
                 type=dtype,
                 severity=severity,
                 status=status,
-                limit=limit
+                limit=limit,
+                exclude_archived=should_exclude_archived,
             )
-            # Exclude archived entries by default (unless status filter or include_archived)
-            if not status and not include_archived:
-                results = [d for d in results if d.status != "archived"]
             search_mode = "indexed_filters"
             operator_used = "N/A"  # No text search, just filters
             fields_searched = []
@@ -731,6 +780,11 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
         dt_ms = (time.perf_counter() - t0) * 1000.0
         record_ms(f"knowledge.search.{search_mode}", dt_ms)
         
+        # Auto-include details when result set is small (saves a round-trip)
+        auto_details = not include_details and 0 < len(results) <= 3
+        if auto_details:
+            include_details = True
+
         # Build discovery list with optional provenance
         # UX FIX (Dec 2025): Display name FIRST for human readability
         # Format: {"by": "DisplayName", "summary": "...", ...}
@@ -774,9 +828,9 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
             "query": query_text,
             "discoveries": discovery_list,
             "count": len(results),
-            "message": f"Found {len(results)} discovery(ies)" + ("" if include_details else " (summaries only)")
+            "message": f"Found {len(results)} discovery(ies)" + (" (details auto-included for small result set)" if auto_details else "" if include_details else " (summaries only)")
         }
-        
+
         # UX FIX: Make fallback behavior explicit and transparent
         if fallback_used:
             response_data["fallback_used"] = True
@@ -843,29 +897,6 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
         if len(results) == limit:
             response_data["_more_available"] = f"Results may be limited to {limit}. Use limit=N (max 100) to get more."
         
-        # UX ENHANCEMENT: Add threshold explanations for semantic search
-        if search_mode in ["semantic", "semantic_fallback_lower_threshold"] and query_text:
-            threshold_used = arguments.get("min_similarity", 0.25)
-            if search_mode == "semantic_fallback_lower_threshold":
-                threshold_used = 0.2  # Fallback threshold
-            
-            response_data["similarity_threshold_explanation"] = {
-                "threshold_used": threshold_used,
-                "meaning": f"Threshold {threshold_used} means discoveries need ~{int(threshold_used * 100)}% semantic similarity to your query",
-                "interpretation": {
-                    "0.0-0.2": "Very permissive - finds loosely related concepts",
-                    "0.2-0.3": "Moderate - finds conceptually similar content",
-                    "0.3-0.5": "Strict - finds closely related concepts",
-                    "0.5+": "Very strict - finds highly similar content only"
-                },
-                "adjustment": {
-                    "method": "MCP parameter",
-                    "how": "Pass min_similarity parameter in search_knowledge_graph() call",
-                    "example": f'search_knowledge_graph(query="...", semantic=true, min_similarity=0.3)',
-                    "note": "This is a per-query parameter - adjust it for each search call, no code changes needed"
-                }
-            }
-        
         # Add similarity scores if semantic search was used
         if search_mode in ["semantic", "semantic_fallback_lower_threshold"] and query_text and use_semantic:
             similarity_scores = {
@@ -906,8 +937,23 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
         elif synthesize and len(discovery_list) < SYNTHESIS_THRESHOLD:
             response_data["_synthesis_note"] = f"Synthesis skipped: fewer than {SYNTHESIS_THRESHOLD} results"
 
+        # Touch last_referenced on results that had details included (fire-and-forget)
+        if include_details and results:
+            import asyncio
+
+            async def _touch_referenced(ids):
+                try:
+                    g = await get_knowledge_graph()
+                    now_iso = datetime.now().isoformat()
+                    for did in ids:
+                        await g.update_discovery(did, {"last_referenced": now_iso})
+                except Exception:
+                    pass  # Best-effort, don't fail the search
+
+            asyncio.create_task(_touch_referenced([d.id for d in results]))
+
         return success_response(response_data, arguments=arguments)
-        
+
     except Exception as e:
         return [error_response(f"Failed to search knowledge: {str(e)}")]
 
@@ -1164,6 +1210,17 @@ async def handle_get_discovery_details(arguments: Dict[str, Any]) -> Sequence[Te
                     "note": "Use AGE backend (UNITARES_KNOWLEDGE_BACKEND=age) for full graph features"
                 }
 
+        # Touch last_referenced (fire-and-forget keep-alive signal)
+        import asyncio
+
+        async def _touch(did):
+            try:
+                await graph.update_discovery(did, {"last_referenced": datetime.now().isoformat()})
+            except Exception:
+                pass
+
+        asyncio.create_task(_touch(discovery_id))
+
         return success_response(response, arguments=arguments)
 
     except Exception as e:
@@ -1189,8 +1246,7 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
         graph = await get_knowledge_graph()
         
         # SECURITY: Rate limiting is handled by the knowledge graph backend per-discovery
-        # JSON backend uses efficient timestamp tracking (O(1) per store)
-        # SQLite backend uses dedicated rate_limits table (O(1) per store)
+        # Backend handles rate limiting internally (O(1) per store)
         # No need for inefficient O(n) query here - let graph handle it per-discovery
         
         # Process each discovery with graceful error handling
@@ -1220,15 +1276,27 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
                     continue
                 
                 # Truncate fields (match single-discovery limits)
-                MAX_SUMMARY_LEN = 300
-                MAX_DETAILS_LEN = 2000
+                MAX_SUMMARY_LEN = 1000
+                MAX_DETAILS_LEN = 5000
 
                 truncated_fields = []
                 if len(summary) > MAX_SUMMARY_LEN:
                     truncated_fields.append(f"summary ({len(summary)} → {MAX_SUMMARY_LEN})")
-                    summary = summary[:MAX_SUMMARY_LEN] + "..."
+                    # Try to cut at sentence boundary, else word boundary
+                    truncated = summary[:MAX_SUMMARY_LEN]
+                    for end_char in ['. ', '! ', '? ']:
+                        last_end = truncated.rfind(end_char, MAX_SUMMARY_LEN - 100)
+                        if last_end > 0:
+                            truncated = truncated[:last_end + 1]
+                            break
+                    else:
+                        last_space = truncated.rfind(' ')
+                        if last_space > MAX_SUMMARY_LEN - 50:
+                            truncated = truncated[:last_space]
+                    summary = truncated.rstrip() + "..."
 
-                details = disc_data.get("details", "")
+                # Accept both 'details' and 'content' as parameter names
+                details = disc_data.get("details") or disc_data.get("content") or ""
                 if len(details) > MAX_DETAILS_LEN:
                     truncated_fields.append(f"details ({len(details)} → {MAX_DETAILS_LEN})")
                     details = details[:MAX_DETAILS_LEN] + "... [truncated]"
@@ -1321,7 +1389,7 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
         # Check if any items were truncated (v2.5.0+)
         truncated_count = sum(1 for s in stored if "_truncated" in s)
         if truncated_count > 0:
-            response["_tip"] = f"{truncated_count} discovery(ies) had content truncated. Limits: summary=300, details=2000 chars."
+            response["_tip"] = f"{truncated_count} discovery(ies) had content truncated. Limits: summary=1000, details=5000 chars."
 
         return success_response(response, arguments=arguments)
         
@@ -1405,7 +1473,7 @@ async def handle_answer_question(arguments: Dict[str, Any]) -> Sequence[TextCont
             type="answer",
             summary=f"Answer: {answer_text[:200]}..." if len(answer_text) > 200 else f"Answer: {answer_text}",
             details=answer_text,
-            tags=arguments.get("tags", []),
+            tags=normalize_tags(arguments.get("tags", [])),
             severity="low",
             status="open",
             response_to=ResponseTo(
@@ -1473,10 +1541,12 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     try:
         graph = await get_knowledge_graph()
         
-        # Truncate if too long
-        MAX_NOTE_LEN = 500
-        if len(text) > MAX_NOTE_LEN:
-            text = text[:MAX_NOTE_LEN] + "..."
+        # Notes use the same limits as store_knowledge_graph
+        MAX_SUMMARY_LEN = 1000
+        MAX_DETAILS_LEN = 5000
+        MAX_NOTE_TOTAL = MAX_SUMMARY_LEN + MAX_DETAILS_LEN
+        if len(text) > MAX_NOTE_TOTAL:
+            text = text[:MAX_NOTE_TOTAL] + "... [truncated]"
         
         # Parse response_to if provided (for threading)
         response_to = None
@@ -1498,14 +1568,45 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
                     response_type=response_type
                 )
         
+        # Build tags — notes are ephemeral by default (auto-archived after 7 days)
+        # unless the caller signals permanence via tags or lasting=True
+        tags = normalize_tags(arguments.get("tags", []))
+        lasting = arguments.get("lasting", False)
+        if isinstance(lasting, str):
+            lasting = lasting.lower() in ("true", "1", "yes")
+        PERMANENT_SIGNALS = {"permanent", "foundational", "architecture", "decision"}
+        if not lasting and not (set(tags) & PERMANENT_SIGNALS):
+            if "ephemeral" not in tags:
+                tags.append("ephemeral")
+
+        # Split long notes into summary + details
+        if len(text) <= MAX_SUMMARY_LEN:
+            note_summary = text
+            note_details = ""
+        else:
+            # Try to split at a sentence boundary within summary limit
+            truncated = text[:MAX_SUMMARY_LEN]
+            split_pos = MAX_SUMMARY_LEN
+            for end_char in ['. ', '! ', '? ', '\n']:
+                last_end = truncated.rfind(end_char, MAX_SUMMARY_LEN - 200)
+                if last_end > 0:
+                    split_pos = last_end + len(end_char)
+                    break
+            else:
+                last_space = truncated.rfind(' ')
+                if last_space > MAX_SUMMARY_LEN - 100:
+                    split_pos = last_space
+            note_summary = text[:split_pos].rstrip()
+            note_details = text[split_pos:].strip()
+
         # Create note with minimal ceremony
         note = DiscoveryNode(
             id=datetime.now().isoformat(),
             agent_id=agent_id,
             type="note",
-            summary=text,
-            details="",  # Notes are summary-only
-            tags=arguments.get("tags", []),
+            summary=note_summary,
+            details=note_details,
+            tags=tags,
             severity="low",
             status="open",
             response_to=response_to

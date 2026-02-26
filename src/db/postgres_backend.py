@@ -298,7 +298,9 @@ class PostgresBackend(DatabaseBackend):
                 "backend": "postgres",
                 "db_url": self._db_url.split("@")[-1] if "@" in self._db_url else "***",  # Hide credentials
                 "pool_size": self._pool.get_size(),
-                "pool_free": self._pool.get_idle_size(),
+                "pool_idle": self._pool.get_idle_size(),
+                "pool_free": self._pool.get_idle_size(),  # Alias for compatibility
+                "pool_max": self._pool.get_max_size(),
                 "schema_version": version,
                 "identity_count": identity_count,
                 "active_session_count": session_count,
@@ -347,10 +349,11 @@ class PostgresBackend(DatabaseBackend):
         parent_agent_id: Optional[str] = None,
         spawn_reason: Optional[str] = None,
         created_at: Optional[datetime] = None,
+        label: Optional[str] = None,
     ) -> bool:
         """
         Create or update an agent in core.agents table.
-        
+
         This is required for foreign key references in dialectic_sessions.
         Returns True if successful.
         """
@@ -360,8 +363,8 @@ class PostgresBackend(DatabaseBackend):
                     """
                     INSERT INTO core.agents (
                         id, api_key, status, purpose, notes, tags,
-                        created_at, parent_agent_id, spawn_reason
-                    ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9)
+                        created_at, parent_agent_id, spawn_reason, label
+                    ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10)
                     ON CONFLICT (id) DO UPDATE SET
                         -- Only overwrite api_key if the existing value is empty and we have a non-empty one.
                         api_key = CASE
@@ -372,6 +375,7 @@ class PostgresBackend(DatabaseBackend):
                         purpose = COALESCE(EXCLUDED.purpose, core.agents.purpose),
                         notes = COALESCE(EXCLUDED.notes, core.agents.notes),
                         tags = EXCLUDED.tags,
+                        label = COALESCE(EXCLUDED.label, core.agents.label),
                         updated_at = now()
                     """,
                     agent_id,
@@ -383,6 +387,7 @@ class PostgresBackend(DatabaseBackend):
                     created_at,
                     parent_agent_id,
                     spawn_reason,
+                    label,
                 )
                 return True
             except Exception as e:
@@ -495,7 +500,7 @@ class PostgresBackend(DatabaseBackend):
             row = await conn.fetchrow(
                 """
                 SELECT identity_id, agent_id, api_key_hash, created_at, updated_at,
-                       status, parent_agent_id, spawn_reason, disabled_at, metadata
+                       status, parent_agent_id, spawn_reason, disabled_at, last_activity_at, metadata
                 FROM core.identities
                 WHERE agent_id = $1
                 """,
@@ -505,12 +510,32 @@ class PostgresBackend(DatabaseBackend):
                 return None
             return self._row_to_identity(row)
 
+    async def get_identities_batch(self, agent_ids: list[str]) -> dict[str, Optional["IdentityRecord"]]:
+        """Load identities for multiple agent IDs in a single query."""
+        if not agent_ids:
+            return {}
+        async with self.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT identity_id, agent_id, api_key_hash, created_at, updated_at,
+                       status, parent_agent_id, spawn_reason, disabled_at, last_activity_at, metadata
+                FROM core.identities
+                WHERE agent_id = ANY($1::text[])
+                """,
+                agent_ids,
+            )
+            result = {}
+            for row in rows:
+                identity = self._row_to_identity(row)
+                result[identity.agent_id] = identity
+            return result
+
     async def get_identity_by_id(self, identity_id: int) -> Optional[IdentityRecord]:
         async with self.acquire() as conn:
             row = await conn.fetchrow(
                 """
                 SELECT identity_id, agent_id, api_key_hash, created_at, updated_at,
-                       status, parent_agent_id, spawn_reason, disabled_at, metadata
+                       status, parent_agent_id, spawn_reason, disabled_at, last_activity_at, metadata
                 FROM core.identities
                 WHERE identity_id = $1
                 """,
@@ -531,7 +556,7 @@ class PostgresBackend(DatabaseBackend):
                 rows = await conn.fetch(
                     """
                     SELECT identity_id, agent_id, api_key_hash, created_at, updated_at,
-                           status, parent_agent_id, spawn_reason, disabled_at, metadata
+                           status, parent_agent_id, spawn_reason, disabled_at, last_activity_at, metadata
                     FROM core.identities
                     WHERE status = $1
                     ORDER BY created_at DESC
@@ -543,7 +568,7 @@ class PostgresBackend(DatabaseBackend):
                 rows = await conn.fetch(
                     """
                     SELECT identity_id, agent_id, api_key_hash, created_at, updated_at,
-                           status, parent_agent_id, spawn_reason, disabled_at, metadata
+                           status, parent_agent_id, spawn_reason, disabled_at, last_activity_at, metadata
                     FROM core.identities
                     ORDER BY created_at DESC
                     LIMIT $1 OFFSET $2
@@ -596,6 +621,59 @@ class PostgresBackend(DatabaseBackend):
                 )
             return "UPDATE 1" in result
 
+    async def increment_update_count(
+        self,
+        agent_id: str,
+        extra_metadata: Dict[str, Any] | None = None,
+    ) -> int:
+        """Atomically increment total_updates in PostgreSQL and return the new value.
+
+        This is the ONLY way total_updates should be modified. No in-memory
+        counter, no batch sync, no merge logic. One atomic SQL operation.
+
+        Args:
+            agent_id: Agent identifier
+            extra_metadata: Optional additional metadata to merge (e.g., recent_decisions)
+
+        Returns:
+            The new total_updates value after increment
+        """
+        async with self.acquire() as conn:
+            # Atomic increment + merge extra metadata in a single statement
+            if extra_metadata:
+                new_count = await conn.fetchval(
+                    """
+                    UPDATE core.identities
+                    SET metadata = jsonb_set(
+                            metadata || $2::jsonb,
+                            '{total_updates}',
+                            (COALESCE((metadata->>'total_updates')::int, 0) + 1)::text::jsonb
+                        ),
+                        updated_at = now(),
+                        last_activity_at = now()
+                    WHERE agent_id = $1
+                    RETURNING (metadata->>'total_updates')::int
+                    """,
+                    agent_id, json.dumps(extra_metadata),
+                )
+            else:
+                new_count = await conn.fetchval(
+                    """
+                    UPDATE core.identities
+                    SET metadata = jsonb_set(
+                            metadata,
+                            '{total_updates}',
+                            (COALESCE((metadata->>'total_updates')::int, 0) + 1)::text::jsonb
+                        ),
+                        updated_at = now(),
+                        last_activity_at = now()
+                    WHERE agent_id = $1
+                    RETURNING (metadata->>'total_updates')::int
+                    """,
+                    agent_id,
+                )
+            return new_count or 0
+
     async def verify_api_key(self, agent_id: str, api_key: str) -> bool:
         async with self.acquire() as conn:
             result = await conn.fetchval(
@@ -619,6 +697,7 @@ class PostgresBackend(DatabaseBackend):
             parent_agent_id=row["parent_agent_id"],
             spawn_reason=row["spawn_reason"],
             disabled_at=row["disabled_at"],
+            last_activity_at=row.get("last_activity_at"),
             metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"],
         )
 
@@ -634,17 +713,25 @@ class PostgresBackend(DatabaseBackend):
         client_type: Optional[str] = None,
         client_info: Optional[Dict[str, Any]] = None,
     ) -> bool:
+        """
+        Create a new session row.
+
+        Returns True only when a new session is inserted. If the session_id
+        already exists, this method returns False and does not mutate existing
+        session state.
+        """
         async with self.acquire() as conn:
             try:
-                await conn.execute(
+                result = await conn.execute(
                     """
                     INSERT INTO core.sessions (session_id, identity_id, expires_at, client_type, client_info)
                     VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (session_id) DO NOTHING
                     """,
                     session_id, identity_id, expires_at, client_type, json.dumps(client_info or {}),
                 )
-                return True
-            except asyncpg.UniqueViolationError:
+                return "INSERT 0 1" in result
+            except Exception:
                 return False
 
     async def get_session(self, session_id: str) -> Optional[SessionRecord]:
@@ -1101,6 +1188,79 @@ class PostgresBackend(DatabaseBackend):
             except Exception:
                 return False
 
+    # =========================================================================
+    # OUTCOME EVENT OPERATIONS
+    # =========================================================================
+
+    async def record_outcome_event(
+        self,
+        agent_id: str,
+        outcome_type: str,
+        is_bad: bool,
+        outcome_score: Optional[float] = None,
+        session_id: Optional[str] = None,
+        eisv_e: Optional[float] = None,
+        eisv_i: Optional[float] = None,
+        eisv_s: Optional[float] = None,
+        eisv_v: Optional[float] = None,
+        eisv_phi: Optional[float] = None,
+        eisv_verdict: Optional[str] = None,
+        eisv_coherence: Optional[float] = None,
+        eisv_regime: Optional[str] = None,
+        detail: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """Insert one outcome event. Returns outcome_id UUID string or None on failure."""
+        async with self.acquire() as conn:
+            try:
+                outcome_id = await conn.fetchval(
+                    """
+                    INSERT INTO audit.outcome_events
+                        (ts, agent_id, session_id, outcome_type, outcome_score, is_bad,
+                         eisv_e, eisv_i, eisv_s, eisv_v, eisv_phi, eisv_verdict, eisv_coherence, eisv_regime,
+                         detail)
+                    VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    RETURNING outcome_id
+                    """,
+                    agent_id, session_id, outcome_type, outcome_score, is_bad,
+                    eisv_e, eisv_i, eisv_s, eisv_v, eisv_phi, eisv_verdict, eisv_coherence, eisv_regime,
+                    json.dumps(detail or {}),
+                )
+                return str(outcome_id)
+            except Exception:
+                return None
+
+    async def get_latest_eisv_by_agent_id(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch latest EISV snapshot for an agent. Returns dict with E, I, S, V, phi, verdict, coherence, regime."""
+        async with self.acquire() as conn:
+            try:
+                row = await conn.fetchrow(
+                    """
+                    SELECT s.state_json, s.entropy, s.integrity, s.volatility,
+                           s.coherence, s.regime
+                    FROM core.agent_state s
+                    JOIN core.identities i ON i.identity_id = s.identity_id
+                    WHERE i.agent_id = $1
+                    ORDER BY s.recorded_at DESC
+                    LIMIT 1
+                    """,
+                    agent_id,
+                )
+                if not row:
+                    return None
+                state_json = json.loads(row["state_json"]) if isinstance(row["state_json"], str) else row["state_json"]
+                return {
+                    "E": state_json.get("E"),
+                    "I": row["integrity"],
+                    "S": row["entropy"],
+                    "V": row["volatility"],
+                    "phi": state_json.get("phi"),
+                    "verdict": state_json.get("verdict"),
+                    "coherence": row["coherence"],
+                    "regime": row["regime"],
+                }
+            except Exception:
+                return None
+
     async def query_tool_usage(
         self,
         agent_id: Optional[str] = None,
@@ -1369,7 +1529,7 @@ class PostgresBackend(DatabaseBackend):
             result = await conn.execute("""
                 UPDATE core.dialectic_sessions
                 SET status = $1, updated_at = now()
-                WHERE id = $2
+                WHERE session_id = $2
             """, phase, session_id)
             return "UPDATE 1" in result
 
@@ -1382,7 +1542,7 @@ class PostgresBackend(DatabaseBackend):
             result = await conn.execute("""
                 UPDATE core.dialectic_sessions
                 SET reviewer_agent_id = $1, updated_at = now()
-                WHERE id = $2
+                WHERE session_id = $2
             """, reviewer_agent_id, session_id)
             return "UPDATE 1" in result
 

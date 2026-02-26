@@ -6,7 +6,7 @@ Handles agent creation, metadata, archiving, deletion, and API key management.
 
 from typing import Dict, Any, Sequence
 from mcp.types import TextContent
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sys
 import hashlib
 # PostgreSQL-only agent storage (single source of truth)
@@ -87,8 +87,6 @@ async def handle_list_agents(arguments: ToolArgumentsDict) -> Sequence[TextConte
             elif arguments.get("summary_only") is True or arguments.get("grouped") is False:
                 lite_mode = False
         if lite_mode:
-            from datetime import datetime, timedelta, timezone
-
             # Ultra-compact response - only real agents
             limit = arguments.get("limit", 20)
             status_filter = arguments.get("status_filter", "active")
@@ -147,7 +145,33 @@ async def handle_list_agents(arguments: ToolArgumentsDict) -> Sequence[TextConte
                 })
             # Sort: labeled first, then by most recent activity
             agents.sort(key=lambda x: (0 if x.get("label") else 1, -(x.get("updates") or 0), x.get("last_update", "") or ""), reverse=False)
+
+            # Always include the requesting agent even if filtered out
+            caller_uuid = None
+            try:
+                from .context import get_context_agent_id
+                caller_uuid = get_context_agent_id()
+            except Exception:
+                pass
+            caller_in_list = caller_uuid and any(a["id"] == caller_uuid for a in agents)
+            if caller_uuid and not caller_in_list:
+                caller_meta = mcp_server.agent_metadata.get(caller_uuid)
+                if caller_meta:
+                    agents.append({
+                        "id": caller_uuid,
+                        "label": getattr(caller_meta, 'label', None),
+                        "purpose": getattr(caller_meta, 'purpose', None),
+                        "updates": caller_meta.total_updates,
+                        "last": caller_meta.last_update[:10] if caller_meta.last_update else None,
+                        "last_update": caller_meta.last_update,
+                        "trust_tier": getattr(caller_meta, 'trust_tier', None),
+                        "you": True,
+                    })
+
             for a in agents:
+                # Mark the requesting agent
+                if caller_uuid and a["id"] == caller_uuid and "you" not in a:
+                    a["you"] = True
                 a.pop("last_update", None)
 
             result = {
@@ -175,26 +199,43 @@ async def handle_list_agents(arguments: ToolArgumentsDict) -> Sequence[TextConte
         # Default: include zero-update agents so newly created agents are discoverable.
         # Callers can still pass min_updates=2 to hide one-shot / placeholder agents.
         min_updates = arguments.get("min_updates", 0)
-        
+        recent_days = arguments.get("recent_days")  # Optional recency filter
+
         # Pagination support (optimization)
         offset = arguments.get("offset", 0)
         limit = arguments.get("limit")  # None = no limit (backward compatible)
 
+        # Calculate cutoff time for recency filter
+        cutoff_time = None
+        if recent_days and recent_days > 0:
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=recent_days)
+
         agents_list = []
-        
+
         # First pass: collect all matching agents (without loading monitors)
         for agent_id, meta in mcp_server.agent_metadata.items():
             # Filter by status if requested
             if status_filter != "all" and meta.status != status_filter:
                 continue
-            
+
             # Filter out test agents by default (unless explicitly requested)
             if not include_test_agents and _is_test_agent(agent_id):
                 continue
-            
+
             # Filter out low-activity agents (one-shot fragmentation cleanup)
             if min_updates and meta.total_updates < min_updates:
                 continue
+
+            # Apply recency filter
+            if cutoff_time and meta.last_update:
+                try:
+                    last_dt = datetime.fromisoformat(meta.last_update.replace('Z', '+00:00'))
+                    if last_dt.tzinfo is None:
+                        last_dt = last_dt.replace(tzinfo=timezone.utc)
+                    if last_dt < cutoff_time:
+                        continue
+                except Exception:
+                    pass
             
             # Filter by loaded status if requested
             if loaded_only:
@@ -384,8 +425,22 @@ async def handle_list_agents(arguments: ToolArgumentsDict) -> Sequence[TextConte
                 agent_info.setdefault("health_status", "unknown")
                 agent_info.setdefault("metrics", None)
 
-            # Trust tier from cached trajectory data
-            agent_info["trust_tier"] = getattr(meta, 'trust_tier', None)
+            # Trust tier from cached trajectory data, with DB fallback
+            cached_tier = getattr(meta, 'trust_tier', None)
+            if cached_tier is None:
+                try:
+                    from src.trajectory_identity import compute_trust_tier
+                    from src.db import get_db as _get_db
+                    identity = await _get_db().get_identity(agent_id)
+                    if identity and identity.metadata:
+                        tier_info = compute_trust_tier(identity.metadata)
+                        cached_tier = tier_info.get("name", "unknown")
+                        # Cache for next time
+                        meta.trust_tier = cached_tier
+                        meta.trust_tier_num = tier_info.get("tier", 0)
+                except Exception as e:
+                    logger.debug(f"Trust tier DB fallback failed for {agent_id[:8]}: {e}")
+            agent_info["trust_tier"] = cached_tier
 
             agents_list.append(agent_info)
         
@@ -499,7 +554,7 @@ async def handle_get_agent_metadata(arguments: Sequence[TextContent]) -> list:
                 logger.debug(f"Metadata cache hit: {target_agent[:8]}...")
                 agent_id = target_agent
                 # Convert cached dict back to AgentMetadata for consistency
-                from src.metadata_db import AgentMetadata
+                from src.mcp_server_std import AgentMetadata
                 meta = AgentMetadata(**cached_meta)
                 # Update in-memory cache for consistency
                 mcp_server.agent_metadata[agent_id] = meta
@@ -651,11 +706,9 @@ async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[Te
     if error:
         return [error]
     
-    # Reload metadata to ensure we have latest state (non-blocking)
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
-    
+    # Reload metadata from PostgreSQL (async)
+    await mcp_server.load_metadata_async(force=True)
+
     if agent_id not in mcp_server.agent_metadata:
         return agent_not_found_error(agent_id)
     
@@ -674,6 +727,22 @@ async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[Te
                 "workflow": "Identity auto-binds on first tool call. Use identity() to check binding."
             }
         )]
+
+    # Update status if provided (reactivation from archived)
+    if "status" in arguments:
+        new_status = arguments["status"]
+        if new_status != "active":
+            return [error_response(
+                f"Only status='active' is supported (to reactivate archived agents). Got '{new_status}'.",
+                error_code="INVALID_STATUS_TRANSITION",
+            )]
+        if getattr(meta, "status", None) != "archived":
+            return [error_response(
+                f"Agent is already '{getattr(meta, 'status', 'unknown')}', no status change needed.",
+                error_code="INVALID_STATUS_TRANSITION",
+            )]
+        meta.status = "active"
+        meta.archived_at = None
 
     # Update tags if provided
     if "tags" in arguments:
@@ -750,30 +819,29 @@ async def handle_update_agent_metadata(arguments: Dict[str, Any]) -> Sequence[Te
 
 @mcp_tool("archive_agent", timeout=15.0, register=False)
 async def handle_archive_agent(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Archive an agent for long-term storage
-    
-    SECURITY: Requires API key authentication and ownership verification.
-    Agents can only archive themselves.
+    """Archive an agent for long-term storage.
+
+    No ownership check — dashboard and operator agents need to archive
+    other agents. HTTP Bearer token auth is sufficient for admin actions.
+    Mirrors handle_resume_agent pattern.
     """
     # SECURITY FIX: Require registered agent_id (prevents phantom agent_ids)
     agent_id, error = require_registered_agent(arguments)
     if error:
         return [error]
-    
+
     # Use authoritative UUID for internal lookups (agent_id might be a label)
     # require_registered_agent sets this after validating registration
     agent_uuid = arguments.get("_agent_uuid") or agent_id
 
-    # Reload metadata to ensure we have latest state (non-blocking)
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
-    
+    # Reload metadata from PostgreSQL (async)
+    await mcp_server.load_metadata_async(force=True)
+
     if agent_uuid not in mcp_server.agent_metadata:
         return agent_not_found_error(agent_id)
-    
+
     meta = mcp_server.agent_metadata[agent_uuid]
-    
+
     if meta.status == "archived":
         return [error_response(
             f"Agent '{agent_id}' is already archived",
@@ -784,20 +852,6 @@ async def handle_archive_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
                 "action": "Agent is already archived",
                 "related_tools": ["get_agent_metadata", "list_agents"],
                 "workflow": ["1. Check agent status with get_agent_metadata", "2. Archived agents cannot be archived again"]
-            }
-        )]
-    
-    # SECURITY: Verify ownership via session binding (UUID-based auth, Dec 2025)
-    from .utils import verify_agent_ownership
-    if not verify_agent_ownership(agent_uuid, arguments):
-        return [error_response(
-            "Authentication required. You can only archive your own agent.",
-            error_code="AUTH_REQUIRED",
-            error_category="auth_error",
-            recovery={
-                "action": "Ensure your session is bound to this agent",
-                "related_tools": ["identity"],
-                "workflow": "Identity auto-binds on first tool call. Use identity() to check binding."
             }
         )]
 
@@ -837,35 +891,107 @@ async def handle_archive_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
     })
 
 
+@mcp_tool("resume_agent", timeout=15.0, register=False)
+async def handle_resume_agent(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """Resume a paused/stuck agent from the dashboard.
+
+    Lightweight resume handler for human operators (dashboard).
+    No ownership check — mirrors archive_agent pattern.
+    Only resumes agents in paused or waiting_input status.
+    """
+    agent_id, error = require_registered_agent(arguments)
+    if error:
+        return [error]
+
+    agent_uuid = arguments.get("_agent_uuid") or agent_id
+
+    # Reload metadata from PostgreSQL (async)
+    await mcp_server.load_metadata_async(force=True)
+
+    if agent_uuid not in mcp_server.agent_metadata:
+        return agent_not_found_error(agent_id)
+
+    meta = mcp_server.agent_metadata[agent_uuid]
+
+    # Allow resuming paused/waiting_input agents AND "unsticking" active agents
+    # Stuck agents are typically still "active" but caught in a timeout/loop
+    is_stuck_unstick = meta.status == "active" and arguments.get("unstick", False)
+    if meta.status not in ("paused", "waiting_input") and not is_stuck_unstick:
+        return [error_response(
+            f"Agent '{agent_id}' is '{meta.status}', not resumable (must be paused or waiting_input)",
+            error_code="AGENT_NOT_RESUMABLE",
+            error_category="validation_error",
+            details={"error_type": "agent_not_resumable", "agent_id": agent_id, "status": meta.status},
+            recovery={
+                "action": "Agent must be in paused or waiting_input status to resume",
+                "related_tools": ["get_agent_metadata", "list_agents"],
+                "workflow": ["1. Check agent status with get_agent_metadata", "2. Only paused/waiting_input agents can be resumed"]
+            }
+        )]
+
+    reason = arguments.get("reason", "Resumed from dashboard")
+    previous_status = meta.status
+
+    meta.status = "active"
+    meta.paused_at = None
+    meta.add_lifecycle_event("resumed" if not is_stuck_unstick else "unstuck", reason)
+
+    # PostgreSQL: Update status and refresh last_update to clear stuck detection
+    try:
+        await agent_storage.update_agent(agent_uuid, status="active")
+        # Refresh last_update so detect_stuck_agents no longer flags this agent
+        if is_stuck_unstick:
+            await agent_storage.update_agent(agent_uuid, last_update=datetime.now().isoformat())
+        logger.debug(f"PostgreSQL: {'Unstuck' if is_stuck_unstick else 'Resumed'} agent {agent_id}")
+
+        # Invalidate Redis cache
+        try:
+            from src.cache import get_metadata_cache
+            await get_metadata_cache().invalidate(agent_id)
+        except Exception as e:
+            logger.debug(f"Cache invalidation failed: {e}")
+    except Exception as e:
+        logger.warning(f"PostgreSQL update_agent failed: {e}", exc_info=True)
+
+    return success_response({
+        "success": True,
+        "message": f"Agent '{agent_id}' resumed successfully",
+        "agent_id": agent_id,
+        "lifecycle_status": "active",
+        "previous_status": previous_status,
+        "reason": reason,
+        "resumed_at": datetime.now().isoformat()
+    })
+
+
 @mcp_tool("delete_agent", timeout=15.0, register=False)
 async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Handle delete_agent tool - delete agent and archive data (protected: cannot delete pioneer agents)
-    
-    SECURITY: Requires API key authentication and ownership verification.
-    Agents can only delete themselves.
+    """Delete agent and archive data (protected: cannot delete pioneer agents).
+
+    No ownership check — dashboard and operator agents need to manage
+    other agents. HTTP Bearer token auth is sufficient for admin actions.
+    Still requires confirm=true and pioneer protection.
     """
     # SECURITY FIX: Require registered agent_id (prevents phantom agent_ids)
     agent_id, error = require_registered_agent(arguments)
     if error:
         return [error]
-    
+
     confirm = arguments.get("confirm", False)
     if not confirm:
         return [error_response("Deletion requires explicit confirmation (confirm=true)")]
-    
+
     # Use authoritative UUID for internal lookups
     agent_uuid = arguments.get("_agent_uuid") or agent_id
 
-    # Reload metadata to ensure we have latest state (non-blocking)
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
-    
+    # Reload metadata from PostgreSQL (async)
+    await mcp_server.load_metadata_async(force=True)
+
     if agent_uuid not in mcp_server.agent_metadata:
         return agent_not_found_error(agent_id)
-    
+
     meta = mcp_server.agent_metadata[agent_uuid]
-    
+
     # Check if agent is a pioneer (protected)
     if "pioneer" in meta.tags:
         return [error_response(
@@ -874,20 +1000,6 @@ async def handle_delete_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
                 "action": "Pioneer agents are protected from deletion. Use archive_agent instead.",
                 "related_tools": ["archive_agent"],
                 "workflow": ["1. Call archive_agent to archive instead of delete", "2. Pioneer agents preserve system history"]
-            }
-        )]
-    
-    # SECURITY: Verify ownership via session binding (UUID-based auth, Dec 2025)
-    from .utils import verify_agent_ownership
-    if not verify_agent_ownership(agent_uuid, arguments):
-        return [error_response(
-            "Authentication required. You can only delete your own agent.",
-            error_code="AUTH_REQUIRED",
-            error_category="auth_error",
-            recovery={
-                "action": "Ensure your session is bound to this agent",
-                "related_tools": ["identity"],
-                "workflow": "Identity auto-binds on first tool call. Use identity() to check binding."
             }
         )]
 
@@ -977,13 +1089,11 @@ async def handle_archive_old_test_agents(arguments: Dict[str, Any]) -> Sequence[
     if max_age_hours < 0.1:
         return [error_response("max_age_hours must be at least 0.1 (6 minutes)")]
     
-    # Reload metadata to ensure we have latest state (non-blocking)
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
+    # Reload metadata from PostgreSQL (async)
+    await mcp_server.load_metadata_async(force=True)
     
     archived_agents = []
-    cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
     
     for agent_id, meta in list(mcp_server.agent_metadata.items()):
         # Filter: only test/demo agents unless include_all
@@ -1014,12 +1124,14 @@ async def handle_archive_old_test_agents(arguments: Dict[str, Any]) -> Sequence[
 
         # Check age for agents with more updates
         try:
-            last_update_dt = datetime.fromisoformat(meta.last_update.replace('Z', '+00:00').replace('+00:00', ''))
-        except:
+            last_update_dt = datetime.fromisoformat(meta.last_update.replace('Z', '+00:00'))
+            if last_update_dt.tzinfo is None:
+                last_update_dt = last_update_dt.replace(tzinfo=timezone.utc)
+        except Exception:
             continue
 
         if last_update_dt < cutoff_time:
-            age_hours = (datetime.now() - last_update_dt).total_seconds() / 3600
+            age_hours = (datetime.now(timezone.utc) - last_update_dt).total_seconds() / 3600
             age_days = age_hours / 24
             if not dry_run:
                 meta.status = "archived"
@@ -1072,10 +1184,8 @@ async def handle_archive_orphan_agents(arguments: Dict[str, Any]) -> Sequence[Te
     unlabeled_hours = float(arguments.get("unlabeled_hours", 6.0))
     dry_run = arguments.get("dry_run", False)
 
-    # Reload metadata to ensure we have latest state
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
+    # Reload metadata from PostgreSQL (async)
+    await mcp_server.load_metadata_async(force=True)
 
     archived_agents = []
     current_time = datetime.now()
@@ -1312,10 +1422,8 @@ async def handle_direct_resume_if_safe(arguments: Dict[str, Any]) -> Sequence[Te
     # Use authoritative UUID for internal lookups
     agent_uuid = arguments.get("_agent_uuid") or agent_id
 
-    # Reload metadata to ensure we have latest state (non-blocking)
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, mcp_server.load_metadata)
+    # Reload metadata from PostgreSQL (async)
+    await mcp_server.load_metadata_async(force=True)
     
     meta = mcp_server.agent_metadata.get(agent_uuid)
     if not meta:
@@ -1341,7 +1449,7 @@ async def handle_direct_resume_if_safe(arguments: Dict[str, Any]) -> Sequence[Te
         metrics = monitor.get_metrics()
         
         coherence = float(monitor.state.coherence)
-        risk_score = float(metrics.get("mean_risk", 0.5))
+        risk_score = float(metrics.get("mean_risk") or 0.5)
         void_active = bool(monitor.state.void_active)
         status = meta.status
         
@@ -1460,7 +1568,7 @@ async def handle_self_recovery_review(arguments: Dict[str, Any]) -> Sequence[Tex
             error_code="REFLECTION_REQUIRED",
             recovery={
                 "action": "Provide a meaningful reflection on what went wrong",
-                "example": "self_recovery_review(reflection='I got stuck in a loop trying to optimize the same function repeatedly. I should have stepped back and considered alternative approaches.')"
+                "example": "self_recovery(action='review', reflection='I got stuck in a loop trying to optimize the same function repeatedly. I should have stepped back and considered alternative approaches.')"
             }
         )]
     
@@ -1473,7 +1581,7 @@ async def handle_self_recovery_review(arguments: Dict[str, Any]) -> Sequence[Tex
     metrics = monitor.get_metrics()
     
     coherence = float(monitor.state.coherence)
-    risk_score = float(metrics.get("mean_risk", 0.5))
+    risk_score = float(metrics.get("mean_risk") or 0.5)
     void_active = bool(monitor.state.void_active)
     void_value = float(monitor.state.V)
     status = meta.status
@@ -1483,7 +1591,8 @@ async def handle_self_recovery_review(arguments: Dict[str, Any]) -> Sequence[Tex
         risk_score=risk_score,
         coherence=coherence,
         void_active=void_active,
-        void_value=void_value
+        void_value=void_value,
+        coherence_history=monitor.state.coherence_history,
     )
     
     # 6. Safety validation
@@ -1531,8 +1640,10 @@ async def handle_self_recovery_review(arguments: Dict[str, Any]) -> Sequence[Tex
     # 9. Resume if safe, or provide guidance
     if all_safe:
         # Resume agent
+        from .self_recovery import clear_loop_detector_state
         meta.status = "active"
         meta.paused_at = None
+        clear_loop_detector_state(meta)
         meta.add_lifecycle_event(
             "resumed",
             f"Self-recovery: {reflection[:50]}... Conditions: {proposed_conditions}"
@@ -1592,25 +1703,76 @@ async def handle_self_recovery_review(arguments: Dict[str, Any]) -> Sequence[Tex
         })
 
 
+async def _trigger_dialectic_for_stuck_agent(
+    agent_id: str,
+    paused_agent_state: dict,
+    note: str,
+) -> dict | None:
+    """
+    Create a dialectic session for a stuck agent.
+
+    Returns recovery info dict on success, None on failure or if agent
+    already has an active session.
+    """
+    from src.dialectic_protocol import DialecticSession
+    from src.mcp_handlers.dialectic_reviewer import select_reviewer
+    from .dialectic_session import save_session
+    from src.dialectic_db import is_agent_in_active_session_async
+
+    has_session = await is_agent_in_active_session_async(agent_id)
+    if has_session:
+        logger.debug(f"[STUCK_AGENT_RECOVERY] Agent {agent_id[:8]}... already has active dialectic session")
+        return None
+
+    reviewer_id = await select_reviewer(paused_agent_id=agent_id)
+    if reviewer_id is None:
+        reviewer_id = agent_id  # Self-review fallback
+
+    session = DialecticSession(
+        paused_agent_id=agent_id,
+        reviewer_agent_id=reviewer_id,
+        paused_agent_state=paused_agent_state,
+    )
+    await save_session(session)
+
+    logger.info(
+        f"[STUCK_AGENT_RECOVERY] Triggered dialectic for {agent_id[:8]}... "
+        f"(reviewer: {reviewer_id[:8]}..., session: {session.session_id[:8]}...)"
+    )
+    return {
+        "agent_id": agent_id,
+        "action": "dialectic_triggered",
+        "reason": paused_agent_state.get("stuck_reason", "unknown"),
+        "reviewer_id": reviewer_id,
+        "session_id": session.session_id,
+        "note": note,
+    }
+
+
 def _detect_stuck_agents(
-    max_age_minutes: float = 30.0,
+    max_age_minutes: float = 30.0,  # Unused, kept for API compatibility
     critical_margin_timeout_minutes: float = 5.0,
     tight_margin_timeout_minutes: float = 15.0,
     include_pattern_detection: bool = True,
     min_updates: int = 3,
 ) -> list:
     """
-    Detect stuck agents using proprioceptive margin + timeout.
+    Detect stuck agents using proprioceptive margin + patterns.
 
-    Uses the margin system we built - proprioception becomes stuck detection!
+    IMPORTANT: Inactivity alone does NOT mean stuck!
+    An agent is stuck when it's in a problematic state AND not recovering.
 
     Detection rules:
-    1. Critical margin + no updates > 5 min → stuck
-    2. Tight margin + no updates > 15 min → potentially stuck
-    3. No updates > 30 min → stuck
+    1. Critical margin + no updates > 5 min → stuck (can't proceed safely)
+    2. Tight margin + no updates > 15 min → potentially stuck (struggling)
+    3. Cognitive loop pattern → stuck (repeating unproductive behavior)
+    4. Time box exceeded → stuck (taking too long on a task)
+
+    NOT stuck:
+    - Simply being idle/inactive (that's normal, not stuck)
+    - Low update count (that's orphan/test agent, not stuck)
 
     Args:
-        max_age_minutes: Maximum age in minutes before agent is considered stuck
         critical_margin_timeout_minutes: Timeout for critical margin state
         tight_margin_timeout_minutes: Timeout for tight margin state
         min_updates: Minimum updates before an agent can be considered stuck.
@@ -1632,10 +1794,10 @@ def _detect_stuck_agents(
         if meta.status != "active":
             continue
 
-        # Skip autonomous/embodied agents - they operate on different timescales
-        # (e.g., Lumen, creatures) and shouldn't be flagged as "stuck" by timeout
+        # Skip autonomous/embodied agents (they manage their own lifecycle)
         agent_tags = getattr(meta, "tags", []) or []
-        if any(tag in agent_tags for tag in ["autonomous", "embodied", "creature", "anima"]):
+        skip_tags = {"autonomous", "embodied", "anima"}
+        if skip_tags & set(t.lower() for t in agent_tags):
             continue
 
         # Skip agents with too few updates (likely orphan/test agents)
@@ -1671,14 +1833,8 @@ def _detect_stuck_agents(
                     monitor = UNITARESMonitor(agent_id, load_state=False)
                     monitor.state = persisted_state
                 else:
-                    # No state - can't compute margin, use timeout only
-                    if age_minutes > max_age_minutes:
-                        stuck_agents.append({
-                            "agent_id": agent_id,
-                            "reason": "activity_timeout",
-                            "age_minutes": round(age_minutes, 1),
-                            "details": "No updates in {:.1f} minutes".format(age_minutes)
-                        })
+                    # No state - can't compute margin, can't determine if stuck
+                    # Inactivity alone does NOT mean stuck
                     continue
             
             # Pattern detection: check for cognitive loops and unproductive behavior
@@ -1715,7 +1871,7 @@ def _detect_stuck_agents(
             
             if monitor:
                 metrics = monitor.get_metrics()
-                risk_score = float(metrics.get("mean_risk", 0.5))
+                risk_score = float(metrics.get("mean_risk") or 0.5)
                 coherence = float(monitor.state.coherence)
                 void_active = bool(monitor.state.void_active)
                 void_value = float(monitor.state.V)
@@ -1725,7 +1881,8 @@ def _detect_stuck_agents(
                     risk_score=risk_score,
                     coherence=coherence,
                     void_active=void_active,
-                    void_value=void_value
+                    void_value=void_value,
+                    coherence_history=monitor.state.coherence_history,
                 )
                 margin = margin_info['margin']
                 
@@ -1743,8 +1900,17 @@ def _detect_stuck_agents(
                     })
                     continue
                 
-                # Detection rule 2: Tight margin + timeout
-                if margin == "tight" and age_minutes > tight_margin_timeout_minutes:
+                # Detection rule 2: Tight margin + inactivity + unhealthy state
+                # Tight margin alone is NOT stuck — coherence ~0.49 is the steady state
+                # for ALL agents. Only flag if the agent also has genuinely degraded
+                # metrics (high risk, low coherence, or high entropy).
+                # Skip low-update agents (<50) - their EISV dynamics are noise, not signal
+                _is_actually_degraded = (
+                    risk_score > 0.45  # Approaching pause threshold
+                    or coherence < 0.42  # Near critical coherence
+                    or float(monitor.state.S) > 0.5  # High entropy
+                )
+                if margin == "tight" and age_minutes > max(tight_margin_timeout_minutes, 60.0) and total_updates >= 50 and _is_actually_degraded:
                     stuck_agents.append({
                         "agent_id": agent_id,
                         "reason": "tight_margin_timeout",
@@ -1759,37 +1925,30 @@ def _detect_stuck_agents(
                 
         except Exception as e:
             logger.debug(f"Error computing margin for {agent_id}: {e}")
-            # Fall back to timeout-only detection
-        
-        # Detection rule 3: Activity timeout (no updates)
-        if age_minutes > max_age_minutes:
-            stuck_agents.append({
-                "agent_id": agent_id,
-                "reason": "activity_timeout",
-                "age_minutes": round(age_minutes, 1),
-                "details": "No updates in {:.1f} minutes".format(age_minutes)
-            })
-    
+            # Don't fall back to timeout-only detection - inactivity ≠ stuck
+            # An agent can be legitimately idle without being stuck
+
     return stuck_agents
 
 
 @mcp_tool("detect_stuck_agents", timeout=15.0, rate_limit_exempt=True)
 async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]:
-    """Detect stuck agents using proprioceptive margin + timeout.
-    
-    Uses the margin system we built - proprioception becomes stuck detection!
-    
+    """Detect stuck agents using proprioceptive margin + patterns.
+
+    IMPORTANT: Inactivity alone does NOT mean stuck!
+
     Detection rules:
     1. Critical margin + no updates > 5 min → stuck
     2. Tight margin + no updates > 15 min → potentially stuck
-    3. No updates > 30 min → stuck
-    
+    3. Cognitive loop / time box exceeded → stuck
+
+    NOT stuck: Simply being idle (that's normal behavior).
+
     Args:
-        max_age_minutes: Maximum age before agent is considered stuck (default: 30)
         critical_margin_timeout_minutes: Timeout for critical margin (default: 5)
         tight_margin_timeout_minutes: Timeout for tight margin (default: 15)
         auto_recover: If True, automatically recover safe stuck agents (default: False)
-    
+
     Returns:
         List of stuck agents with detection reasons and recovery status
     """
@@ -1831,7 +1990,7 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                         monitor = mcp_server.get_or_create_monitor(agent_id)
                         metrics = monitor.get_metrics()
                         coherence = float(monitor.state.coherence)
-                        risk_score = float(metrics.get("mean_risk", 0.5))
+                        risk_score = float(metrics.get("mean_risk") or 0.5)
                         void_active = bool(monitor.state.void_active)
                     except Exception as e:
                         # Agent is unresponsive - can't get metrics
@@ -1845,65 +2004,17 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                     # If unresponsive AND stuck, trigger dialectic immediately (can't self-rescue)
                     if not responsive:
                         try:
-                            from src.dialectic_protocol import DialecticSession, DialecticPhase
-                            from src.mcp_handlers.dialectic_reviewer import select_reviewer
-                            from .dialectic_session import save_session
-
-                            # Check if agent already has active dialectic session
-                            from src.dialectic_db import is_agent_in_active_session_async
-                            has_session = await is_agent_in_active_session_async(agent_id)
-
-                            if not has_session:
-                                # Random reviewer selection, self-fallback if none available
-                                reviewer_id = await select_reviewer(paused_agent_id=agent_id)
-                                if reviewer_id is None:
-                                    reviewer_id = agent_id  # Self-review fallback
-
-                                if reviewer_id:
-                                    # Create dialectic session
-                                    session = DialecticSession(
-                                        paused_agent_id=agent_id,
-                                        reviewer_agent_id=reviewer_id,
-                                        paused_agent_state={
-                                            "risk_score": risk_score,
-                                            "coherence": coherence,
-                                            "void_active": void_active,
-                                            "stuck_reason": stuck["reason"],
-                                            "unresponsive": True,
-                                            "age_minutes": stuck.get("age_minutes", 0)
-                                        }
-                                    )
-                                    
-                                    # Save session
-                                    await save_session(session)
-                                    
-                                    # Log dialectic trigger
-                                    try:
-                                        from .knowledge_graph import handle_leave_note
-                                        await handle_leave_note({
-                                            "summary": f"Triggered dialectic for unresponsive stuck agent {agent_id[:8]}... (stuck {stuck.get('age_minutes', 0):.1f} min, reviewer: {reviewer_id[:8]}...)",
-                                            "tags": ["dialectic-trigger", "stuck-agent", "unresponsive"]
-                                        })
-                                    except Exception as e:
-                                        logger.debug(f"Could not log dialectic trigger: {e}")
-                                    
-                                    recovered.append({
-                                        "agent_id": agent_id,
-                                        "action": "dialectic_triggered",
-                                        "reason": stuck["reason"],
-                                        "reviewer_id": reviewer_id,
-                                        "session_id": session.session_id,
-                                        "note": "Unresponsive - triggered dialectic immediately"
-                                    })
-                                    logger.info(
-                                        f"[STUCK_AGENT_RECOVERY] Triggered dialectic for unresponsive stuck agent {agent_id[:8]}... "
-                                        f"(reviewer: {reviewer_id[:8]}..., session: {session.session_id[:8]}...)"
-                                    )
-                                    continue  # Skip to next stuck agent
-                                else:
-                                    logger.warning(f"[STUCK_AGENT_RECOVERY] Could not find reviewer for unresponsive stuck agent {agent_id[:8]}...")
-                            else:
-                                logger.debug(f"[STUCK_AGENT_RECOVERY] Agent {agent_id[:8]}... already has active dialectic session")
+                            result = await _trigger_dialectic_for_stuck_agent(
+                                agent_id,
+                                paused_agent_state={
+                                    "risk_score": risk_score, "coherence": coherence,
+                                    "void_active": void_active, "stuck_reason": stuck["reason"],
+                                    "unresponsive": True, "age_minutes": stuck.get("age_minutes", 0),
+                                },
+                                note="Unresponsive - triggered dialectic immediately",
+                            )
+                            if result:
+                                recovered.append(result)
                         except Exception as e:
                             logger.warning(f"[STUCK_AGENT_RECOVERY] Could not trigger dialectic for unresponsive {agent_id[:8]}...: {e}", exc_info=True)
                         continue  # Skip to next stuck agent
@@ -1942,66 +2053,18 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                     
                                     # Trigger dialectic for safe stuck agents if stuck > 1 hour
                                     if age_minutes > 60.0:
-                                        # Safe but stuck long enough - trigger dialectic
                                         try:
-                                            from src.dialectic_protocol import DialecticSession, DialecticPhase
-                                            from src.mcp_handlers.dialectic_reviewer import select_reviewer
-                                            from .dialectic_session import save_session
-
-                                            # Check if agent already has active dialectic session
-                                            from src.dialectic_db import is_agent_in_active_session_async
-                                            has_session = await is_agent_in_active_session_async(agent_id)
-
-                                            if not has_session:
-                                                # Random reviewer selection, self-fallback if none available
-                                                reviewer_id = await select_reviewer(paused_agent_id=agent_id)
-                                                if reviewer_id is None:
-                                                    reviewer_id = agent_id  # Self-review fallback
-
-                                                if reviewer_id:
-                                                    # Create dialectic session
-                                                    session = DialecticSession(
-                                                        paused_agent_id=agent_id,
-                                                        reviewer_agent_id=reviewer_id,
-                                                        paused_agent_state={
-                                                            "risk_score": risk_score,
-                                                            "coherence": coherence,
-                                                            "void_active": void_active,
-                                                            "stuck_reason": stuck["reason"],
-                                                            "safe_but_stuck": True,
-                                                            "age_minutes": age_minutes
-                                                        }
-                                                    )
-                                                    
-                                                    # Save session
-                                                    await save_session(session)
-                                                    
-                                                    # Log dialectic trigger
-                                                    try:
-                                                        from .knowledge_graph import handle_leave_note
-                                                        await handle_leave_note({
-                                                            "summary": f"Triggered dialectic for safe stuck agent {agent_id[:8]}... (stuck {age_minutes:.1f} min, reviewer: {reviewer_id[:8]}...)",
-                                                            "tags": ["dialectic-trigger", "stuck-agent", "safe-stuck"]
-                                                        })
-                                                    except Exception as e:
-                                                        logger.debug(f"Could not log dialectic trigger: {e}")
-                                                    
-                                                    recovered.append({
-                                                        "agent_id": agent_id,
-                                                        "action": "dialectic_triggered",
-                                                        "reason": stuck["reason"],
-                                                        "reviewer_id": reviewer_id,
-                                                        "session_id": session.session_id,
-                                                        "note": f"Safe but stuck {age_minutes:.1f} min - triggered dialectic"
-                                                    })
-                                                    logger.info(
-                                                        f"[STUCK_AGENT_RECOVERY] Triggered dialectic for safe stuck agent {agent_id[:8]}... "
-                                                        f"(stuck {age_minutes:.1f} min, reviewer: {reviewer_id[:8]}..., session: {session.session_id[:8]}...)"
-                                                    )
-                                                else:
-                                                    logger.warning(f"[STUCK_AGENT_RECOVERY] Could not find reviewer for safe stuck agent {agent_id[:8]}...")
-                                            else:
-                                                logger.debug(f"[STUCK_AGENT_RECOVERY] Agent {agent_id[:8]}... already has active dialectic session")
+                                            result = await _trigger_dialectic_for_stuck_agent(
+                                                agent_id,
+                                                paused_agent_state={
+                                                    "risk_score": risk_score, "coherence": coherence,
+                                                    "void_active": void_active, "stuck_reason": stuck["reason"],
+                                                    "safe_but_stuck": True, "age_minutes": age_minutes,
+                                                },
+                                                note=f"Safe but stuck {age_minutes:.1f} min - triggered dialectic",
+                                            )
+                                            if result:
+                                                recovered.append(result)
                                         except Exception as e:
                                             logger.warning(f"[STUCK_AGENT_RECOVERY] Could not trigger dialectic for safe stuck {agent_id[:8]}...: {e}", exc_info=True)
                                     else:
@@ -2050,23 +2113,17 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                                 pass
 
                                         if should_note:
-                                            try:
-                                                from .knowledge_graph import handle_leave_note
-                                                await handle_leave_note({
-                                                    "summary": f"Agent detected as stuck ({stuck['reason']}, {age_minutes:.1f} min). Please check in with process_agent_update() to unstick.",
-                                                    "tags": ["stuck-agent", "recovery-needed"],
-                                                    "agent_id": agent_id
-                                                })
-                                                if meta:
-                                                    meta.add_lifecycle_event("stuck_note", f"{stuck['reason']} ({age_minutes:.1f} min)")
-                                            except Exception as e:
-                                                logger.debug(f"Could not leave note for stuck agent: {e}")
-                                            
+                                            # NOTE: Disabled KG writes for stuck agents (Feb 2026)
+                                            # Stuck agents are shown in dashboard via detect_stuck_agents API.
+                                            # Writing to KG just creates noise without adding value.
+                                            if meta:
+                                                meta.add_lifecycle_event("stuck_detected", f"{stuck['reason']} ({age_minutes:.1f} min)")
+
                                             recovered.append({
                                                 "agent_id": agent_id,
-                                                "action": "note_left",
+                                                "action": "stuck_tracked",
                                                 "reason": stuck["reason"],
-                                                "note": f"Left note - stuck {age_minutes:.1f} min (will trigger dialectic if stuck > 60 min)"
+                                                "note": f"Stuck {age_minutes:.1f} min - tracked via detect_stuck_agents (no KG write)"
                                             })
                                         else:
                                             recovered.append({
@@ -2121,23 +2178,16 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                             pass
 
                                     if should_note:
-                                        try:
-                                            from .knowledge_graph import handle_leave_note
-                                            await handle_leave_note({
-                                                "summary": f"Agent detected as stuck ({stuck['reason']}). Please check in with process_agent_update() to unstick.",
-                                                "tags": ["stuck-agent", "recovery-needed"],
-                                                "agent_id": agent_id
-                                            })
-                                            if meta:
-                                                meta.add_lifecycle_event("stuck_note", stuck["reason"])
-                                        except Exception as e2:
-                                            logger.debug(f"Could not leave note: {e2}")
-                                        
+                                        # NOTE: Disabled KG writes for stuck agents (Feb 2026)
+                                        # Stuck agents tracked via detect_stuck_agents API instead
+                                        if meta:
+                                            meta.add_lifecycle_event("stuck_detected", stuck["reason"])
+
                                         recovered.append({
                                             "agent_id": agent_id,
-                                            "action": "note_left",
+                                            "action": "stuck_tracked",
                                             "reason": stuck["reason"],
-                                            "note": "Left note prompting check-in"
+                                            "note": "Tracked via detect_stuck_agents (no KG write)"
                                         })
                                     else:
                                         recovered.append({
@@ -2146,14 +2196,21 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                             "reason": stuck["reason"],
                                             "note": f"Skipped note - recent note within {note_cooldown_minutes:.0f} min"
                                         })
-                            # Log intervention (optional - don't fail if it doesn't work)
+                            # Log intervention (optional - deduped, don't fail)
                             try:
-                                from .knowledge_graph import handle_leave_note
-                                # Call handler with proper arguments format (summary is required)
-                                note_result = await handle_leave_note({
-                                    "summary": f"Auto-recovered stuck agent {agent_id[:8]}... (Reason: {stuck['reason']}, Action: auto-resume)",
-                                    "tags": ["auto-recovery", "stuck-agent"]
-                                })
+                                # Dedup: skip if open stuck-agent note already exists for this agent
+                                from src.knowledge_graph import get_knowledge_graph
+                                kg = await get_knowledge_graph()
+                                existing = await kg.query(status="open", agent_id=agent_id, limit=50)
+                                has_open_stuck = any(
+                                    "stuck-agent" in (d.tags or []) for d in existing
+                                )
+                                if not has_open_stuck:
+                                    from .knowledge_graph import handle_leave_note
+                                    await handle_leave_note({
+                                        "summary": f"Auto-recovered stuck agent {agent_id[:8]}... (Reason: {stuck['reason']}, Action: auto-resume)",
+                                        "tags": ["auto-recovery", "stuck-agent"]
+                                    })
                             except Exception as e:
                                 logger.debug(f"Could not log auto-recovery: {e}")
                     else:
@@ -2190,15 +2247,8 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                                     # Save session
                                     await save_session(session)
                                     
-                                    # Log dialectic trigger
-                                    try:
-                                        from .knowledge_graph import handle_leave_note
-                                        await handle_leave_note({
-                                            "summary": f"Triggered dialectic for stuck agent {agent_id[:8]}... (Reason: {stuck['reason']}, Reviewer: {reviewer_id[:8]}...)",
-                                            "tags": ["dialectic-trigger", "stuck-agent", "unsafe-recovery"]
-                                        })
-                                    except Exception as e:
-                                        logger.debug(f"Could not log dialectic trigger: {e}")
+                                    # NOTE: Disabled KG writes for dialectic triggers (Feb 2026)
+                                    # Dialectic sessions are tracked separately; no need to duplicate in KG
                                     
                                     recovered.append({
                                         "agent_id": agent_id,
@@ -2230,7 +2280,7 @@ async def handle_detect_stuck_agents(arguments: Dict[str, Any]) -> Sequence[Text
                 "total_recovered": len(recovered) if auto_recover else 0,
                 "by_reason": {
                     reason: sum(1 for s in stuck_agents if s["reason"] == reason)
-                    for reason in ["critical_margin_timeout", "tight_margin_timeout", "activity_timeout"]
+                    for reason in ["critical_margin_timeout", "tight_margin_timeout", "cognitive_loop", "time_box_exceeded"]
                 }
             }
         })

@@ -27,6 +27,7 @@ Storage tiers:
 - cold: Cold (long-term memory, queryable with include_cold=true)
 """
 
+import asyncio
 from datetime import datetime, timedelta
 import logging
 from typing import List, Dict, Any, Optional, Set
@@ -156,6 +157,36 @@ class KnowledgeGraphLifecycle:
 
         return summary
 
+    async def _batch_update_status(
+        self, graph, discovery_ids: List[str], new_status: str, now: datetime
+    ):
+        """Update status in both AGE graph and PG knowledge.discoveries table."""
+        updated_at = now.isoformat()
+
+        # Update AGE graph (primary)
+        for discovery_id in discovery_ids:
+            await graph.update_discovery(discovery_id, {
+                "status": new_status,
+                "updated_at": updated_at,
+            })
+
+        # Sync to PG knowledge.discoveries (best-effort)
+        try:
+            from src.db.postgres_backend import get_postgres_backend
+            db = await get_postgres_backend()
+            async with db.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE knowledge.discoveries
+                    SET status = $1, updated_at = now()
+                    WHERE id = ANY($2::text[])
+                    """,
+                    new_status,
+                    discovery_ids,
+                )
+        except Exception as e:
+            logger.debug(f"PG sync skipped for lifecycle update: {e}")
+
     async def _archive_ephemeral(self, now: datetime, dry_run: bool) -> List[str]:
         """Archive ephemeral discoveries older than threshold."""
         graph = await self._get_graph()
@@ -176,12 +207,8 @@ class KnowledgeGraphLifecycle:
             if discovery.timestamp and discovery.timestamp < cutoff_iso:
                 to_archive.append(discovery.id)
 
-        if not dry_run:
-            for discovery_id in to_archive:
-                await graph.update_discovery(discovery_id, {
-                    "status": "archived",
-                    "updated_at": now.isoformat()
-                })
+        if not dry_run and to_archive:
+            await self._batch_update_status(graph, to_archive, "archived", now)
 
         logger.info(f"{'[DRY RUN] Would archive' if dry_run else 'Archived'} {len(to_archive)} ephemeral discoveries")
         return to_archive
@@ -209,12 +236,8 @@ class KnowledgeGraphLifecycle:
             if discovery.resolved_at and discovery.resolved_at < cutoff_iso:
                 to_archive.append(discovery.id)
 
-        if not dry_run:
-            for discovery_id in to_archive:
-                await graph.update_discovery(discovery_id, {
-                    "status": "archived",
-                    "updated_at": now.isoformat()
-                })
+        if not dry_run and to_archive:
+            await self._batch_update_status(graph, to_archive, "archived", now)
 
         logger.info(f"{'[DRY RUN] Would archive' if dry_run else 'Archived'} {len(to_archive)} old resolved discoveries (skipped {skipped} permanent)")
         return to_archive, skipped
@@ -234,13 +257,8 @@ class KnowledgeGraphLifecycle:
             if discovery.updated_at and discovery.updated_at < cutoff_iso:
                 to_cold.append(discovery.id)
 
-        if not dry_run:
-            for discovery_id in to_cold:
-                # Move to cold status instead of deleting
-                await graph.update_discovery(discovery_id, {
-                    "status": "cold",
-                    "updated_at": now.isoformat()
-                })
+        if not dry_run and to_cold:
+            await self._batch_update_status(graph, to_cold, "cold", now)
 
         logger.info(f"{'[DRY RUN] Would move to cold' if dry_run else 'Moved to cold'} {len(to_cold)} very old archived discoveries")
         return to_cold
@@ -331,3 +349,41 @@ async def get_kg_lifecycle_stats() -> Dict[str, Any]:
     """Get knowledge graph lifecycle statistics."""
     lifecycle = KnowledgeGraphLifecycle()
     return await lifecycle.get_lifecycle_stats()
+
+
+async def kg_lifecycle_background_task(interval_hours: float = 24.0):
+    """
+    Background task that periodically runs lifecycle cleanup.
+
+    Archives ephemeral notes older than 7 days, resolved entries older
+    than 30 days, and moves old archived entries to cold storage.
+
+    Args:
+        interval_hours: How often to run cleanup (default: 24 hours)
+    """
+    logger.info(f"KG lifecycle background task started (interval: {interval_hours}h)")
+
+    while True:
+        try:
+            await asyncio.sleep(interval_hours * 3600)
+
+            logger.info("Running KG lifecycle cleanup...")
+            result = await run_kg_lifecycle_cleanup(dry_run=False)
+
+            archived = result.get("ephemeral_archived", 0) + result.get("discoveries_archived", 0)
+            cold = result.get("discoveries_to_cold", 0)
+            if archived > 0 or cold > 0:
+                logger.info(
+                    f"KG lifecycle: archived {archived} entries, "
+                    f"moved {cold} to cold"
+                )
+            else:
+                logger.debug("KG lifecycle: nothing to clean up")
+
+        except asyncio.CancelledError:
+            logger.info("KG lifecycle background task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"KG lifecycle error: {e}", exc_info=True)
+            # Don't crash the background task on errors
+            await asyncio.sleep(60)

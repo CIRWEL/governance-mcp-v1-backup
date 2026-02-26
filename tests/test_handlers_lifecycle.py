@@ -63,6 +63,7 @@ class TestListAgentsLite:
         server.agent_metadata = {}
         server.monitors = {}
         server.load_metadata = MagicMock()
+        server.load_metadata_async = AsyncMock()
         return server
 
     @pytest.mark.asyncio
@@ -186,6 +187,7 @@ class TestArchiveAgent:
         server.agent_metadata = {}
         server.monitors = {}
         server.load_metadata = MagicMock()
+        server.load_metadata_async = AsyncMock()
         return server
 
     @pytest.mark.asyncio
@@ -235,19 +237,19 @@ class TestArchiveAgent:
             assert "not found" in text.lower() or "error" in text.lower()
 
     @pytest.mark.asyncio
-    async def test_archive_ownership_denied(self, mock_mcp_server):
+    async def test_archive_no_ownership_check(self, mock_mcp_server):
+        """Archive intentionally skips ownership check -- operators/dashboard need to archive others."""
         meta = make_agent_meta(status="active")
         mock_mcp_server.agent_metadata = {"agent-1": meta}
 
         with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
-             patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
+             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
 
             from src.mcp_handlers.lifecycle import handle_archive_agent
             result = await handle_archive_agent({"agent_id": "agent-1"})
 
             text = result[0].text
-            assert "auth" in text.lower()
+            assert "archived successfully" in text.lower()
 
 
 # ============================================================================
@@ -262,6 +264,7 @@ class TestDeleteAgent:
         server.agent_metadata = {}
         server.monitors = {}
         server.load_metadata = MagicMock()
+        server.load_metadata_async = AsyncMock()
         server.project_root = str(project_root)
         return server
 
@@ -337,6 +340,7 @@ class TestMarkResponseComplete:
         server.agent_metadata = {}
         server.monitors = {}
         server.load_metadata = MagicMock()
+        server.load_metadata_async = AsyncMock()
         return server
 
     @pytest.mark.asyncio
@@ -517,6 +521,7 @@ class TestArchiveOldTestAgents:
         server.agent_metadata = {}
         server.monitors = {}
         server.load_metadata = MagicMock()
+        server.load_metadata_async = AsyncMock()
         return server
 
     @pytest.mark.asyncio

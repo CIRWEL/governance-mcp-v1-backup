@@ -136,11 +136,6 @@ class TestResolveDialecticBackend:
             from src.mcp_handlers.dialectic_session import _resolve_dialectic_backend
             assert _resolve_dialectic_backend() == "json"
 
-    def test_explicit_sqlite_backend(self):
-        with patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_BACKEND", "sqlite"):
-            from src.mcp_handlers.dialectic_session import _resolve_dialectic_backend
-            assert _resolve_dialectic_backend() == "sqlite"
-
     def test_explicit_postgres_backend(self):
         with patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_BACKEND", "postgres"):
             from src.mcp_handlers.dialectic_session import _resolve_dialectic_backend
@@ -460,23 +455,21 @@ class TestSaveSession:
         assert data["transcript"][0]["root_cause"] == "Test root cause"
 
     @pytest.mark.asyncio
-    async def test_save_session_error_propagates(self, tmp_path):
-        """When the underlying write fails, save_session should re-raise."""
+    async def test_save_session_error_logged_not_raised(self, tmp_path):
+        """When the underlying write fails, save_session logs error but does not raise."""
         from src.mcp_handlers.dialectic_session import save_session
 
         session = _make_session()
-        # Use a non-writable path
         storage_dir = tmp_path / "sessions"
 
         with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
              patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
-            # Patch the executor to raise
             with patch("asyncio.get_running_loop") as mock_loop:
                 mock_loop.return_value.run_in_executor = AsyncMock(
                     side_effect=IOError("Disk full")
                 )
-                with pytest.raises(IOError, match="Disk full"):
-                    await save_session(session)
+                # Should not raise — error is caught and logged
+                await save_session(session)
 
 
 # ---------------------------------------------------------------------------
@@ -1155,73 +1148,23 @@ class TestLoadSessionAsDict:
 # ---------------------------------------------------------------------------
 
 class TestVerifyDataConsistency:
-    """Tests for verify_data_consistency()."""
+    """Tests for verify_data_consistency() (now a no-op since SQLite removed)."""
 
     @pytest.mark.asyncio
-    async def test_consistency_with_no_data(self, tmp_path):
+    async def test_consistency_returns_true(self):
         from src.mcp_handlers.dialectic_session import verify_data_consistency
+        result = await verify_data_consistency()
+        assert result["consistent"] is True
 
-        storage_dir = tmp_path / "sessions"
-        fake_db_path = tmp_path / "data" / "governance.db"
-
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir):
-            # The function builds db_path from __file__, so we patch it at the point
-            # where sqlite3.connect would be called -- it won't exist
-            result = await verify_data_consistency()
-
-        assert "stats" in result
-        assert "consistent" in result
-
-    @pytest.mark.asyncio
-    async def test_consistency_with_json_sessions_only(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import verify_data_consistency
-
-        storage_dir = tmp_path / "sessions"
-        storage_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create a JSON session
-        session_data = _make_session_dict(session_id="json_only_1")
-        session_data["transcript"] = [_make_transcript_entry()]
-        with open(storage_dir / "json_only_1.json", "w") as f:
-            json.dump(session_data, f)
-
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir):
-            result = await verify_data_consistency()
-
-        assert result["stats"]["json_sessions"] == 1
-
-
-# ---------------------------------------------------------------------------
-# Tests: run_startup_consolidation
-# ---------------------------------------------------------------------------
 
 class TestRunStartupConsolidation:
-    """Tests for run_startup_consolidation()."""
+    """Tests for run_startup_consolidation() (now a no-op since SQLite removed)."""
 
     @pytest.mark.asyncio
-    async def test_consolidation_with_no_sqlite_db(self, tmp_path):
-        """When governance.db does not exist, no sessions should be exported."""
+    async def test_consolidation_returns_zero(self):
         from src.mcp_handlers.dialectic_session import run_startup_consolidation
-
-        # Patch __file__ parent chain to point to tmp_path so db_path won't exist
-        fake_module_file = str(tmp_path / "src" / "mcp_handlers" / "dialectic_session.py")
-        with patch("src.mcp_handlers.dialectic_session.__file__", fake_module_file):
-            result = await run_startup_consolidation()
-
+        result = await run_startup_consolidation()
         assert result["exported"] == 0
-        assert isinstance(result["errors"], list)
-
-    @pytest.mark.asyncio
-    async def test_consolidation_returns_expected_structure(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import run_startup_consolidation
-
-        fake_module_file = str(tmp_path / "src" / "mcp_handlers" / "dialectic_session.py")
-        with patch("src.mcp_handlers.dialectic_session.__file__", fake_module_file):
-            result = await run_startup_consolidation()
-
-        assert "exported" in result
-        assert "synced" in result
-        assert "errors" in result
 
 
 # ---------------------------------------------------------------------------

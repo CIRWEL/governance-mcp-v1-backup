@@ -79,6 +79,7 @@ class TestCalibrationSaveNoClose:
         checker, mock_db = calibration_checker
         with patch("src.db.get_db", return_value=mock_db):
             checker.save_state()
+            # Allow the created task to execute
             await asyncio.sleep(0)
         mock_db.update_calibration.assert_called_once()
 
@@ -110,5 +111,6 @@ class TestCalibrationLoadNoClose:
         checker, mock_db = calibration_checker
         with patch("src.db.get_db", return_value=mock_db):
             checker.load_state()
+            # Allow the created task to execute
             await asyncio.sleep(0)
         mock_db.get_calibration.assert_called()

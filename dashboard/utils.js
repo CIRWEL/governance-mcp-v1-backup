@@ -1,9 +1,39 @@
 /**
  * Dashboard Utilities
- * 
+ *
  * Core utilities for API calls, error handling, caching, and data processing.
  * Designed for quality, maintainability, and performance.
  */
+
+/**
+ * Creates a debounced function that delays invoking fn until after delay ms
+ * have elapsed since the last time the debounced function was invoked.
+ * @param {Function} fn - Function to debounce
+ * @param {number} delay - Delay in milliseconds
+ * @returns {Function} Debounced function
+ */
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+/**
+ * Fetch wrapper that adds Authorization header when a token is configured.
+ * Use this instead of bare fetch() for authenticated endpoints.
+ */
+function authFetch(url, options = {}) {
+    const token = localStorage.getItem('unitares_api_token') ||
+        new URLSearchParams(window.location.search).get('token');
+    if (token) {
+        options.headers = Object.assign({}, options.headers, {
+            'Authorization': `Bearer ${token}`
+        });
+    }
+    return fetch(url, options);
+}
 
 class DashboardAPI {
     /**
@@ -335,7 +365,7 @@ class DataProcessor {
         }
 
         return {
-            display: clamped.toFixed(6),
+            display: clamped.toFixed(3),
             percent: percent,
             interpretation: interpretation.text,
             color: interpretation.color,
@@ -666,4 +696,5 @@ if (typeof window !== 'undefined') {
     window.DataProcessor = DataProcessor;
     window.ThemeManager = ThemeManager;
     window.EISVWebSocket = EISVWebSocket;
+    window.debounce = debounce;
 }

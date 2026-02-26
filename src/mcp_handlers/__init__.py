@@ -30,6 +30,7 @@ from .lifecycle import (
     handle_get_agent_metadata,
     handle_update_agent_metadata,
     handle_archive_agent,
+    handle_resume_agent,
     handle_delete_agent,
     handle_archive_old_test_agents,
     # handle_get_agent_api_key REMOVED Dec 2025 - aliased to identity()
@@ -98,8 +99,8 @@ from .identity_v2 import (
 )
 # Model Inference - Free/low-cost LLM access via ngrok.ai
 from .model_inference import handle_call_model
-# ROI Metrics - Customer value tracking
-from .roi_metrics import handle_get_roi_metrics
+# Outcome Events - EISV validation infrastructure (Feb 2026)
+from .outcome_events import handle_outcome_event
 # Consolidated tools - reduces cognitive load for agents (Jan 2026)
 from .consolidated import (
     handle_knowledge,
