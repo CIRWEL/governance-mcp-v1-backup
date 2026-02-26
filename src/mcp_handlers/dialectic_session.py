@@ -426,6 +426,15 @@ async def load_session_as_dict(session_id: str) -> Optional[Dict[str, Any]]:
                     m["agrees"] = bool(msg["agrees"])
                 result["transcript"].append(m)
 
+            # Derive synthesizer: first agent who submitted synthesis and is not requestor/reviewer
+            paused = row["paused_agent_id"] or ""
+            reviewer = row["reviewer_agent_id"] or ""
+            participants = {paused, reviewer}
+            for m in result["transcript"]:
+                if m.get("phase") == "synthesis" and m.get("agent_id") and m["agent_id"] not in participants:
+                    result["synthesizer"] = m["agent_id"]
+                    break
+
             return result
     except Exception as e:
         logger.warning(f"Fast load failed for session {session_id}: {e}")
@@ -490,7 +499,16 @@ async def list_all_sessions(
                     ds.topic,
                     ds.created_at,
                     ds.resolution_json,
-                    COALESCE(mc.cnt, 0) as message_count
+                    COALESCE(mc.cnt, 0) as message_count,
+                    (SELECT dm.agent_id
+                     FROM core.dialectic_messages dm
+                     WHERE dm.session_id = ds.session_id
+                       AND dm.message_type = 'synthesis'
+                       AND dm.agent_id IS NOT NULL
+                       AND dm.agent_id <> ds.paused_agent_id
+                       AND (ds.reviewer_agent_id IS NULL OR dm.agent_id <> ds.reviewer_agent_id)
+                     ORDER BY dm.message_id
+                     LIMIT 1) as synthesizer
                 FROM core.dialectic_sessions ds
                 LEFT JOIN (
                     SELECT session_id, COUNT(*) as cnt
@@ -529,6 +547,7 @@ async def list_all_sessions(
                     "session_type": row["session_type"] or "unknown",
                     "paused_agent": row["paused_agent_id"] or "unknown",
                     "reviewer": row["reviewer_agent_id"],
+                    "synthesizer": row.get("synthesizer") if "synthesizer" in row else None,
                     "topic": row["topic"] or "",
                     "created": created_at or "",
                     "message_count": row["message_count"] or 0,
@@ -579,6 +598,15 @@ async def list_all_sessions(
                         messages.append(msg)
 
                     summary["transcript"] = messages
+
+                    # Derive synthesizer from transcript (third agent who submitted synthesis)
+                    paused = row["paused_agent_id"] or ""
+                    reviewer = row["reviewer_agent_id"] or ""
+                    participants = {paused, reviewer}
+                    for m in messages:
+                        if m.get("phase") == "synthesis" and m.get("agent_id") and m["agent_id"] not in participants:
+                            summary["synthesizer"] = m["agent_id"]
+                            break
 
                 result.append(summary)
 

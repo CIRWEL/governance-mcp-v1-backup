@@ -3574,6 +3574,12 @@ body {
     gap: 15px;
 }
 
+.grid-3col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 15px;
+}
+
 .grid-auto-fit {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

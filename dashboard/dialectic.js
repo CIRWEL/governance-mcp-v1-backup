@@ -115,8 +115,10 @@
             var phaseColor = getPhaseColor(phase);
             var requestorUuid = session.paused_agent || session.requestor_id || session.agent_id || '';
             var reviewerUuid = session.reviewer || session.reviewer_id || '';
+            var synthesizerUuid = session.synthesizer || '';
             var requestorLabel = resolveAgentLabel(requestorUuid, 'Unknown');
             var reviewerLabel = reviewerUuid ? resolveAgentLabel(reviewerUuid) : 'None';
+            var synthesizerLabel = synthesizerUuid ? resolveAgentLabel(synthesizerUuid) : '';
             var sessionType = session.session_type || session.type || 'verification';
             var topic = session.topic || session.reason || (sessionType + ' session');
             var created = session.created || session.created_at || session.timestamp || '';
@@ -164,6 +166,9 @@
                     '<span class="agent-label">Requestor:</span> ' + escapeHtml(requestorLabel) + (requestorUuid ? ' <code class="code-tertiary">' + escapeHtml(requestorUuid.substring(0, 8)) + '</code>' : '') +
                     (reviewerLabel && reviewerLabel !== 'None'
                         ? '<span class="agent-label agent-label-spaced">Reviewer:</span> ' + escapeHtml(reviewerLabel) + (reviewerUuid ? ' <code class="code-tertiary">' + escapeHtml(reviewerUuid.substring(0, 8)) + '</code>' : '')
+                        : '') +
+                    (synthesizerLabel
+                        ? '<span class="agent-label agent-label-spaced">Synthesizer:</span> ' + escapeHtml(synthesizerLabel) + (synthesizerUuid ? ' <code class="code-tertiary">' + escapeHtml(synthesizerUuid.substring(0, 8)) + '</code>' : '')
                         : '') +
                     '<span class="agent-label agent-label-spaced dialectic-msg-count">' + (session.message_count || 0) + ' msgs</span>' +
                 '</div>' +
@@ -251,11 +256,13 @@
     function renderDialecticDetailContent(container, session) {
         var phase = session.phase || session.status || 'unknown';
         var phaseColor = getPhaseColor(phase);
-        var requestorUuid = session.paused_agent || session.requestor_id || session.agent_id || '';
-        var reviewerUuid = session.reviewer || session.reviewer_id || '';
-        var requestorLabel = resolveAgentLabel(requestorUuid, 'Unknown');
-        var reviewerLabel = reviewerUuid ? resolveAgentLabel(reviewerUuid) : 'None';
-        var sessionType = session.session_type || session.type || 'verification';
+            var requestorUuid = session.paused_agent || session.requestor_id || session.agent_id || '';
+            var reviewerUuid = session.reviewer || session.reviewer_id || '';
+            var synthesizerUuid = session.synthesizer || '';
+            var requestorLabel = resolveAgentLabel(requestorUuid, 'Unknown');
+            var reviewerLabel = reviewerUuid ? resolveAgentLabel(reviewerUuid) : 'None';
+            var synthesizerLabel = synthesizerUuid ? resolveAgentLabel(synthesizerUuid) : '';
+            var sessionType = session.session_type || session.type || 'verification';
         var topic = session.topic || session.reason || (sessionType + ' session');
         var sessionId = session.session_id || 'Unknown';
         var created = session.created || session.created_at || session.timestamp || '';
@@ -286,7 +293,7 @@
                 '</div>' +
             '</div>' +
 
-            '<div class="grid-2col mb-md">' +
+            '<div class="grid-3col mb-md">' +
                 '<div>' +
                     '<strong class="text-secondary-sm">Requestor:</strong><br>' +
                     escapeHtml(requestorLabel) +
@@ -298,6 +305,13 @@
                         ? escapeHtml(reviewerLabel) +
                           (reviewerUuid ? '<br><code class="code-tertiary">' + escapeHtml(reviewerUuid) + '</code>' : '')
                         : '<span class="text-secondary-sm">Not assigned</span>') +
+                '</div>' +
+                '<div>' +
+                    '<strong class="text-secondary-sm">Synthesizer:</strong><br>' +
+                    (synthesizerLabel
+                        ? escapeHtml(synthesizerLabel) +
+                          (synthesizerUuid ? '<br><code class="code-tertiary">' + escapeHtml(synthesizerUuid) + '</code>' : '')
+                        : '<span class="text-secondary-sm">—</span>') +
                 '</div>' +
             '</div>';
 
