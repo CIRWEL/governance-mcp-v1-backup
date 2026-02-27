@@ -22,7 +22,7 @@ import pytest
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import requests
+requests = pytest.importorskip("requests")
 import os
 
 # Default base URL for tests
