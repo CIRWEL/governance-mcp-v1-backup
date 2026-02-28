@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added — EISV Analysis Tools
+
+- **Monte Carlo basin estimation** (`scripts/basin_estimation.py`) — maps safe operating region by sampling 10K random perturbations and integrating forward via `compute_dynamics()`. Confirmed global attractivity under linear I-dynamics mode (100% convergence across full state space).
+- **Contraction analysis verifier** (`scripts/contraction_analysis.py`) — numerically computes the EISV Jacobian (analytical + numerical cross-validation to 5×10⁻¹⁰), verifies all eigenvalues negative, optimizes diagonal contraction metric. Bare rate: 0.046, optimized rate: 0.113. All Theta values contracting (400-point sweep).
+- **Compositionality metrics** (`scripts/compositionality_metrics.py`) — measures topographic similarity and region consistency of Lumen's primitive language. Supports real data from Pi SQLite DB or synthetic data mode for development.
+- **Analysis test suite** (`tests/test_analysis_tools.py`) — 36 tests covering all three tools.
+- `analysis` optional dependency group in pyproject.toml (scipy, matplotlib, editdistance).
+
+### Fixed
+
+- **`compute_equilibrium()` linear mode bug** — was using logistic quadratic formula regardless of I-dynamics mode, returning I*=1.0 instead of correct I*=A/γ_I≈0.85. Now checks `get_i_dynamics_mode()` and uses correct formula. Also includes `beta_complexity * complexity` term in S* and computes E* = αI*/(α + βₑS*) instead of E* ≈ I*.
+
 ## [2.8.0] - 2026-02-26
 
 ### Added — Dashboard Redesign

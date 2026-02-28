@@ -226,13 +226,14 @@ def compute_equilibrium(
     params: DynamicsParams,
     theta: Theta,
     ethical_drift_norm_sq: float = 0.0,
+    complexity: float = 0.5,
 ) -> State:
     """
     Compute equilibrium point where all derivatives are zero.
 
-    The UNITARES system with γᵢI(1-I) term has TWO stable equilibria:
-    - High equilibrium: I* ≈ 0.91 (healthy operation)
-    - Low equilibrium: I* ≈ 0.09 (collapsed state)
+    Handles both linear and logistic I-dynamics modes:
+    - Linear (v5 default): I* = A / γ_I (unique interior equilibrium)
+    - Logistic (legacy): solves γᵢI²-γᵢI+(kS*-βᵢC₀)=0 (two equilibria)
 
     This function returns the HIGH equilibrium (desired operating point).
 
@@ -240,37 +241,61 @@ def compute_equilibrium(
         params: Dynamics parameters
         theta: Control parameters
         ethical_drift_norm_sq: ‖Δη‖² (default 0)
+        complexity: Task complexity [0, 1] (default 0.5, affects S* via β_complexity)
 
     Returns:
         Equilibrium state (high equilibrium)
     """
     import math
+    from .parameters import get_i_dynamics_mode
 
     # At equilibrium with V* ≈ 0:
     # C(0) = Cmax * 0.5 * (1 + tanh(0)) = Cmax/2
     C_0 = params.Cmax / 2.0
 
-    # From Ṡ = 0: S* = (λ₁‖Δη‖² - λ₂C₀) / μ
+    # From Ṡ = 0: S* = (λ₁‖Δη‖² - λ₂C₀ + β_complexity·complexity) / μ
     lam1 = lambda1(theta, params)
     lam2 = lambda2(theta, params)
-    S_star = max(0.0, (lam1 * ethical_drift_norm_sq - lam2 * C_0) / params.mu)
+    S_star = max(
+        params.S_min,
+        (lam1 * ethical_drift_norm_sq - lam2 * C_0
+         + params.beta_complexity * complexity) / params.mu,
+    )
 
-    # From İ = 0 with S*: βᵢC₀ = γᵢI*(1-I*) + kS*
-    # Solve quadratic: γᵢI² - γᵢI + (kS* - βᵢC₀) = 0
-    a = params.gamma_I
-    b = -params.gamma_I
-    c = params.k * S_star - params.beta_I * C_0
+    # Forcing term for I dynamics
+    A = params.beta_I * C_0 - params.k * S_star
 
-    discriminant = b**2 - 4*a*c
-    if discriminant >= 0 and a != 0:
-        # Take the higher root (high equilibrium)
-        I_star = (-b + math.sqrt(discriminant)) / (2*a)
-        I_star = max(params.I_min, min(params.I_max, I_star))
+    i_mode = get_i_dynamics_mode()
+
+    if i_mode == "linear":
+        # Linear mode: dI/dt = A - γ_I·I = 0 → I* = A / γ_I
+        if params.gamma_I > 0:
+            I_star = A / params.gamma_I
+            I_star = max(params.I_min, min(params.I_max, I_star))
+        else:
+            I_star = 0.9
     else:
-        I_star = 0.9  # Default to high equilibrium region
+        # Logistic mode: dI/dt = A - γ_I·I·(1-I) = 0
+        # Solve quadratic: γᵢI² - γᵢI + (kS* - βᵢC₀) = 0
+        a = params.gamma_I
+        b = -params.gamma_I
+        c = params.k * S_star - params.beta_I * C_0
 
-    # From Ė = 0: E* ≈ I* (dominant term)
-    E_star = I_star
+        discriminant = b**2 - 4*a*c
+        if discriminant >= 0 and a != 0:
+            # Take the higher root (high equilibrium)
+            I_star = (-b + math.sqrt(discriminant)) / (2*a)
+            I_star = max(params.I_min, min(params.I_max, I_star))
+        else:
+            I_star = 0.9  # Default to high equilibrium region
+
+    # From Ė = 0: α(I* - E*) - β_E·E*·S* = 0
+    # E* = α·I* / (α + β_E·S*)
+    denom = params.alpha + params.beta_E * S_star
+    if denom > 0:
+        E_star = params.alpha * I_star / denom
+    else:
+        E_star = I_star
 
     # V* ≈ 0 at equilibrium
     V_star = 0.0

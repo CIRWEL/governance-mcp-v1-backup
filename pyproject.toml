@@ -33,6 +33,11 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "hypothesis>=6.0.0",
 ]
+analysis = [
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0",
+    "editdistance>=0.6.0",
+]
 
 [tool.pytest.ini_options]
 python_files = ["test_*.py", "*_test.py"]
