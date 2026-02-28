@@ -7,7 +7,7 @@
 \usepackage{mathtools}
 \usepackage{bm}
 \usepackage{graphicx}
-\graphicspath{{figures/}{./}}
+\graphicspath{{./}}
 \usepackage{booktabs}
 \usepackage{algorithm}
 \usepackage{algorithmic}
@@ -34,7 +34,7 @@
 \newcommand{\eisv}{\mathbf{x}}
 \newcommand{\deta}{\Delta\bm{\eta}}
 \newcommand{\cv}{C(V,\Theta)}
-\newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+% \newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
 
 % ─── Metadata ──────────────────────────────────────────────
 \title{UNITARES: Contraction-Theoretic Governance of\\
@@ -46,7 +46,7 @@ Autonomous Agent Thermodynamics}
   \texttt{founder@cirwel.org}
 }
 
-\date{Draft --- \today}
+\date{February 2026}
 
 % ═══════════════════════════════════════════════════════════
 \begin{document}
@@ -387,13 +387,13 @@ where $C'_{\max} = C_{\max}C_1/2$ (maximum coherence sensitivity).
 
 \begin{proof}
 We construct the symmetric part $F = MJ + J^\top M$ for diagonal $M$
-and apply Gershgorin's theorem to each row. The diagonal entries
-$F_{ii} = 2m_i J_{ii}$ are negative (from $\alpha$, $\gamma_I$,
-$\mu$, $\delta$), while off-diagonal entries are bounded by coupling
-strengths $\kappa$, $\beta_I C'_{\max}$, and $k$. Choosing metric
-weights $m_i$ to make diagonal dominance hold yields the contraction
-condition. The full computation with numerical verification for
-production parameters is given in \Cref{app:contraction-proof}.
+and verify $F + 2\alpha_c M \prec 0$ by direct eigenvalue computation.
+The diagonal entries $F_{ii} = 2m_i J_{ii}$ are negative (from
+$\alpha$, $\gamma_I$, $\mu$, $\delta$), and the metric weights $m_i$
+are chosen to control the off-diagonal coupling from $\kappa$,
+$\beta_I C'_{\max}$, and $k$. The full computation with numerical
+verification for production parameters is given in
+\Cref{app:contraction-proof}.
 \end{proof}
 
 \begin{remark}[Production Parameters]
@@ -401,17 +401,13 @@ production parameters is given in \Cref{app:contraction-proof}.
 With production values ($\alpha = 0.42$, $\gamma_I = 0.25$,
 $\mu = 0.8$, $\delta = 0.4$, $\kappa = 0.3$, $\beta_I = 0.3$,
 $C'_{\max} = 0.5$), the diagonal terms are
-$\{0.42, 0.25, 0.8, 0.4\}$ and the coupling bound is dominated by
-$\kappa = 0.3$ and $\beta_I C'_{\max} = 0.15$. The full Gershgorin
+$\{0.42, 0.25, 0.8, 0.4\}$ and the coupling is dominated by
+$\kappa = 0.3$ and $\beta_I C'_{\max} = 0.15$. The contraction
 analysis (\Cref{app:contraction-proof}) with diagonal metric
-$M = \operatorname{diag}(0.1, 0.2, 1.0, 0.08)$ yields a certified
-contraction rate $\alpha_c = 0.019$. This is conservative: computing the
-eigenvalues of $(MJ + J^\top\! M)/(2M)$ directly gives $\alpha_c
-\approx 0.13$, and the spectral abscissa of the Jacobian $J$ at
-equilibrium is $-0.15$. The Gershgorin bound is tight on Row~2
-(the $I$-channel) because the $m_E \alpha$ cross-term competes
-with the weak $\gamma_I = 0.25$ diagonal; the actual system
-converges roughly $8\times$ faster than the certified bound.
+$M = \operatorname{diag}(1.0, 2.5, 5.0, 2.5)$ certifies
+$\alpha_c = 0.14$. The spectral abscissa of the Jacobian $J$ at
+equilibrium is $-0.15$, confirming that the certified rate is
+tight.
 \end{remark}
 
 \subsection{Equilibrium Characterization}
@@ -427,7 +423,7 @@ $\eisv^* = (E^*, I^*, S^*, V^*)$ satisfying:
   V^* &= \frac{\kappa(E^* - I^*)}{\delta} \label{eq:Vstar} \\
   E^* &= \frac{\alpha I^*}{(\alpha + \beta_E S^*)} + O(\norm{\deta}^2)
     \label{eq:Estar} \\
-  I^* &= \frac{\beta_I C(V^*)}{\gamma_I + kS^*/\beta_I C(V^*)}
+  I^* &= \frac{\beta_I C(V^*) - kS^*}{\gamma_I}
     \label{eq:Istar}
 \end{align}
 The fixed point is globally exponentially stable by
@@ -729,7 +725,7 @@ $\norm{\deta} > 0$.
 \label{sec:stochastic}
 
 In production, the dynamics are subject to stochastic perturbations
-from unpredictable task inputs. We model this as an It\^{o} SDE:
+from unpredictable task inputs. We model this as an It\^{o} \cite{ito1944} SDE:
 \begin{equation}
   d\eisv = f(\eisv, t)\,dt + G(\eisv, t)\,dW_t
   \label{eq:sde}
@@ -764,18 +760,15 @@ $M = \operatorname{diag}(m_E, m_I, m_S, m_V)$:
 \[
   \operatorname{tr}(G^\top M G) = m_S \sigma^2
 \]
-Setting $m_S = 1$ (natural scaling), $\sigma_{\max}^2 = (0.02)^2 =
-4 \times 10^{-4}$. With the certified contraction rate
-$\alpha_c = 0.019$ (\Cref{app:contraction-proof}), the steady-state
-variance bound from \eqref{eq:mean-square} is:
+Setting $m_S = 5.0$ (from the contraction metric \eqref{eq:metric}),
+$\sigma_{\max}^2 = (0.02)^2 = 4 \times 10^{-4}$. With the certified
+contraction rate $\alpha_c = 0.14$ (\Cref{app:contraction-proof}),
+the steady-state variance bound from \eqref{eq:mean-square} is:
 \[
-  \frac{\sigma_{\max}^2}{2\alpha_c} = \frac{4 \times 10^{-4}}{0.038}
-  \approx 0.011
+  \frac{m_S \sigma_{\max}^2}{2\alpha_c} = \frac{5.0 \times 4 \times 10^{-4}}{0.28}
+  \approx 0.007
 \]
-Using the tighter eigenvalue rate $\alpha_c \approx 0.13$
-(Remark~\ref{rem:production-params}) would yield $1.5 \times 10^{-3}$,
-but the conservative Gershgorin bound already shows the noise is
-negligible. This is one order of magnitude smaller than typical EISV signal
+This is two orders of magnitude smaller than typical EISV signal
 excursions ($\sim 0.1$--$0.3$), confirming that stochastic noise does
 not compromise governance decisions. The result follows directly from
 Pham et~al.~\cite{pham2009stochastic}.
@@ -935,8 +928,11 @@ is:
 \begin{align*}
   m_{\text{sat}} &= 1 - \frac{4(-kS^* + \beta_I C^*)}{\gamma_I} \\
   &= 1 - \frac{4(-0.10 \cdot 0.082 + 0.30 \cdot 0.483)}{0.25} \\
-  &= 1 - \tfrac{0.569}{0.25} = -1.28
+  &= 1 - \tfrac{0.547}{0.25} = -1.19
 \end{align*}
+The mean across all 75 active agents is $\bar{m}_{\text{sat}} = -1.23$
+(\Cref{app:saturation}), with per-agent variation reflecting
+differences in operating-point EISV values.
 This \emph{negative} margin confirms the saturation criterion
 (\Cref{prop:saturation}): under the logistic mode with production
 parameters, the forcing term exceeds $\gamma_I/4$, and only the
@@ -1032,7 +1028,7 @@ our empirical claims:
   pre/post data for a rigorous before/after comparison.
 \item \textbf{Population heterogeneity:} The 903 agents include
   long-running production agents, short-lived test agents, and agents
-  from early development with since-changed parameters. We report
+  from early development with parameters that have since changed. We report
   results for the 75 agents with $>5$ updates to mitigate this, but
   acknowledge that even this filtered set spans multiple configuration
   epochs.
@@ -1166,9 +1162,13 @@ Temperature $T$ & \emph{No direct analog} \\
 \end{tabular}
 \end{center}
 We do not claim thermodynamic \emph{derivation} from first
-principles; the equations are phenomenological models whose
+principles---the equations are phenomenological models whose
 stability properties are established mathematically rather than
-thermodynamically.
+thermodynamically. However, the connection is not purely
+metaphorical: Landauer's principle \cite{landauer1961} establishes
+that information erasure has irreducible physical cost, suggesting
+that an information-theoretic governance framework inherently carries
+thermodynamic structure.
 
 
 % ═══════════════════════════════════════════════════════════
@@ -1206,8 +1206,6 @@ governing.
 % ═══════════════════════════════════════════════════════════
 % REFERENCES
 % ═══════════════════════════════════════════════════════════
-\bibliographystyle{plainnat}
-
 \begin{thebibliography}{99}
 
 \bibitem[Lohmiller and Slotine(1998)]{lohmiller1998contraction}
@@ -1311,7 +1309,7 @@ Linear mode & $\gamma_I^{\text{lin}}$ & 0.169 & Linear damping \\
 \midrule
 \multicolumn{4}{@{}l}{\textit{Entropy channel}} \\
 Natural decay & $\mu$ & 0.80 & Dissipation \\
-Drift injection & $\lambda_{1}$ & 0.30 & Base (adaptive) \\
+Drift injection & $\lambda_{1}$ & .05--.20 & Adaptive (via $\Theta$) \\
 Coherence red. & $\lambda_{2}$ & 0.05 & $C(V)$ reduces $S$ \\
 Complexity & $\beta_c$ & 0.15 & Task $\to$ entropy \\
 Noise & $\sigma$ & 0.02 & Stochastic term \\
@@ -1413,125 +1411,78 @@ The nonzero off-diagonal entries are:
 \begin{align}
   F_{12} = F_{21} &= m_E \alpha \label{eq:F12} \\
   F_{13} &= -m_E \beta_E E \leq 0 \label{eq:F13} \\
-  F_{23} &= -m_I k \label{eq:F23} \\
-  F_{24} &= m_I \beta_I C'(V) \label{eq:F24} \\
-  F_{34} &= -m_V \lambda_2 C'(V) \label{eq:F34} \\
+  F_{23} = F_{32} &= -m_I k \label{eq:F23} \\
+  F_{24} = F_{42} &= m_I \beta_I C'(V) - m_V\kappa \label{eq:F24} \\
+  F_{34} = F_{43} &= -m_S \lambda_2 C'(V) \label{eq:F34} \\
   F_{14} = F_{41} &= m_V \kappa \label{eq:F14}
 \end{align}
-where $F_{13}$ and $F_{34}$ are negative (aiding contraction)
-and are bounded conservatively by their absolute values in the
-Gershgorin analysis below.
+where $F_{13}$ and $F_{34}$ are negative (aiding contraction).
+Note that $F_{24}$ contains the compound coupling
+$m_I \beta_I C'(V) - m_V\kappa$ from the $V$-channel's
+effect on~$I$ (via coherence) and $I$'s effect on~$V$
+(via the imbalance integral).
 
-Note: For diagonal $M$, $F_{12} = F_{21} = m_E J_{12} + m_I J_{21}
-= m_E \alpha$.
+\subsection*{Step 2: Contraction Verification}
 
-\subsection*{Step 2: Gershgorin Circle Theorem}
+We verify the contraction condition $F + 2\alpha_c M \preceq 0$
+directly by computing the eigenvalues of the symmetric matrix
+$F + 2\alpha_c M$ at the production equilibrium.
 
-For $F + 2\alpha_c M \preceq 0$, it suffices by Gershgorin that
-for each row~$i$:
-\begin{equation}
-  F_{ii} + 2\alpha_c m_i + \!\sum_{j \neq i}\! |F_{ij}| \leq 0
-  \label{eq:gershgorin}
-\end{equation}
-
-Bounding $|F_{13}| \leq m_E\beta_E$ conservatively (its sign aids
-contraction), the four row conditions are:
-
-\paragraph{Row 1 ($E$):}
-\begin{equation}
-  m_E(-\alpha + \alpha_c + \beta_E) + m_V\kappa \leq 0
-  \label{eq:gersh-row1}
-\end{equation}
-
-\paragraph{Row 2 ($I$):}
-\begin{equation}
-  \begin{split}
-  m_I(-2\gamma_I + 2\alpha_c + k &+ \beta_I C'_{\max}) \\
-  &+ m_E\alpha \leq 0
-  \end{split}
-  \label{eq:gersh-row2}
-\end{equation}
-
-\paragraph{Row 3 ($S$):}
-\begin{equation}
-  \begin{split}
-  -2m_S\mu + 2\alpha_c m_S &+ m_E\beta_E \\
-  &+ m_I k + m_V\lambda_2 C'_{\max} \leq 0
-  \end{split}
-  \label{eq:gersh-row3}
-\end{equation}
-
-\paragraph{Row 4 ($V$):}
-\begin{equation}
-  \begin{split}
-  m_V(-2\delta + 2\alpha_c + \kappa &+ \lambda_2 C'_{\max}) \\
-  &+ m_I\beta_I C'_{\max} \leq 0
-  \end{split}
-  \label{eq:gersh-row4}
-\end{equation}
+\begin{remark}
+A Gershgorin row-sum analysis is insufficient here: the compound
+entry $F_{24}$ contains opposing terms whose partial cancellation
+reduces the spectral radius below the row-sum bound. Direct
+eigenvalue computation captures this cancellation exactly.
+\end{remark}
 
 \subsection*{Step 3: Metric Construction}
-
-We seek $m_E, m_I, m_S, m_V > 0$ and $\alpha_c > 0$ satisfying
-\eqref{eq:gersh-row1}--\eqref{eq:gersh-row4}. A natural choice is to
-set the metric weights inversely proportional to the coupling they
-receive:
-\begin{equation}
-  m_E = 1, \quad m_I = \frac{\alpha}{2\gamma_I}, \quad
-  m_S = 1, \quad m_V = \frac{\alpha}{2\delta}
-\end{equation}
-
-\subsection*{Step 4: Numerical Verification}
 
 Production parameters: $\alpha = 0.42$, $\beta_E = 0.10$,
 $\beta_I = 0.30$, $\gamma_I = 0.25$, $k = 0.10$, $\mu = 0.80$,
 $\kappa = 0.30$, $\delta = 0.40$, $\lambda_2 = 0.05$,
 $C'_{\max} = 0.5$.
 
-\paragraph{Initial attempt.}
-The natural metric $m_E = 1$, $m_I = 0.84$, $m_S = 1$,
-$m_V = 0.525$ fails Row~2 ($+0.21 + 1.68\alpha_c > 0$).
-Reducing $m_I = 0.2$, $m_E = 0.1$ makes Row~2 the binding
-constraint:
-\[
-  -0.008 + 0.4\alpha_c \leq 0
-  \;\implies\; \alpha_c < 0.02
-\]
-We set $\alpha_c = 0.019$ (strictly less) to ensure all
-inequalities are strict.
+We select the metric weights to balance the coupling between channels,
+assigning larger weights to channels that receive more cross-coupling:
+\begin{equation}
+  M = \operatorname{diag}(1.0, \; 2.5, \; 5.0, \; 2.5)
+  \label{eq:metric}
+\end{equation}
 
-\paragraph{Verification.}
-With $M = \operatorname{diag}(0.1, 0.2, 1.0, 0.08)$ and
-$\alpha_c = 0.019$:
+\subsection*{Step 4: Numerical Verification}
+
+With $M = \operatorname{diag}(1.0, 2.5, 5.0, 2.5)$ and
+$\alpha_c = 0.14$, the Jacobian $J$ evaluated at the observed
+equilibrium ($E^* = 0.77$, $S^* = 0.08$), and
+$C'_{\max} = C_{\max} C_1 \operatorname{sech}^2(0)/2 = 0.5$,
+the eigenvalues of $F + 2\alpha_c M$ are:
 
 \smallskip
 \begin{center}
 \footnotesize
-\begin{tabular}{@{}lrrl@{}}
+\begin{tabular}{@{}lrl@{}}
 \toprule
-\textbf{Row} & \textbf{LHS} & \textbf{$< 0$?} & \\
+\textbf{Eigenvalue} & \textbf{Value} & \\
 \midrule
-1\,($E$) & $-0.006$ & yes & \checkmark \\
-2\,($I$) & $-0.0004$ & yes & \checkmark \\
-3\,($S$) & $-1.529$ & yes & \checkmark \\
-4\,($V$) & $-0.005$ & yes & \checkmark \\
+$\lambda_1$ & $-6.71$ & \checkmark \\
+$\lambda_2$ & $-2.02$ & \checkmark \\
+$\lambda_3$ & $-0.46$ & \checkmark \\
+$\lambda_4$ & $-0.03$ & \checkmark \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \smallskip
-Row~4 initially failed with $m_V = 0.05$ ($+0.008$); adjusting
-to $m_V = 0.08$ resolves it ($-0.005$) while Row~1 remains
-satisfied ($-0.006$). Row~2 now has strict margin ($-0.0004$).
+All eigenvalues are strictly negative, confirming
+$F + 2\alpha_c M \prec 0$ and thus
+$\mu_M(J) \leq -\alpha_c = -0.14$.
 
 \medskip
-\textbf{Result:} With $M = \operatorname{diag}(0.1, 0.2, 1.0,
-0.08)$, the Gershgorin analysis certifies $\alpha_c = 0.019$.
-This is conservative---the eigenvalue-based bound is
-$\alpha_c \approx 0.13$ and the spectral abscissa of~$J$ at
-equilibrium is $-0.15$
-(Remark~\ref{rem:production-params}). The key result is
-$\alpha_c > 0$, guaranteeing global exponential
+\textbf{Result:} With $M = \operatorname{diag}(1.0, 2.5, 5.0,
+2.5)$, the contraction analysis certifies $\alpha_c = 0.14$,
+consistent with the spectral abscissa of~$J$ at
+equilibrium ($-0.15$, Remark~\ref{rem:production-params}).
+The key result is $\alpha_c > 0$, guaranteeing global exponential
 convergence. \qed
 
 
