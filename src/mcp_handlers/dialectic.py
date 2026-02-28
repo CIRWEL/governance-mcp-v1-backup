@@ -180,7 +180,7 @@ async def check_reviewer_stuck(session: DialecticSession) -> bool:
         return False  # Can't determine — don't kill the session
 
 
-@mcp_tool("request_dialectic_review", timeout=10.0, register=True)
+@mcp_tool("request_dialectic_review", timeout=60.0, register=True)
 async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
     Create a dialectic recovery session.
@@ -255,7 +255,6 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
     topic = arguments.get("topic")
     reviewer_mode = arguments.get("reviewer_mode", "auto")  # auto|self|llm
     max_synthesis_rounds = arguments.get("max_synthesis_rounds", 5)
-    auto_progress = bool(arguments.get("auto_progress", False))
 
     # LLM-assisted dialectic: delegate to synthetic reviewer
     if reviewer_mode == "llm":
@@ -264,7 +263,7 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
             "proposed_conditions": arguments.get("proposed_conditions", []),
             "reasoning": arguments.get("reasoning", ""),
         }
-        for key in ("agent_id", "client_session_id", "api_key"):
+        for key in ("agent_id", "client_session_id", "api_key", "session_type"):
             if key in arguments:
                 llm_args[key] = arguments[key]
         return await handle_llm_assisted_dialectic(llm_args)
@@ -339,9 +338,6 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
     # Cache in-memory for quick access
     ACTIVE_SESSIONS[session.session_id] = session
 
-    if auto_progress:
-        logger.info("auto_progress requested for dialectic review, but auto progression is not enabled.")
-
     # Build response based on whether reviewer is assigned
     if session.reviewer_agent_id:
         note = "Session created with self-review. Use submit_thesis to add your thesis."
@@ -357,7 +353,6 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
         "awaiting_reviewer": session.reviewer_agent_id is None,
         "phase": session.phase.value,
         "session_type": session.session_type,
-        "auto_progress": False,
         "note": note
     })
 
@@ -1177,19 +1172,90 @@ async def handle_llm_assisted_dialectic(arguments: Dict[str, Any]) -> Sequence[T
     # Format successful response
     recommendation = result.get("recommendation", "ESCALATE")
     synthesis = result.get("synthesis", {})
+    antithesis_data = result.get("antithesis", {})
+
+    # Persist as a proper dialectic session so it shows on the dashboard
+    session_id = None
+    try:
+        from src.dialectic_protocol import DialecticSession
+        session = DialecticSession(
+            paused_agent_id=agent_uuid,
+            reviewer_agent_id="llm-synthetic-reviewer",
+            session_type=arguments.get("session_type", "recovery"),
+            topic=root_cause[:200],
+            max_synthesis_rounds=2,
+        )
+        session_id = session.session_id
+
+        await pg_create_session(
+            session_id=session_id,
+            paused_agent_id=agent_uuid,
+            reviewer_agent_id="llm-synthetic-reviewer",
+            reason=root_cause,
+            session_type=arguments.get("session_type", "recovery"),
+            topic=root_cause[:200],
+            max_synthesis_rounds=2,
+            synthesis_round=1,
+        )
+
+        # Add thesis message
+        await pg_add_message(
+            session_id=session_id,
+            agent_id=agent_uuid,
+            message_type="thesis",
+            root_cause=root_cause,
+            proposed_conditions=proposed_conditions,
+            reasoning=reasoning,
+        )
+
+        # Add antithesis message
+        await pg_add_message(
+            session_id=session_id,
+            agent_id="llm-synthetic-reviewer",
+            message_type="antithesis",
+            reasoning=antithesis_data.get("counter_reasoning", antithesis_data.get("raw_response", "")[:500]),
+            concerns=[antithesis_data.get("concerns", "")] if antithesis_data.get("concerns") else None,
+        )
+
+        # Add synthesis message
+        await pg_add_message(
+            session_id=session_id,
+            agent_id="llm-synthetic-reviewer",
+            message_type="synthesis",
+            root_cause=synthesis.get("agreed_root_cause", ""),
+            proposed_conditions=[synthesis.get("merged_conditions", "")] if synthesis.get("merged_conditions") else None,
+            reasoning=synthesis.get("reasoning", ""),
+            agrees=True,
+        )
+
+        # Resolve the session
+        await pg_resolve_session(
+            session_id=session_id,
+            resolution={
+                "action": recommendation.lower(),
+                "source": "llm-assisted-dialectic",
+                "agreed_root_cause": synthesis.get("agreed_root_cause", ""),
+                "merged_conditions": synthesis.get("merged_conditions", ""),
+            },
+            status="resolved",
+        )
+        logger.info(f"LLM dialectic session {session_id} persisted to database")
+    except Exception as e:
+        logger.warning(f"Could not persist LLM dialectic session: {e}")
 
     response_data = {
         "success": True,
         "message": f"Dialectic complete. Recommendation: {recommendation}",
         "recommendation": recommendation,
+        "session_id": session_id,
         "thesis": {
             "root_cause": thesis["root_cause"],
             "proposed_conditions": thesis["proposed_conditions"]
         },
         "antithesis": {
-            "concerns": result.get("antithesis", {}).get("concerns", ""),
-            "counter_reasoning": result.get("antithesis", {}).get("counter_reasoning", ""),
-            "suggested_conditions": result.get("antithesis", {}).get("suggested_conditions", "")
+            "concerns": antithesis_data.get("concerns", ""),
+            "counter_reasoning": antithesis_data.get("counter_reasoning", ""),
+            "suggested_conditions": antithesis_data.get("suggested_conditions", "")
         },
         "synthesis": {
             "agreed_root_cause": synthesis.get("agreed_root_cause", ""),
@@ -1202,7 +1268,6 @@ async def handle_llm_assisted_dialectic(arguments: Dict[str, Any]) -> Sequence[T
 
     # Store as discovery in knowledge graph for learning
     try:
-        from .llm_delegation import call_local_llm  # Verify import works
         from src.knowledge_graph import get_knowledge_graph, DiscoveryNode
 
         graph = await get_knowledge_graph()

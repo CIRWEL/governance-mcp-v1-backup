@@ -87,11 +87,12 @@ async def call_local_llm(
         Model response text, or None if unavailable/failed
     """
     if not OPENAI_AVAILABLE:
-        logger.debug("OpenAI SDK not available for local LLM")
+        logger.warning("OpenAI SDK not available for local LLM delegation")
         return None
 
     client = _get_ollama_client()
     if not client:
+        logger.warning("Ollama client could not be created")
         return None
 
     model = model or _get_default_model()
@@ -117,14 +118,14 @@ async def call_local_llm(
             timeout=timeout + 5  # Extra buffer for executor overhead
         )
 
-        logger.debug(f"Local LLM call successful: model={model}, tokens≤{max_tokens}")
+        logger.info(f"Local LLM call successful: model={model}, tokens≤{max_tokens}")
         return result
 
     except asyncio.TimeoutError:
-        logger.debug(f"Local LLM timed out after {timeout}s")
+        logger.warning(f"Local LLM timed out after {timeout}s (model={model})")
         return None
     except Exception as e:
-        logger.debug(f"Local LLM call failed: {e}")
+        logger.warning(f"Local LLM call failed: {type(e).__name__}: {e}")
         return None
 
 
@@ -345,7 +346,7 @@ SUGGESTED_CONDITIONS: [modified or additional conditions]"""
         prompt=prompt,
         max_tokens=max_tokens,
         temperature=0.7,
-        timeout=15.0
+        timeout=30.0
     )
 
     if not result:
@@ -443,7 +444,7 @@ REASONING: [brief justification]"""
         prompt=prompt,
         max_tokens=max_tokens,
         temperature=0.6,  # Slightly lower for more consistent synthesis
-        timeout=15.0
+        timeout=30.0
     )
 
     if not result:

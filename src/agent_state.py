@@ -2082,42 +2082,101 @@ async def process_update_authenticated_async(
 async def _auto_initiate_dialectic_recovery(agent_id: str, reason: str) -> None:
     """
     SELF-GOVERNANCE: Auto-initiate dialectic recovery for paused agents.
-    
-    Instead of waiting for human intervention, automatically start peer review
-    with auto_progress=True and reviewer_mode='auto' (try peer, fallback to self).
-    
-    This embodies the self-governance principle: agents recover autonomously
-    via peer review, human intervention is optional enhancement not requirement.
+
+    Tries peer review first. If no peers are available, falls back to
+    LLM-assisted dialectic (Ollama) as synthetic reviewer. If the LLM
+    recommends RESUME, the agent is auto-resumed. COOLDOWN leaves the
+    agent paused for the stuck-detector. ESCALATE logs for human attention.
     """
     import asyncio
+    import json
     await asyncio.sleep(2)  # Brief delay to let state settle
-    
+
     try:
         from src.mcp_handlers.dialectic import handle_request_dialectic_review
-        
-        logger.info(f"🔄 Auto-initiating dialectic recovery for paused agent '{agent_id}'")
-        
+        from src.mcp_handlers.dialectic_reviewer import select_reviewer
+
+        logger.info(f"Auto-initiating dialectic recovery for paused agent '{agent_id}'")
+
         # Get API key for the agent (needed for authentication)
         meta = agent_metadata.get(agent_id)
         api_key = meta.api_key if meta else None
-        
+
         if not api_key:
             logger.warning(f"Cannot auto-initiate dialectic for '{agent_id}': no API key")
             return
-        
-        # Auto-initiate with:
-        # - auto_progress=True: progress through phases automatically
-        # - reviewer_mode='auto': try peer first, fall back to self-recovery
+
+        # Check if a peer reviewer is available
+        await load_metadata_async(force=True)
+        reviewer = await select_reviewer(
+            paused_agent_id=agent_id,
+            metadata=agent_metadata,
+        )
+
+        if reviewer:
+            # Peer available — use standard dialectic protocol
+            logger.info(f"Peer reviewer '{reviewer[:8]}...' found for '{agent_id}', using peer dialectic")
+            result = await handle_request_dialectic_review({
+                "agent_id": agent_id,
+                "reason": f"Auto-recovery: {reason}",
+                "api_key": api_key,
+                "reviewer_mode": "auto",
+            })
+            logger.info(f"Peer dialectic initiated for '{agent_id}'")
+            return
+
+        # No peers — use LLM as synthetic reviewer (Ollama)
+        logger.info(f"No peer reviewers available for '{agent_id}', using LLM-assisted dialectic")
+
+        # Build proposed conditions from agent state
+        proposed_conditions = []
+        monitor = monitors.get(agent_id)
+        if monitor and hasattr(monitor, 'state'):
+            state = monitor.state
+            if hasattr(state, 'S') and state.S > 1.0:
+                proposed_conditions.append("Reduce task complexity")
+            if hasattr(state, 'V') and abs(state.V) > 0.5:
+                proposed_conditions.append("Rebalance energy-integrity ratio")
+        if not proposed_conditions:
+            proposed_conditions = ["Review and adjust approach", "Reduce scope if needed"]
+
         result = await handle_request_dialectic_review({
             "agent_id": agent_id,
             "reason": f"Auto-recovery: {reason}",
             "api_key": api_key,
-            "auto_progress": True,
-            "reviewer_mode": "auto"
+            "reviewer_mode": "llm",
+            "root_cause": reason,
+            "proposed_conditions": proposed_conditions,
+            "reasoning": "Circuit breaker triggered. Auto-recovery attempting LLM-assisted dialectic.",
         })
-        
-        logger.info(f"✅ Dialectic recovery auto-initiated for '{agent_id}': {result}")
-        
+
+        # Act on LLM dialectic recommendation
+        if isinstance(result, list) and len(result) > 0:
+            try:
+                text = result[0].text if hasattr(result[0], 'text') else ""
+                content = json.loads(text) if text else {}
+                recommendation = content.get("recommendation", "").upper()
+
+                if recommendation == "RESUME":
+                    meta = agent_metadata.get(agent_id)
+                    if meta:
+                        meta.status = "active"
+                        meta.paused_at = None
+                        meta.loop_cooldown_until = None
+                        meta.loop_detected_at = None
+                        meta.recent_update_timestamps = []
+                        meta.add_lifecycle_event(
+                            "auto_resumed_dialectic",
+                            f"LLM dialectic recommended RESUME: {content.get('message', '')[:100]}"
+                        )
+                        logger.info(f"Agent '{agent_id}' auto-resumed after LLM dialectic")
+                elif recommendation == "COOLDOWN":
+                    logger.info(f"Agent '{agent_id}' in cooldown after LLM dialectic — stuck-detector will handle later")
+                else:
+                    logger.warning(f"Agent '{agent_id}' needs human attention — LLM dialectic: {recommendation}")
+            except (json.JSONDecodeError, AttributeError, KeyError) as e:
+                logger.warning(f"Could not parse dialectic result for auto-action: {e}")
+
     except Exception as e:
         logger.error(f"Failed to auto-initiate dialectic recovery for '{agent_id}': {e}")
 
