@@ -17,6 +17,15 @@ from src.audit_log import audit_logger
 from src.logging_utils import get_logger
 from .dialectic_session import SESSION_STORAGE_DIR, load_session
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
 
@@ -49,8 +58,6 @@ async def update_calibration_from_dialectic(session: DialecticSession, resolutio
     
     # Get confidence from audit log (from when agent was paused)
     try:
-        from .shared import get_mcp_server
-        mcp_server = get_mcp_server()
         
         # Load audit log entry for this agent at the time of pause
         # The audit log should have the confidence estimate from process_agent_update
@@ -142,8 +149,6 @@ async def update_calibration_from_dialectic_disagreement(session: DialecticSessi
     
     # Get confidence from audit log
     try:
-        from .shared import get_mcp_server
-        mcp_server = get_mcp_server()
         
         audit_entries = audit_logger.query_audit_log(
             agent_id=session.paused_agent_id,

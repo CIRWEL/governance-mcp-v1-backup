@@ -24,6 +24,13 @@ from .dialectic_session import (
     _CACHE_TTL
 )
 
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
 # Import PostgreSQL async functions for cross-process visibility
 from src.dialectic_db import (
     is_agent_in_active_session_async as pg_is_agent_in_active_session,

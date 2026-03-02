@@ -43,8 +43,6 @@ async def _resolve_dialectic_agent_id(arguments: Dict[str, Any]) -> tuple:
         return agent_id, None
 
     # Third-party case: validate provided agent_id is registered
-    from .shared import get_mcp_server
-    mcp_server = get_mcp_server()
     if provided in mcp_server.agent_metadata:
         return provided, None
     # Check PostgreSQL for agents created in other sessions
@@ -69,9 +67,12 @@ logger = get_logger(__name__)
 
 
 # Import from mcp_server_std module (using shared utility)
-from .shared import get_mcp_server
-mcp_server = get_mcp_server()
 
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
 
 # Import session persistence from new module
 from .dialectic_session import (

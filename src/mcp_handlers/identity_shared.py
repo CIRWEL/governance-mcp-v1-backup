@@ -24,6 +24,15 @@ import os
 
 from src.logging_utils import get_logger
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
 
@@ -135,8 +144,6 @@ def _get_identity_record_sync(session_id: Optional[str] = None, arguments: Optio
     This is a lightweight sync version that only checks in-memory cache.
     For full PostgreSQL support, use the async version in identity_v2.py.
     """
-    from .shared import get_mcp_server
-    mcp_server = get_mcp_server()
 
     key = _get_session_key(arguments=arguments, session_id=session_id)
 
@@ -254,8 +261,6 @@ def require_write_permission(arguments: Optional[Dict[str, Any]] = None) -> Tupl
 
 def _get_lineage(agent_id: str) -> list:
     """Get full lineage as list [oldest_ancestor, ..., parent, self]."""
-    from .shared import get_mcp_server
-    mcp_server = get_mcp_server()
 
     lineage = []
     current = agent_id

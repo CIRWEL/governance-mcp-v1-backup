@@ -15,9 +15,17 @@ from .utils import success_response, error_response, require_agent_id, require_r
 from .decorators import mcp_tool
 from src.logging_utils import get_logger
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
-from .shared import get_mcp_server
 
 @mcp_tool("list_tools", timeout=10.0, rate_limit_exempt=True)
 async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
@@ -30,8 +38,6 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         lite (bool): If true, return minimal response (names + descriptions only, ~500B vs ~4KB)
         progressive (bool): If true, order tools by usage frequency (most used first). Works with all filter modes. Default false.
     """
-    from .shared import get_mcp_server
-    mcp_server = get_mcp_server()
     
     # Get actual registered tools from TOOL_HANDLERS registry
     from . import TOOL_HANDLERS

@@ -1,0 +1,92 @@
+# UNITARES Architecture
+
+Single-page reference for system topology. See `UNIFIED_ARCHITECTURE.md` for full detail.
+
+```
+ CLIENTS                        TRANSPORT                   SERVER
+ ───────                        ─────────                   ──────
+ ┌──────────────┐
+ │ Cursor / IDE │─── STDIO ──────────────────┐
+ └──────────────┘                             │
+ ┌──────────────┐                             ▼
+ │Claude Desktop│─── STDIO ──────────┐  ┌──────────────────┐
+ └──────────────┘                     ├─▶│  governance-mcp   │
+ ┌──────────────┐                     │  │  (Python/FastAPI) │
+ │   Browser    │─── HTTP :8767 ──────┤  │  port 8767        │
+ │  /dashboard  │                     │  └────────┬─────────┘
+ └──────────────┘                     │           │
+ ┌──────────────┐                     │           │ dispatch
+ │  CLI / curl  │─── HTTP :8767 ──────┘           │
+ └──────────────┘                                 ▼
+                                        ┌─────────────────┐
+                                        │    MCP Handlers  │
+                                        │  (onboard, checkin│
+                                        │   dialectic, KG, │
+                                        │   identity, ...)  │
+                                        └────────┬────────┘
+                                                 │
+                    ┌────────────────────────────┼────────────────┐
+                    │                            │                │
+                    ▼                            ▼                ▼
+          ┌─────────────────┐       ┌────────────────┐   ┌──────────────┐
+          │  PostgreSQL+AGE │       │     Redis      │   │  JSONL Audit │
+          │  port 5432      │       │   port 6379    │   │  data/       │
+          │  (Docker)       │       │   (Docker)     │   │  audit_log   │
+          │                 │       │                │   │  .jsonl      │
+          │ ┌─────────────┐ │       │  session cache │   └──────────────┘
+          │ │ AGE graphs  │ │       │  (optional)    │
+          │ │ knowledge   │ │       └────────────────┘
+          │ ├─────────────┤ │
+          │ │ pgvector    │ │
+          │ │ embeddings  │ │
+          │ ├─────────────┤ │
+          │ │ relational  │ │
+          │ │ identities  │ │
+          │ │ audit       │ │
+          │ │ calibration │ │
+          │ │ dialectic   │ │
+          │ └─────────────┘ │
+          └─────────────────┘
+
+ MATH CORE (governance_core/)           CROSS-DEVICE
+ ────────────────────────────           ────────────
+ ┌───────────────────────┐              ┌─────────────────────┐
+ │ dynamics.py           │              │   Pi / Lumen        │
+ │   State, compute_     │              │   anima-mcp :8766   │
+ │   dynamics (EISV ODE) │              │   via Tailscale     │
+ ├───────────────────────┤              │                     │
+ │ coherence.py          │              │ sensors → drawing   │
+ │   C(V,Θ), λ₁, λ₂     │              │ EISV (local)        │
+ ├───────────────────────┤              │ check-in → Mac gov  │
+ │ scoring.py            │              │ every ~60s          │
+ │   Φ objective,        │              └─────────────────────┘
+ │   verdict_from_phi    │
+ ├───────────────────────┤
+ │ parameters.py         │
+ │   DynamicsParams, Θ   │
+ │   get_active_params() │
+ └───────────────────────┘
+```
+
+## Data Flow
+
+1. **Client** sends MCP tool call (e.g. `checkin`) via STDIO or HTTP
+2. **Server** dispatches to handler, which calls `governance_core` for EISV math
+3. **Handler** persists state to PostgreSQL, optionally caches in Redis
+4. **Response** returns EISV state, verdict, coherence, guidance
+
+## Key Ports
+
+| Service | Port | Protocol |
+|---------|------|----------|
+| Governance MCP | 8767 | HTTP (Streamable) / STDIO |
+| PostgreSQL+AGE | 5432 | PostgreSQL wire |
+| Redis | 6379 | Redis protocol |
+| Anima MCP (Pi) | 8766 | HTTP (Tailscale) |
+
+## Environment
+
+- **Docker**: `postgres-age` + `governance-redis` containers
+- **Knowledge backend**: AGE graph (env `UNITARES_KNOWLEDGE_BACKEND=age`)
+- **Dynamics mode**: Linear I-channel (env `UNITARES_I_DYNAMICS=linear`, default)
+- **Audit**: Append-only JSONL (`data/audit_log.jsonl`)

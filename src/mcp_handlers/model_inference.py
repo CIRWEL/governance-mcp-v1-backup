@@ -20,6 +20,15 @@ from .utils import success_response, error_response, require_argument
 from .decorators import mcp_tool
 from src.logging_utils import get_logger
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
 # Check if OpenAI SDK available (used for ngrok.ai compatibility)
@@ -264,8 +273,6 @@ async def handle_call_model(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         agent_id = arguments.get("agent_id")
         if agent_id:
             try:
-                from .shared import get_mcp_server
-                mcp_server = get_mcp_server()
                 monitor = mcp_server.get_or_create_monitor(agent_id)
                 
                 # Update Energy through a lightweight process_update

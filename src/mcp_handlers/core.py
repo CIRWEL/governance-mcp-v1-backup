@@ -12,7 +12,6 @@ import json
 from .types import ToolArgumentsDict
 from .utils import success_response, error_response, require_agent_id
 from .decorators import mcp_tool
-from .validators import validate_complexity, validate_confidence, validate_ethical_drift, validate_response_text, _apply_generic_coercion
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -20,11 +19,17 @@ logger = get_logger(__name__)
 from pathlib import Path
 
 # Get mcp_server_std module (using shared utility)
-from .shared import get_mcp_server
-mcp_server = get_mcp_server()
 
-from src.governance_monitor import UNITARESMonitor
 from datetime import datetime
+
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
 
 
 def _assess_thermodynamic_significance(
@@ -135,6 +140,7 @@ async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequenc
     metrics = monitor.get_metrics(include_state=include_state)
 
     # Add EISV labels for API documentation
+    from src.governance_monitor import UNITARESMonitor
     metrics['eisv_labels'] = UNITARESMonitor.get_eisv_labels()
     
     # Standardize metrics reporting with agent_id and context
@@ -357,11 +363,7 @@ async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextC
         agent_id = "_simulation_temp_"
 
     # Validate parameters for simulation
-    reported_complexity = arguments.get("complexity", 0.5)
-    complexity, error = validate_complexity(reported_complexity)
-    if error:
-        return [error]
-    complexity = complexity or 0.5  # Default if None
+    complexity = arguments.get("complexity", 0.5)
 
     # Dialectic condition enforcement (only applies to existing agents)
     if meta and agent_state_source == "existing":
@@ -397,19 +399,9 @@ async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextC
             logger.warning(f"Could not enforce dialectic conditions: {e}", exc_info=True)
 
     # Confidence: If not provided (None), let governance_monitor derive from state
-    reported_confidence = arguments.get("confidence")
-    confidence = None  # Default: derive from thermodynamic state
-    if reported_confidence is not None:
-        confidence, error = validate_confidence(reported_confidence)
-        if error:
-            return [error]
-        # confidence stays as validated value
+    confidence = arguments.get("confidence")
 
-    ethical_drift_raw = arguments.get("ethical_drift", [0.0, 0.0, 0.0])
-    ethical_drift, error = validate_ethical_drift(ethical_drift_raw)
-    if error:
-        return [error]
-    ethical_drift = ethical_drift or [0.0, 0.0, 0.0]  # Default if None
+    ethical_drift = arguments.get("ethical_drift", [0.0, 0.0, 0.0])
 
     # Prepare agent state
     import numpy as np
@@ -424,10 +416,7 @@ async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextC
     result = monitor.simulate_update(agent_state, confidence=confidence)
 
     # LITE MODE: Simplified response for smaller models/local agents
-    # Coerce lite parameter (handles string "true"/"false" → bool)
-    lite_raw = arguments.get("lite", False)
-    coerced_lite = _apply_generic_coercion({"lite": lite_raw})
-    lite_mode = coerced_lite.get("lite", False)
+    lite_mode = arguments.get("lite", False)
     
     if lite_mode:
         # Minimal response: decision + key metrics only
@@ -512,6 +501,7 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
         enrich_eisv_validation,
         enrich_learning_context,
         enrich_websocket_broadcast,
+        enrich_thread_identity,
     )
 
     # MAGNET PATTERN: Accept fuzzy inputs (text, message, work -> response_text)
@@ -553,6 +543,7 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             # Phase 6: Build & enrich response
             ctx.response_data = ctx.result.copy()
             ctx.response_data["agent_id"] = ctx.agent_id
+            from src.governance_monitor import UNITARESMonitor
             ctx.response_data["eisv_labels"] = UNITARESMonitor.get_eisv_labels()
 
             # Run enrichments (each is fail-safe internally)
@@ -574,6 +565,7 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             enrich_eisv_validation(ctx)
             await enrich_learning_context(ctx)
             await enrich_websocket_broadcast(ctx)
+            enrich_thread_identity(ctx)
 
             # Response mode filtering
             try:

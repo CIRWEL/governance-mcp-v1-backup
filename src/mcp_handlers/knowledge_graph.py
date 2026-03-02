@@ -18,8 +18,7 @@ from datetime import datetime
 import time
 from .utils import success_response, error_response, require_argument, require_agent_id, require_registered_agent
 from .decorators import mcp_tool
-from .validators import validate_discovery_type, validate_severity, validate_discovery_status, validate_response_type, validate_discovery_id, apply_param_aliases
-from .shared import get_mcp_server
+from .validators import apply_param_aliases
 from src.knowledge_graph import get_knowledge_graph, DiscoveryNode, ResponseTo
 from config.governance_config import config
 from src.logging_utils import get_logger
@@ -29,6 +28,15 @@ from .llm_delegation import synthesize_results
 logger = get_logger(__name__)
 
 import re
+
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
 
 def normalize_tag(tag: str) -> str:
     """Normalize a tag to canonical form: lowercase, strip, collapse separators to hyphens.
@@ -117,11 +125,9 @@ def _check_display_name_required(agent_id: str, arguments: Dict[str, Any]) -> tu
         - Error only returned for critical failures (rare)
     """
     try:
-        from .shared import get_mcp_server
         from .context import get_context_agent_id
         import uuid as uuid_module
 
-        mcp_server = get_mcp_server()
 
         # Get the actual UUID for this agent
         bound_uuid = get_context_agent_id()
@@ -186,7 +192,6 @@ def _resolve_agent_display(agent_id: str) -> Dict[str, str]:
         agent_id: Either model+date format (new) or UUID (legacy lookups)
     """
     try:
-        mcp_server = get_mcp_server()
         # Try direct lookup (if agent_id is actually a UUID in legacy data)
         if agent_id in mcp_server.agent_metadata:
             meta = mcp_server.agent_metadata[agent_id]
@@ -262,9 +267,6 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
     discovery_type = arguments.get("discovery_type", "note")
     
     # Validate discovery_type enum
-    discovery_type, error = validate_discovery_type(discovery_type)
-    if error:
-        return [error]
     
     summary, error = require_argument(arguments, "summary",
                                     "summary is required - what did you discover/learn?")
@@ -320,14 +322,10 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
             resp_data = arguments["response_to"]
             if isinstance(resp_data, dict) and "discovery_id" in resp_data and "response_type" in resp_data:
                 # Validate discovery_id format
-                parent_id, error = validate_discovery_id(resp_data["discovery_id"])
-                if error:
-                    return [error]
+                parent_id = resp_data["discovery_id"]
                 
                 # Validate response_type enum
-                response_type, error = validate_response_type(resp_data["response_type"])
-                if error:
-                    return [error]
+                response_type = resp_data["response_type"]
                 
                 from src.knowledge_graph import ResponseTo
                 response_to = ResponseTo(
@@ -337,20 +335,14 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
         
         # Validate severity if provided
         severity = arguments.get("severity")
-        if severity is not None:
-            severity, error = validate_severity(severity)
-            if error:
-                return [error]
         
         # ENHANCED PROVENANCE: Capture agent state at creation time
         # Answers: "What was the agent's context when they made this discovery?"
         provenance = None
         provenance_chain = None
         try:
-            from .shared import get_mcp_server
             from .identity_shared import _get_lineage  # Import lineage function
 
-            mcp_server = get_mcp_server()
             if agent_id in mcp_server.agent_metadata:
                 meta = mcp_server.agent_metadata[agent_id]
 
@@ -1052,9 +1044,6 @@ async def handle_update_discovery_status_graph(arguments: Dict[str, Any]) -> Seq
         return [error]
     
     # Validate discovery_id format
-    discovery_id, error = validate_discovery_id(discovery_id)
-    if error:
-        return [error]
     
     status, error = require_argument(arguments, "status",
                                    "status is required (open, resolved, archived, disputed)")
@@ -1062,9 +1051,6 @@ async def handle_update_discovery_status_graph(arguments: Dict[str, Any]) -> Seq
         return [error]
     
     # Validate status enum
-    status, error = validate_discovery_status(status)
-    if error:
-        return [error]
     
     try:
         graph = await get_knowledge_graph()
@@ -1140,9 +1126,6 @@ async def handle_get_discovery_details(arguments: Dict[str, Any]) -> Sequence[Te
         return [error]
 
     # Validate discovery_id format
-    discovery_id, error = validate_discovery_id(discovery_id)
-    if error:
-        return [error]
 
     try:
         graph = await get_knowledge_graph()
@@ -1554,14 +1537,10 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             resp_data = arguments["response_to"]
             if isinstance(resp_data, dict) and "discovery_id" in resp_data and "response_type" in resp_data:
                 # Validate discovery_id format
-                parent_id, error = validate_discovery_id(resp_data["discovery_id"])
-                if error:
-                    return [error]
+                parent_id = resp_data["discovery_id"]
                 
                 # Validate response_type enum
-                response_type, error = validate_response_type(resp_data["response_type"])
-                if error:
-                    return [error]
+                response_type = resp_data["response_type"]
                 
                 response_to = ResponseTo(
                     discovery_id=parent_id,

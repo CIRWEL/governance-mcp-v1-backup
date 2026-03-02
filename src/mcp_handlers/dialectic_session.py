@@ -15,9 +15,15 @@ from datetime import datetime, timedelta, timezone
 from src.dialectic_protocol import DialecticSession, DialecticPhase
 from src.db.acquire_compat import compatible_acquire
 from src.logging_utils import get_logger
-from .shared import get_mcp_server
 
 logger = get_logger(__name__)
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
 
 # PostgreSQL backend (cross-process shared state)
 from src.dialectic_db import (
@@ -25,15 +31,8 @@ from src.dialectic_db import (
     get_active_sessions_async as pg_get_active_sessions,
 )
 
-# Get project root for session storage
-try:
-    project_root = Path(get_mcp_server().project_root)
-except (AttributeError, TypeError):
-    project_root = Path(__file__).parent.parent.parent
-
+project_root = Path(__file__).parent.parent.parent
 SESSION_STORAGE_DIR = project_root / "data" / "dialectic_sessions"
-# Note: Directory creation is deferred to first use (in save_session/load_session)
-# to avoid blocking during module import
 
 # Active dialectic sessions (in-memory + persistent storage)
 ACTIVE_SESSIONS: Dict[str, DialecticSession] = {}

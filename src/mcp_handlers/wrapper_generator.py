@@ -17,6 +17,15 @@ from typing import Annotated, Any, Callable, Optional, Union
 
 from pydantic import Field
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = logging.getLogger(__name__)
 
 

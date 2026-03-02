@@ -9,6 +9,15 @@ from typing import Any, Dict, Optional
 
 from src.logging_utils import get_logger
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
 
@@ -129,7 +138,7 @@ def _format_standard(response_data: dict, task_type: str) -> dict:
 
     interpreted = temp_state.interpret_state(risk_score=risk_score, task_type=task_type)
 
-    return {
+    result = {
         "success": True,
         "agent_id": response_data.get("agent_id"),
         "decision": decision.get("action") or response_data.get("status"),
@@ -142,6 +151,9 @@ def _format_standard(response_data: dict, task_type: str) -> dict:
         "_mode": "standard",
         "_raw_available": "Use response_mode='full' to see complete metrics",
     }
+    if "thread_context" in response_data:
+        result["thread_context"] = response_data["thread_context"]
+    return result
 
 
 def _format_minimal(response_data: dict, using_default_mode: bool, saved_trust_tier: Optional[str]) -> dict:
@@ -170,6 +182,8 @@ def _format_minimal(response_data: dict, using_default_mode: bool, saved_trust_t
         result["_tip"] = "Set verbosity: update_agent_metadata(preferences={'verbosity':'minimal'})"
     if saved_trust_tier:
         result["trust_tier"] = saved_trust_tier
+    if "thread_context" in response_data:
+        result["thread_context"] = response_data["thread_context"]
 
     return result
 
@@ -228,6 +242,8 @@ def _format_compact(response_data: dict, using_default_mode: bool, saved_trust_t
         result["trust_tier"] = saved_trust_tier
     if using_default_mode:
         result["_tip"] = "Verbosity options: response_mode='minimal'|'compact'|'full', or set permanently via update_agent_metadata(preferences={'verbosity':'minimal'})"
+    if "thread_context" in response_data:
+        result["thread_context"] = response_data["thread_context"]
 
     return result
 

@@ -175,6 +175,9 @@ class AgentMetadata:
     # Session binding persistence (for identity recovery across session key changes)
     active_session_key: str = None
     session_bound_at: str = None
+    # Thread tracking (for continuous lineage within or across sessions)
+    thread_id: str = None  # UUID for the continuous thread
+    node_index: int = 1  # Which node in the thread this session represents
     # Purpose field for documenting agent intent (optional but encouraged)
     purpose: str = None  # Optional description of agent's purpose/intent
     # Internal unguessable identity (server-decided, never changes)
@@ -409,6 +412,8 @@ async def _load_metadata_from_postgres_async() -> dict:
             preferences=agent.metadata.get("preferences", {}),
             active_session_key=agent.metadata.get("active_session_key"),
             session_bound_at=agent.metadata.get("session_bound_at"),
+            thread_id=agent.metadata.get("thread_id", None),
+            node_index=agent.metadata.get("node_index", 1),
             dialectic_conditions=agent.metadata.get("dialectic_conditions", []),
             lifecycle_events=agent.metadata.get("lifecycle_events", []),
             recent_update_timestamps=agent.metadata.get("recent_update_timestamps", []),
@@ -507,6 +512,8 @@ def _parse_metadata_dict(data: dict) -> dict:
         defaults = {
             "parent_agent_id": None,
             "spawn_reason": None,
+            "thread_id": None,
+            "node_index": 1,
             "recent_update_timestamps": None,
             "recent_decisions": None,
             "loop_detected_at": None,

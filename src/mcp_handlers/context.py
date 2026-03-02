@@ -17,6 +17,15 @@ from typing import Any, Dict, Optional
 import os
 
 
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
+
 # =============================================================================
 # SESSION SIGNALS (unified transport signal capture)
 # =============================================================================

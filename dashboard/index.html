@@ -124,8 +124,9 @@
         <div class="live-chart-panel" id="governance-pulse-panel">
             <div class="panel-header">
                 <h2>Pulse <span class="pulse-agent-name" id="pulse-agent-name"
-                        title="Last agent to check in">—</span></h2>
+                        title="Last agent to check in">—</span> <span id="pulse-scope-label" class="pulse-scope-label">Last check-in</span></h2>
                 <div class="vitals-header-right">
+                    <button id="pulse-unpin-btn" class="panel-button pulse-unpin-btn hidden" type="button">Unpin</button>
                     <span class="governance-verdict" id="gov-verdict">
                         <span class="verdict-dot"></span>
                         <span class="verdict-label">—</span>
@@ -213,6 +214,12 @@
                     <h3>Events</h3>
                     <div class="pulse-log-entries" id="events-log-entries">
                         <div class="pulse-log-empty">No events yet</div>
+                    </div>
+                </div>
+                <div class="activity-sparkline-section">
+                    <h3>Activity <span class="activity-sparkline-label">(1h)</span></h3>
+                    <div class="activity-sparkline-wrap" style="height:60px;position:relative">
+                        <canvas id="activity-sparkline"></canvas>
                     </div>
                 </div>
             </div>

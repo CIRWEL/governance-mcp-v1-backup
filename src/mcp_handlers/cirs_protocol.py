@@ -50,10 +50,18 @@ from .decorators import mcp_tool
 from .utils import success_response, error_response, require_registered_agent
 from src.logging_utils import get_logger
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
 # Import shared server access
-from .shared import get_mcp_server
 
 
 # =============================================================================
@@ -452,7 +460,6 @@ async def _handle_void_alert_emit(arguments: Dict[str, Any]) -> Sequence[TextCon
     if error:
         return [error]
 
-    mcp_server = get_mcp_server()
 
     # Get current state for auto-detection
     monitor = mcp_server.get_or_create_monitor(agent_id)
@@ -640,7 +647,6 @@ async def _handle_state_announce_emit(arguments: Dict[str, Any]) -> Sequence[Tex
     if error:
         return [error]
 
-    mcp_server = get_mcp_server()
 
     # Get current state
     monitor = mcp_server.get_or_create_monitor(agent_id)
@@ -953,8 +959,7 @@ def auto_emit_state_announce(
         # Get trust tier from cache if available
         trust_tier_name = None
         try:
-            from .shared import get_mcp_server
-            _meta = get_mcp_server().agent_metadata.get(agent_id)
+            _meta = mcp_server.agent_metadata.get(agent_id)
             if _meta:
                 trust_tier_name = getattr(_meta, 'trust_tier', None)
         except Exception:
@@ -1310,7 +1315,6 @@ async def _handle_coherence_report_compute(arguments: Dict[str, Any]) -> Sequenc
             }
         )]
 
-    mcp_server = get_mcp_server()
 
     # Get source agent state
     source_monitor = mcp_server.get_or_create_monitor(source_agent_id)
@@ -2046,7 +2050,6 @@ async def _handle_governance_action_initiate(arguments: Dict[str, Any]) -> Seque
 
     # For void_intervention, add initiator's current state
     if action_type == GovernanceActionType.VOID_INTERVENTION:
-        mcp_server = get_mcp_server()
         monitor = mcp_server.get_or_create_monitor(agent_id)
         metrics = monitor.get_metrics()
         payload["initiator_state"] = {

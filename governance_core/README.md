@@ -2,7 +2,7 @@
 
 **Version:** 2.8.0
 **Status:** Active
-**Last Updated:** 2026-02-26
+**Last Updated:** 2026-02-27
 
 ---
 
@@ -306,4 +306,4 @@ The math is complete. The *interpretation* is domain-specific — a model learni
 ---
 
 **Maintainer:** @CIRWEL
-**Last Updated:** 2026-02-20
+**Last Updated:** 2026-02-27

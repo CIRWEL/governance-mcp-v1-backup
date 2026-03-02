@@ -11,11 +11,18 @@ from .decorators import mcp_tool
 from .error_helpers import agent_not_found_error, authentication_error
 from src.logging_utils import get_logger
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
 # Import from mcp_server_std module (using shared utility)
-from .shared import get_mcp_server
-mcp_server = get_mcp_server()
 
 
 @mcp_tool("get_thresholds", timeout=10.0, rate_limit_exempt=True, register=False)

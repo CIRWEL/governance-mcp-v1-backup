@@ -10,6 +10,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Any
 
 from src.logging_utils import get_logger
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
 from src.dialectic_db import (
     get_dialectic_db,
     get_active_sessions_async,

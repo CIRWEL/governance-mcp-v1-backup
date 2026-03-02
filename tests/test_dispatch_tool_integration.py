@@ -125,8 +125,8 @@ def mock_derive_session_key():
 @pytest.fixture
 def mock_validators():
     """Mock parameter validators to pass through."""
-    with patch("src.mcp_handlers.validators.validate_and_coerce_params") as m:
-        m.side_effect = lambda name, args: (args, None, [])
+    with patch("src.tool_schemas.get_pydantic_schemas") as m:
+        m.return_value = {}
         yield m
 
 

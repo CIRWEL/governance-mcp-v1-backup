@@ -1134,7 +1134,7 @@ class TestUpdateCalibrationFromDialectic:
         mock_server = MagicMock()
         mock_checker = MagicMock()
 
-        with patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_server), \
+        with patch("src.mcp_handlers.cirs_protocol.mcp_server", mock_server), \
              patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit, \
              patch("src.mcp_handlers.dialectic_calibration.calibration_checker", mock_checker):
             mock_audit.query_audit_log.return_value = audit_entries
@@ -1148,7 +1148,7 @@ class TestUpdateCalibrationFromDialectic:
         resolution = MagicMock(action="resume")
 
         mock_server = MagicMock()
-        with patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_server), \
+        with patch("src.mcp_handlers.cirs_protocol.mcp_server", mock_server), \
              patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit:
             mock_audit.query_audit_log.return_value = []
             result = await update_calibration_from_dialectic(session, resolution=resolution)
@@ -1173,7 +1173,7 @@ class TestUpdateCalibrationFromDisagreement:
     async def test_no_confidence(self):
         session = _make_mock_session(dispute_type="verification", discovery_id="d1")
         mock_server = MagicMock()
-        with patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_server), \
+        with patch("src.mcp_handlers.cirs_protocol.mcp_server", mock_server), \
              patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit:
             mock_audit.query_audit_log.return_value = []
             assert await update_calibration_from_dialectic_disagreement(session) is False
@@ -1183,7 +1183,7 @@ class TestUpdateCalibrationFromDisagreement:
         session = _make_mock_session(dispute_type="verification", discovery_id="d1")
         entries = [{"discovery_id": "d1", "confidence": 0.9, "complexity_discrepancy": 0.2}]
         mock_server = MagicMock()
-        with patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_server), \
+        with patch("src.mcp_handlers.cirs_protocol.mcp_server", mock_server), \
              patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit:
             mock_audit.query_audit_log.return_value = entries
             result = await update_calibration_from_dialectic_disagreement(session)
@@ -1196,7 +1196,7 @@ class TestUpdateCalibrationFromDisagreement:
         session.created_at = now
         entries = [{"timestamp": now.isoformat(), "confidence": 0.8, "complexity_discrepancy": 0.1}]
         mock_server = MagicMock()
-        with patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_server), \
+        with patch("src.mcp_handlers.cirs_protocol.mcp_server", mock_server), \
              patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit:
             mock_audit.query_audit_log.return_value = entries
             result = await update_calibration_from_dialectic_disagreement(session)
@@ -1275,7 +1275,7 @@ class TestExecuteResolution:
     @pytest.mark.asyncio
     async def test_successful_resolution(self):
         session, resolution, mock_server = self._make_session_and_resolution()
-        with patch("src.mcp_handlers.dialectic_resolution.get_mcp_server", return_value=mock_server), \
+        with patch("src.mcp_handlers.dialectic_resolution.mcp_server", mock_server), \
              patch("src.mcp_handlers.dialectic_resolution.parse_condition") as mock_parse, \
              patch("src.mcp_handlers.dialectic_resolution.apply_condition", new_callable=AsyncMock, return_value={"status": "applied"}), \
              patch("src.agent_storage.update_agent", new_callable=AsyncMock, return_value=None):
@@ -1288,14 +1288,14 @@ class TestExecuteResolution:
     async def test_agent_not_found(self):
         session, resolution, mock_server = self._make_session_and_resolution()
         mock_server.agent_metadata = {}
-        with patch("src.mcp_handlers.dialectic_resolution.get_mcp_server", return_value=mock_server):
+        with patch("src.mcp_handlers.dialectic_resolution.mcp_server", mock_server):
             with pytest.raises(ValueError, match="not found"):
                 await execute_resolution(session, resolution)
 
     @pytest.mark.asyncio
     async def test_agent_not_paused(self):
         session, resolution, mock_server = self._make_session_and_resolution(status="active")
-        with patch("src.mcp_handlers.dialectic_resolution.get_mcp_server", return_value=mock_server):
+        with patch("src.mcp_handlers.dialectic_resolution.mcp_server", mock_server):
             result = await execute_resolution(session, resolution)
             assert result["success"] is False
             assert "not 'paused'" in result["warning"]
@@ -1303,7 +1303,7 @@ class TestExecuteResolution:
     @pytest.mark.asyncio
     async def test_condition_apply_failure(self):
         session, resolution, mock_server = self._make_session_and_resolution()
-        with patch("src.mcp_handlers.dialectic_resolution.get_mcp_server", return_value=mock_server), \
+        with patch("src.mcp_handlers.dialectic_resolution.mcp_server", mock_server), \
              patch("src.mcp_handlers.dialectic_resolution.parse_condition", side_effect=RuntimeError("parse error")), \
              patch("src.agent_storage.update_agent", new_callable=AsyncMock, return_value=None):
             result = await execute_resolution(session, resolution)
@@ -1390,28 +1390,33 @@ class TestResolveAlias:
 class TestValidateParams:
     @pytest.mark.asyncio
     async def test_valid_params(self):
+        """validate_params now uses Pydantic schemas directly."""
         ctx = DispatchContext()
-        with patch("src.mcp_handlers.validators.validate_and_coerce_params", return_value=({"a": 1}, None, [])):
-            result = await validate_params("tool", {"a": 1}, ctx)
+        # With no Pydantic schema registered, params pass through unchanged
+        with patch("src.tool_schemas.get_pydantic_schemas", return_value={}):
+            result = await validate_params("unknown_tool", {"a": 1}, ctx)
             assert isinstance(result, tuple)
             assert result[1]["a"] == 1
 
     @pytest.mark.asyncio
     async def test_validation_error(self):
+        """Pydantic validation error returns error list."""
+        from pydantic import BaseModel
+        class StrictModel(BaseModel):
+            x: int
         ctx = DispatchContext()
-        mock_error = MagicMock()
-        with patch("src.mcp_handlers.validators.validate_and_coerce_params", return_value=({}, mock_error, [])):
-            result = await validate_params("tool", {}, ctx)
-            assert isinstance(result, list)
+        with patch("src.tool_schemas.get_pydantic_schemas", return_value={"strict_tool": StrictModel}):
+            result = await validate_params("strict_tool", {"x": "not_int"}, ctx)
+            assert isinstance(result, list)  # Error response
 
     @pytest.mark.asyncio
-    async def test_coercions_tracked(self):
+    async def test_passthrough_with_no_schema(self):
+        """Without schema, params pass through with aliases applied."""
         ctx = DispatchContext()
-        coercions = [{"param": "x", "from": "str", "to": "int"}]
-        with patch("src.mcp_handlers.validators.validate_and_coerce_params", return_value=({"x": 1}, None, coercions)):
+        with patch("src.tool_schemas.get_pydantic_schemas", return_value={}):
             result = await validate_params("tool", {"x": "1"}, ctx)
             name, args, _ = result
-            assert args["_param_coercions"] == coercions
+            assert args["x"] == "1"
 
 
 class TestCheckRateLimit:

@@ -627,8 +627,27 @@ document.addEventListener('click', async (event) => {
         return;
     }
 
-    // Note: Discovery leave-note and dialectic submit handlers removed.
-    // These are agent-only operations, not human dashboard features.
+    // Handle agent detail Pin to Pulse button
+    const detailPinBtn = event.target.closest('.agent-detail-pin-btn');
+    if (detailPinBtn) {
+        event.stopPropagation();
+        const agentId = detailPinBtn.getAttribute('data-agent-id');
+        const agentName = detailPinBtn.getAttribute('data-agent-name');
+        if (!agentId) return;
+        if (state.get('pinnedAgentId') === agentId) {
+            state.set({ pinnedAgentId: null, pinnedAgentName: null });
+            localStorage.removeItem('unitares_pinned_agent_id');
+            localStorage.removeItem('unitares_pinned_agent_name');
+            detailPinBtn.textContent = 'Pin to Pulse';
+        } else {
+            state.set({ pinnedAgentId: agentId, pinnedAgentName: agentName || agentId });
+            localStorage.setItem('unitares_pinned_agent_id', agentId);
+            localStorage.setItem('unitares_pinned_agent_name', agentName || agentId);
+            detailPinBtn.textContent = 'Unpin from Pulse';
+        }
+        applyAgentFilters();
+        return;
+    }
 
     // Handle agent detail Resume button
     const detailResumeBtn = event.target.closest('.agent-detail-resume-btn');
@@ -947,7 +966,8 @@ async function loadAgents() {
                 }
                 previousStats.fleetCoherence = avgCoherence;
 
-                fleetDetailEl.innerHTML = parts.length > 0 ? parts.join(', ') : `${agentsWithMetrics.length} agents tracked`;
+                const agentCountLabel = agentsWithMetrics.length + ' agents';
+                fleetDetailEl.innerHTML = parts.length > 0 ? agentCountLabel + ' · ' + parts.join(', ') : agentCountLabel;
             } else {
                 fleetCoherenceEl.textContent = '-';
                 fleetDetailEl.innerHTML = 'No metrics data';
@@ -1108,9 +1128,15 @@ async function loadCalibration() {
         const detailEl = document.getElementById('calibration-detail');
         if (!valueEl || !detailEl) return;
         if (result && result.success) {
+            const samples = result.total_samples ?? 0;
             const th = result.trajectory_health ?? result.accuracy ?? 0;
-            valueEl.textContent = result.calibrated ? 'OK' : '—';
-            detailEl.textContent = `Health ${(th * 100).toFixed(0)}%`;
+            if (samples === 0) {
+                valueEl.textContent = '—';
+                detailEl.textContent = 'No samples \u00b7 Fleet-wide';
+            } else {
+                valueEl.textContent = result.calibrated ? 'OK' : '—';
+                detailEl.textContent = samples + ' samples \u00b7 Health ' + (th * 100).toFixed(0) + '%';
+            }
         } else {
             valueEl.textContent = '-';
             detailEl.textContent = '';
@@ -1640,6 +1666,26 @@ updateRefreshStatus();
 const agentsContainer = document.getElementById('agents-container');
 if (agentsContainer) {
     agentsContainer.addEventListener('click', event => {
+        // Handle pin button click
+        const pinBtn = event.target.closest('button[data-action="pin"]');
+        if (pinBtn) {
+            event.stopPropagation();
+            const agentId = pinBtn.getAttribute('data-agent-id');
+            const agentName = pinBtn.getAttribute('data-agent-name');
+            if (!agentId) return;
+            if (state.get('pinnedAgentId') === agentId) {
+                state.set({ pinnedAgentId: null, pinnedAgentName: null });
+                localStorage.removeItem('unitares_pinned_agent_id');
+                localStorage.removeItem('unitares_pinned_agent_name');
+            } else {
+                state.set({ pinnedAgentId: agentId, pinnedAgentName: agentName || agentId });
+                localStorage.setItem('unitares_pinned_agent_id', agentId);
+                localStorage.setItem('unitares_pinned_agent_name', agentName || agentId);
+            }
+            applyAgentFilters();
+            return;
+        }
+
         // Handle copy-id button click (don't bubble to agent detail)
         const button = event.target.closest('button[data-action="copy-id"]');
         if (button) {

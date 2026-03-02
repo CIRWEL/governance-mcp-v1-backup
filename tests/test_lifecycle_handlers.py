@@ -2408,7 +2408,7 @@ class TestGetAgentMetadataEdgeCases:
         with patch("src.agent_state.AgentMetadata", MagicMock(return_value=mock_meta)), \
              patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.cache.get_metadata_cache", return_value=mock_cache), \
-             patch("src.mcp_handlers.lifecycle.UNITARESMonitor") as mock_um:
+             patch("src.governance_monitor.UNITARESMonitor") as mock_um:
             mock_um.get_eisv_labels.return_value = {"E": "Entropy"}
             result = await handle_get_agent_metadata({"target_agent": "agent-uuid-123"})
             data = _parse(result)
@@ -2440,7 +2440,7 @@ class TestGetAgentMetadataEdgeCases:
         with patch("src.agent_state.AgentMetadata", MagicMock(return_value=mock_meta)), \
              patch("src.mcp_handlers.lifecycle.mcp_server", server), patch("src.mcp_handlers.lifecycle_stuck.mcp_server", server), patch("src.mcp_handlers.lifecycle_resume.mcp_server", server), \
              patch("src.cache.get_metadata_cache", return_value=mock_cache), \
-             patch("src.mcp_handlers.lifecycle.UNITARESMonitor") as mock_um:
+             patch("src.governance_monitor.UNITARESMonitor") as mock_um:
             mock_um.get_eisv_labels.return_value = {"E": "Entropy"}
             from src.mcp_handlers.lifecycle import handle_get_agent_metadata
             result = await handle_get_agent_metadata({"target_agent": "agent-uuid-123"})

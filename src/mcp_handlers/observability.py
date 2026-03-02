@@ -8,19 +8,26 @@ from mcp.types import TextContent
 import sys
 from .utils import success_response, error_response, require_argument, require_registered_agent
 from .decorators import mcp_tool
-from src.governance_monitor import UNITARESMonitor
 from src.logging_utils import get_logger
+
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
 
 logger = get_logger(__name__)
 
 # Import from mcp_server_std module (using shared utility)
-from .shared import get_mcp_server
-mcp_server = get_mcp_server()
 
 
 @mcp_tool("observe_agent", timeout=15.0, register=False)
 async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Observe another agent's governance state with pattern analysis"""
+    from src.governance_monitor import UNITARESMonitor
     # Resolve the TARGET agent to observe.
     # Accept "target_agent_id" (preferred) or "agent_id" (legacy, only if it
     # doesn't match the caller's session-bound UUID — avoids self-observe).
@@ -124,6 +131,7 @@ async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
 @mcp_tool("compare_agents", timeout=15.0, register=False)
 async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Compare governance patterns across multiple agents"""
+    from src.governance_monitor import UNITARESMonitor
     # Reload metadata to get latest state (handles multi-process sync) - non-blocking
     await mcp_server.load_metadata_async(force=True)
     
@@ -266,6 +274,7 @@ async def handle_compare_me_to_similar(arguments: Dict[str, Any]) -> Sequence[Te
     
     IMPROVEMENT #5: Agent comparison templates
     """
+    from src.governance_monitor import UNITARESMonitor
     # SECURITY FIX: Require registered agent (prevents phantom agent_ids)
     agent_id, error = require_registered_agent(arguments)
     if error:
@@ -511,6 +520,7 @@ async def handle_compare_me_to_similar(arguments: Dict[str, Any]) -> Sequence[Te
 @mcp_tool("detect_anomalies", timeout=15.0, register=False)
 async def handle_detect_anomalies(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Detect anomalies across agents"""
+    from src.governance_monitor import UNITARESMonitor
     import asyncio
     
     # Reload metadata from PostgreSQL (async)
@@ -608,6 +618,7 @@ async def handle_detect_anomalies(arguments: Dict[str, Any]) -> Sequence[TextCon
 @mcp_tool("aggregate_metrics", timeout=15.0, register=False)
 async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Get fleet-level health overview"""
+    from src.governance_monitor import UNITARESMonitor
     import numpy as np
     
     # Reload metadata to get latest state (handles multi-process sync) - non-blocking

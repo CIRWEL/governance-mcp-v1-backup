@@ -171,7 +171,7 @@ def mock_server():
             "agent-2": _make_monitor("agent-2", V=0.1, coherence=0.5),
         },
     )
-    with patch(f"{MODULE}.get_mcp_server", return_value=server):
+    with patch(f"{MODULE}.mcp_server", server):
         yield server
 
 
@@ -620,8 +620,7 @@ class TestAutoEmitStateAnnounce:
             "phi": 0.5, "verdict": "safe",
             "risk_score": 0.3, "updates": 5,
         }
-        with patch(f"{MODULE}.get_mcp_server") as mock_get:
-            mock_get.return_value = _make_mock_server()
+        with patch(f"{MODULE}.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         assert result is not None
         assert result["agent_id"] == "agent-1"
@@ -634,8 +633,7 @@ class TestAutoEmitStateAnnounce:
             "phi": 0.5, "verdict": "safe",
             "risk_score": 0.2, "updates": 10,
         }
-        with patch(f"{MODULE}.get_mcp_server") as mock_get:
-            mock_get.return_value = _make_mock_server()
+        with patch(f"{MODULE}.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         assert result is not None
 
@@ -653,8 +651,7 @@ class TestAutoEmitStateAnnounce:
             "phi": 0.1, "verdict": "caution",
             "risk_score": 0.5, "updates": 1,
         }
-        with patch(f"{MODULE}.get_mcp_server") as mock_get:
-            mock_get.return_value = _make_mock_server()
+        with patch(f"{MODULE}.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         # updates=1 -> 1 % 5 != 0 but update_count > 1 is False, so it emits
         assert result is not None
@@ -667,21 +664,23 @@ class TestAutoEmitStateAnnounce:
             "phi": 0.1, "verdict": "caution",
             "risk_score": 0.5, "updates": 0,
         }
-        with patch(f"{MODULE}.get_mcp_server") as mock_get:
-            mock_get.return_value = _make_mock_server()
+        with patch(f"{MODULE}.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         # updates=0 -> 0 % 5 == 0, so it emits
         assert result is not None
 
     def test_handles_mcp_server_exception_gracefully(self):
         from src.mcp_handlers.cirs_protocol import auto_emit_state_announce
-        # get_mcp_server failure is caught by inner try/except, announce still created
+        # mcp_server.agent_metadata.get() failure is caught by inner try/except
         metrics = {"updates": 5, "E": 0.7, "I": 0.8, "S": 0.2, "V": 0.0,
                    "coherence": 0.7, "regime": "stable", "phi": 0.5,
                    "verdict": "safe", "risk_score": 0.2}
-        with patch(f"{MODULE}.get_mcp_server", side_effect=Exception("boom")):
+        broken_server = MagicMock()
+        broken_server.agent_metadata = MagicMock()
+        broken_server.agent_metadata.get = MagicMock(side_effect=Exception("boom"))
+        with patch(f"{MODULE}.mcp_server", broken_server):
             result = auto_emit_state_announce("agent-1", metrics, None)
-        # Still succeeds because get_mcp_server is only for trust_tier (inner try)
+        # Still succeeds because mcp_server access is only for trust_tier (inner try)
         assert result is not None
         assert result["agent_id"] == "agent-1"
 
@@ -689,8 +688,7 @@ class TestAutoEmitStateAnnounce:
         from src.mcp_handlers.cirs_protocol import auto_emit_state_announce
         # Cause the outer try to fail by providing non-numeric data
         metrics = {"updates": 5, "E": "not_a_number"}
-        with patch(f"{MODULE}.get_mcp_server") as mock_get:
-            mock_get.return_value = _make_mock_server()
+        with patch(f"{MODULE}.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         # float("not_a_number") raises ValueError, caught by outer try
         assert result is None

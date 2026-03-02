@@ -5,7 +5,12 @@ All concrete decision points implemented - no placeholders!
 
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional, List
-import numpy as np
+class _LazyNumpy:
+    def __getattr__(self, name):
+        import numpy
+        return getattr(numpy, name)
+np = _LazyNumpy()
+
 import re
 import os
 

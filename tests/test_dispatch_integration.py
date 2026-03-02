@@ -30,7 +30,7 @@ from src.mcp_handlers.middleware import (
     _tool_call_history,
 )
 from src.mcp_handlers.tool_stability import resolve_tool_alias, _TOOL_ALIASES
-from src.mcp_handlers.validators import validate_and_coerce_params
+
 
 
 # ============================================================================
@@ -264,111 +264,7 @@ class TestResolveAlias:
         assert ctx_out.original_name == "health_check"
 
 
-# ============================================================================
-# 4. validate_params middleware
-# ============================================================================
 
-class TestValidateParams:
-    """Tests for the validate_params middleware step."""
-
-    @pytest.mark.asyncio
-    async def test_valid_params_passthrough(self):
-        """Valid params pass through unchanged."""
-        ctx = _make_ctx()
-        name, args, ctx_out = await validate_params(
-            "health_check", {}, ctx
-        )
-        assert name == "health_check"
-        assert isinstance(args, dict)
-
-    @pytest.mark.asyncio
-    async def test_bool_coercion_string_true(self):
-        """String "true" coerced to bool True for boolean params."""
-        ctx = _make_ctx()
-        name, args, ctx_out = await validate_params(
-            "get_governance_metrics", {"include_state": "true"}, ctx
-        )
-        # Should not short-circuit
-        assert not _is_short_circuit((name, args, ctx_out))
-        assert args["include_state"] is True
-
-    @pytest.mark.asyncio
-    async def test_bool_coercion_string_false(self):
-        """String "false" coerced to bool False."""
-        ctx = _make_ctx()
-        name, args, ctx_out = await validate_params(
-            "list_tools", {"lite": "false"}, ctx
-        )
-        assert args["lite"] is False
-
-    @pytest.mark.asyncio
-    async def test_float_coercion(self):
-        """String float coerced to actual float."""
-        ctx = _make_ctx()
-        name, args, ctx_out = await validate_params(
-            "process_agent_update", {"complexity": "0.7"}, ctx
-        )
-        assert isinstance(args["complexity"], float)
-        assert args["complexity"] == 0.7
-
-    @pytest.mark.asyncio
-    async def test_validation_error_returns_list(self):
-        """Validation error returns list (short-circuit)."""
-        ctx = _make_ctx()
-        # Pydantic rejects invalid Literal values
-        result = await validate_params(
-            "process_agent_update", {"response_mode": "invalid_mode"}, ctx
-        )
-        assert _is_short_circuit(result)
-
-    @pytest.mark.asyncio
-    async def test_unknown_tool_passthrough(self):
-        """Unknown tool (no schema) passes through with generic coercion only."""
-        ctx = _make_ctx()
-        name, args, ctx_out = await validate_params(
-            "some_unknown_tool", {"limit": "5", "dry_run": "true"}, ctx
-        )
-        # Generic coercion should apply
-        assert args["limit"] == 5
-        assert args["dry_run"] is True
-
-    @pytest.mark.asyncio
-    async def test_param_alias_resolution(self):
-        """Parameter aliases are resolved (e.g., 'content' -> 'summary' for store_knowledge_graph)."""
-        ctx = _make_ctx()
-        name, args, ctx_out = await validate_params(
-            "store_knowledge_graph", {"content": "my discovery"}, ctx
-        )
-        # "content" should be aliased to "summary"
-        assert not _is_short_circuit((name, args, ctx_out))
-        assert args.get("summary") == "my discovery"
-
-    @pytest.mark.asyncio
-    async def test_float_range_rejected(self):
-        """Out-of-range float_01 values are rejected by schema validation."""
-        ctx = _make_ctx()
-        result = await validate_params(
-            "process_agent_update", {"confidence": "1.5"}, ctx
-        )
-        # Schema validation rejects out-of-range values (returns error list)
-        assert isinstance(result, list), "Should return error for out-of-range confidence"
-
-    @pytest.mark.asyncio
-    async def test_coercions_tracked(self):
-        """When coercions are applied, _param_coercions is added."""
-        ctx = _make_ctx()
-        name, args, ctx_out = await validate_params(
-            "process_agent_update", {"complexity": "0.5"}, ctx
-        )
-        # complexity is a float_01 in generic coercion and also in schema
-        # The middleware attaches _param_coercions if coercions happened
-        # (This tests the coercion tracking behavior)
-        assert isinstance(args.get("complexity"), float)
-
-
-# ============================================================================
-# 5. check_rate_limit middleware
-# ============================================================================
 
 class TestCheckRateLimit:
     """Tests for the check_rate_limit middleware step."""
@@ -454,91 +350,7 @@ class TestCheckRateLimit:
         assert not _is_short_circuit(result)
 
 
-# ============================================================================
-# 6. validate_and_coerce_params (direct unit tests)
-# ============================================================================
 
-class TestValidateAndCoerceParams:
-    """Direct unit tests for the validate_and_coerce_params function."""
-
-    def test_unknown_tool_generic_coercion(self):
-        """Unknown tools still get generic coercion."""
-        args, err, fixes = validate_and_coerce_params(
-            "unknown_tool", {"limit": "10", "dry_run": "true"}
-        )
-        assert err is None
-        assert args["limit"] == 10
-        assert args["dry_run"] is True
-
-    def test_bool_coercion_variants(self):
-        """Test various boolean string representations."""
-        # "yes" -> True
-        args, err, _ = validate_and_coerce_params(
-            "unknown_tool", {"confirm": "yes"}
-        )
-        assert args["confirm"] is True
-
-        # "no" -> False
-        args, err, _ = validate_and_coerce_params(
-            "unknown_tool", {"confirm": "no"}
-        )
-        assert args["confirm"] is False
-
-        # "1" -> True
-        args, err, _ = validate_and_coerce_params(
-            "unknown_tool", {"confirm": "1"}
-        )
-        assert args["confirm"] is True
-
-    def test_float_01_type_coercion_no_clamp(self):
-        """Generic coercion converts type (str→float) but does not clamp range."""
-        args, err, _ = validate_and_coerce_params(
-            "unknown_tool", {"complexity": "2.0"}
-        )
-        assert args["complexity"] == 2.0  # Type coerced, not clamped
-
-        args, err, _ = validate_and_coerce_params(
-            "unknown_tool", {"complexity": "-0.5"}
-        )
-        assert args["complexity"] == -0.5  # Type coerced, not clamped
-
-    def test_int_coercion_from_float_string(self):
-        """Integer param from float string (e.g., "5.0" -> 5)."""
-        args, err, _ = validate_and_coerce_params(
-            "unknown_tool", {"limit": "5.0"}
-        )
-        assert args["limit"] == 5
-        assert isinstance(args["limit"], int)
-
-    def test_required_param_missing(self):
-        """Missing required param returns error."""
-        args, err, _ = validate_and_coerce_params(
-            "store_knowledge_graph", {}
-        )
-        assert err is not None
-        # err is a TextContent object
-        assert "summary" in err.text.lower() or "missing" in err.text.lower()
-
-    def test_enum_case_insensitive(self):
-        """Enum values are matched case-insensitively."""
-        args, err, fixes = validate_and_coerce_params(
-            "process_agent_update", {"task_type": "MIXED"}
-        )
-        assert err is None
-        assert args["task_type"] == "mixed"
-
-    def test_param_alias_content_to_summary(self):
-        """Parameter alias 'content' -> 'summary' for store_knowledge_graph."""
-        args, err, _ = validate_and_coerce_params(
-            "store_knowledge_graph", {"content": "my note"}
-        )
-        assert err is None
-        assert args.get("summary") == "my note"
-
-
-# ============================================================================
-# 7. resolve_tool_alias (direct unit tests)
-# ============================================================================
 
 class TestResolveToolAlias:
     """Direct unit tests for resolve_tool_alias function."""

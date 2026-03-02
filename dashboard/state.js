@@ -69,8 +69,19 @@
         agentEISVHistory: {},
         knownAgents: new Set(),
         selectedAgentView: '__fleet__',
-        lastVitalsTimestamp: null
+        lastVitalsTimestamp: null,
+        pinnedAgentId: null,
+        pinnedAgentName: null
     });
+
+    // Restore pinned agent from localStorage
+    if (typeof window !== 'undefined' && window.localStorage) {
+        var savedId = localStorage.getItem('unitares_pinned_agent_id');
+        var savedName = localStorage.getItem('unitares_pinned_agent_name');
+        if (savedId) {
+            dashboardState.set({ pinnedAgentId: savedId, pinnedAgentName: savedName || savedId });
+        }
+    }
 
     if (typeof window !== 'undefined') {
         window.DashboardState = DashboardState;

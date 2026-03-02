@@ -126,7 +126,7 @@ Deployed since December 2025. Current numbers:
 | V operating range | 100% of agents within [-0.1, 0.1] |
 | Dialectic sessions | 66 |
 | Knowledge discoveries | 500 |
-| Test suite | 5,654 tests, 80% coverage |
+| Test suite | 5,400+ tests |
 
 ---
 

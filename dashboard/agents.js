@@ -205,8 +205,14 @@
             var trustTierHtml = '<span class="trust-tier tier-' + tierNum + '" title="Trust Tier ' + tierNum + ': ' + (tierNames[tierNum] || 'unknown') + '">' + tierDisplayNames[tierNum] + '</span>';
 
             var hasMetrics = agentHasMetrics(agent);
+            var isPinned = state.get('pinnedAgentId') === agentId;
+            var pinLabel = isPinned ? 'Pinned' : 'Pin';
+            var pinClass = isPinned ? 'agent-action pinned' : 'agent-action';
             var actionsHtml = agentId
-                ? '<div class="agent-actions"><button class="agent-action" type="button" data-action="copy-id" data-agent-id="' + escapeHtml(agentId) + '">Copy ID</button></div>'
+                ? '<div class="agent-actions">' +
+                    '<button class="' + pinClass + '" type="button" data-action="pin" data-agent-id="' + escapeHtml(agentId) + '" data-agent-name="' + escapeHtml(displayName) + '">' + pinLabel + '</button>' +
+                    '<button class="agent-action" type="button" data-action="copy-id" data-agent-id="' + escapeHtml(agentId) + '">Copy ID</button>' +
+                  '</div>'
                 : '';
 
             // Metric bar colors via MetricColors (replaces inline metricColor function)
@@ -507,6 +513,9 @@
                 : '') +
 
             '<div class="agent-detail-actions mt-md">' +
+                '<button class="agent-detail-pin-btn panel-button" data-action="pin" data-agent-id="' + escapeHtml(agentId) + '" data-agent-name="' + escapeHtml(displayName) + '">' +
+                    (state.get('pinnedAgentId') === agentId ? 'Unpin from Pulse' : 'Pin to Pulse') +
+                '</button>' +
                 (status === 'paused'
                     ? '<button class="agent-detail-resume-btn panel-button" data-agent-id="' + escapeHtml(agentId) + '">Resume Agent</button>'
                     : '') +

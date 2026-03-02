@@ -877,7 +877,7 @@ class TestHandleDetectAnomalies:
                  "src.pattern_analysis.analyze_agent_patterns",
                  return_value={"anomalies": []},
              ), \
-             patch("src.mcp_handlers.observability.UNITARESMonitor") as MockMonitor:
+             patch("src.governance_monitor.UNITARESMonitor") as MockMonitor:
             mock_instance = _make_monitor(id1)
             MockMonitor.return_value = mock_instance
             from src.mcp_handlers.observability import handle_detect_anomalies
@@ -1036,7 +1036,7 @@ class TestHandleAggregateMetrics:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None), \
-             patch("src.mcp_handlers.observability.UNITARESMonitor") as MockMonitor:
+             patch("src.governance_monitor.UNITARESMonitor") as MockMonitor:
             mock_instance = _make_monitor(id1)
             MockMonitor.return_value = mock_instance
             from src.mcp_handlers.observability import handle_aggregate_metrics

@@ -13,6 +13,15 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 class ToolStability(Enum):
     """Tool stability tier - helps users know what to expect"""
     STABLE = "stable"  # Production-ready, won't change

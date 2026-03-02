@@ -80,6 +80,15 @@ from .utils import success_response, error_response
 from src.audit_log import audit_logger
 from src.logging_utils import get_logger
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
 # Pi MCP endpoint configuration
@@ -991,7 +1000,7 @@ async def handle_pi_system_power(arguments: Dict[str, Any]) -> Sequence[TextCont
 
 # SSH configuration for Pi access
 PI_SSH_USER = "unitares-anima"
-PI_SSH_HOST_TAILSCALE = "100.89.201.36"
+PI_SSH_HOST_TAILSCALE = "100.79.215.83"
 PI_SSH_KEY = os.path.expanduser("~/.ssh/id_ed25519_pi")
 
 

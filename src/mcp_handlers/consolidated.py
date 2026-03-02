@@ -66,6 +66,13 @@ from .dialectic import (
     handle_get_dialectic_session,
     handle_list_dialectic_sessions,
 )
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
 from .pi_orchestration import (
     handle_pi_list_tools,
     handle_pi_get_context,

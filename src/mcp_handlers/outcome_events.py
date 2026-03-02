@@ -12,6 +12,15 @@ from .utils import success_response, error_response
 from .decorators import mcp_tool
 from src.logging_utils import get_logger
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
 # Outcome types that are considered "bad" by default

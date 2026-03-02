@@ -2007,6 +2007,34 @@ async def main():
 
         app.routes.append(Route("/api/events", http_events, methods=["GET"]))
 
+        # Activity sparkline endpoint
+        async def http_activity(request):
+            """Return check-in activity buckets for sparkline chart."""
+            try:
+                window = int(request.query_params.get("window", 60))
+                bucket = int(request.query_params.get("bucket", 5))
+                # Clamp to reasonable limits
+                window = max(10, min(window, 360))
+                bucket = max(1, min(bucket, 30))
+                buckets = broadcaster_instance.get_activity_buckets(
+                    window_minutes=window, bucket_minutes=bucket
+                )
+                return JSONResponse({
+                    "success": True,
+                    "buckets": buckets,
+                    "window_minutes": window,
+                    "bucket_minutes": bucket
+                })
+            except Exception as e:
+                logger.error(f"Error fetching activity: {e}")
+                return JSONResponse({
+                    "success": False,
+                    "error": str(e),
+                    "buckets": []
+                }, status_code=500)
+
+        app.routes.append(Route("/api/activity", http_activity, methods=["GET"]))
+
         # === Streamable HTTP endpoint (/mcp) ===
         # New MCP 1.24.0+ transport with resumability and bidirectional streaming
         _streamable_task_group = None

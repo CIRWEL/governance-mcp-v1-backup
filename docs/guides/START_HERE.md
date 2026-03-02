@@ -335,4 +335,4 @@ For deeper understanding of EISV dynamics, coherence, calibration, and the trust
 
 ---
 
-**Last Updated:** 2026-02-26 (v2.8.0: 30 tools, lite mode default)
+**Last Updated:** 2026-02-27 (v2.8.0: 30 tools, lite mode default)

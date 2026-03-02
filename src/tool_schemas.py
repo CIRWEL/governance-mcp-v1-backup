@@ -49,7 +49,14 @@ def _load_pydantic_schemas():
     return all_schemas
 
 
-PYDANTIC_SCHEMAS = _load_pydantic_schemas()
+_PYDANTIC_SCHEMAS_CACHE = None
+
+def get_pydantic_schemas():
+    """Get or load Pydantic schemas (cached)."""
+    global _PYDANTIC_SCHEMAS_CACHE
+    if _PYDANTIC_SCHEMAS_CACHE is None:
+        _PYDANTIC_SCHEMAS_CACHE = _load_pydantic_schemas()
+    return _PYDANTIC_SCHEMAS_CACHE
 
 # Ordered list of tools to register.
 # Only tools in this list are exposed via MCP. Pydantic schemas for
@@ -167,7 +174,7 @@ def get_tool_definitions(verbosity: str | None = None) -> list[Tool]:
     all_tools: list[Tool] = []
 
     for tool_name in TOOL_ORDER:
-        schema_model = PYDANTIC_SCHEMAS.get(tool_name)
+        schema_model = get_pydantic_schemas().get(tool_name)
         if not schema_model:
             print(f"WARNING: Schema for {tool_name} not found in Pydantic models!")
             continue

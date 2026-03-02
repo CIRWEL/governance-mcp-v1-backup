@@ -504,6 +504,34 @@ async def execute_locked_update(ctx: UpdateContext) -> Optional[Sequence[TextCon
     except Exception as e:
         logger.debug(f"Baseline preload skipped: {e}")
 
+    # Track Thread Identity across sessions
+    if ctx.meta and ctx.session_key:
+        if getattr(ctx.meta, "active_session_key", None) != ctx.session_key:
+            import uuid
+            if not getattr(ctx.meta, "thread_id", None):
+                ctx.meta.thread_id = str(uuid.uuid4())
+            if getattr(ctx.meta, "active_session_key", None) is None:
+                ctx.meta.node_index = getattr(ctx.meta, "node_index", 1)
+            else:
+                ctx.meta.node_index = getattr(ctx.meta, "node_index", 1) + 1
+            ctx.meta.active_session_key = ctx.session_key
+            
+            try:
+                from src.db import get_db
+                db = get_db()
+                await db.update_identity_metadata(
+                    ctx.agent_uuid,
+                    metadata={
+                        "thread_id": ctx.meta.thread_id,
+                        "node_index": ctx.meta.node_index,
+                        "active_session_key": ctx.meta.active_session_key
+                    },
+                    merge=True
+                )
+                logger.info(f"Thread identity updated for {ctx.agent_uuid[:8]}... -> thread {ctx.meta.thread_id[:8]}... (node {ctx.meta.node_index})")
+            except Exception as e:
+                logger.debug(f"Could not persist thread identity: {e}")
+
     # Execute ODE update
     ctx.agent_state["task_type"] = ctx.task_type
 

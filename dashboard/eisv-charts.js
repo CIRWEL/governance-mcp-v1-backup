@@ -463,8 +463,11 @@
         var emptyMsg = document.getElementById('eisv-chart-empty');
         if (emptyMsg) emptyMsg.style.display = 'none';
 
-        // Update Governance Pulse panel
-        updateGovernancePulse(data);
+        // Update Governance Pulse panel (filtered by pinned agent)
+        var pinned = state.get('pinnedAgentId');
+        if (!pinned || data.agent_id === pinned) {
+            updateGovernancePulse(data);
+        }
     }
 
     // ========================================================================
@@ -785,6 +788,7 @@
                 if (data.type === 'eisv_update') {
                     addEISVDataPoint(data);
                     updateAgentCardFromWS(data);
+                    addActivityDataPoint(data);
                 }
             },
             function (status) {
@@ -812,6 +816,159 @@
 
         state.set({ eisvWebSocket: ws });
         ws.connect();
+    }
+
+    // ========================================================================
+    // Activity sparkline
+    // ========================================================================
+
+    var SPARKLINE_BUCKET_MS = 5 * 60 * 1000;  // 5-minute buckets
+    var SPARKLINE_WINDOW_MS = 60 * 60 * 1000; // 1-hour window
+    var SPARKLINE_BUCKETS = 12;
+
+    // Client-side activity tracking (supplements server data)
+    var activityBuckets = null; // initialized on first data
+
+    function initActivitySparkline() {
+        var ctx = document.getElementById('activity-sparkline');
+        if (!ctx) return;
+
+        var chart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'proceed', data: [], backgroundColor: '#22c55e', barPercentage: 0.9, categoryPercentage: 0.9 },
+                    { label: 'guide', data: [], backgroundColor: '#eab308', barPercentage: 0.9, categoryPercentage: 0.9 },
+                    { label: 'pause', data: [], backgroundColor: '#ef4444', barPercentage: 0.9, categoryPercentage: 0.9 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 200 },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(13,13,18,0.9)',
+                        bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+                        callbacks: {
+                            title: function (items) {
+                                return items[0] ? items[0].label : '';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { stacked: true, display: false },
+                    y: {
+                        stacked: true,
+                        display: false,
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        state.set({ activitySparkline: chart });
+
+        // Fetch initial data from server
+        fetchActivityData(chart);
+    }
+
+    function fetchActivityData(chart) {
+        if (!chart) chart = state.get('activitySparkline');
+        if (!chart) return;
+
+        authFetch('/api/activity?window=60&bucket=5')
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (data.success && data.buckets) {
+                    // Store buckets and render
+                    activityBuckets = data.buckets;
+                    renderActivitySparkline(chart);
+                }
+            })
+            .catch(function (e) {
+                console.debug('Could not fetch activity data:', e);
+            });
+    }
+
+    function renderActivitySparkline(chart) {
+        if (!chart || !activityBuckets) return;
+
+        var labels = [];
+        var proceedData = [];
+        var guideData = [];
+        var pauseData = [];
+
+        for (var i = 0; i < activityBuckets.length; i++) {
+            var b = activityBuckets[i];
+            var d = new Date(b.ts * 1000);
+            labels.push(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            proceedData.push(b.proceed || 0);
+            guideData.push(b.guide || 0);
+            pauseData.push(b.pause || 0);
+        }
+
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = proceedData;
+        chart.data.datasets[1].data = guideData;
+        chart.data.datasets[2].data = pauseData;
+        chart.update('none');
+    }
+
+    function addActivityDataPoint(data) {
+        var chart = state.get('activitySparkline');
+        if (!chart) return;
+
+        // Determine verdict action from the eisv_update data
+        var decision = data.decision || {};
+        var action = (typeof decision === 'object' ? decision.action : decision) || 'proceed';
+
+        var now = Date.now() / 1000; // epoch seconds
+        var bucketSize = 300; // 5 minutes in seconds
+        var currentBucketStart = Math.floor(now / bucketSize) * bucketSize;
+
+        // Initialize buckets if needed
+        if (!activityBuckets) {
+            activityBuckets = [];
+            for (var i = SPARKLINE_BUCKETS - 1; i >= 0; i--) {
+                activityBuckets.push({
+                    ts: currentBucketStart - (i * bucketSize),
+                    proceed: 0,
+                    guide: 0,
+                    pause: 0
+                });
+            }
+        }
+
+        // Check if we need to shift buckets (new 5-min window)
+        var lastBucket = activityBuckets[activityBuckets.length - 1];
+        if (currentBucketStart > lastBucket.ts) {
+            // Add new bucket(s) and trim old ones
+            var nextTs = lastBucket.ts + bucketSize;
+            while (nextTs <= currentBucketStart) {
+                activityBuckets.push({ ts: nextTs, proceed: 0, guide: 0, pause: 0 });
+                nextTs += bucketSize;
+            }
+            // Keep only the last SPARKLINE_BUCKETS
+            while (activityBuckets.length > SPARKLINE_BUCKETS) {
+                activityBuckets.shift();
+            }
+        }
+
+        // Increment the current bucket
+        var last = activityBuckets[activityBuckets.length - 1];
+        if (action === 'guide') {
+            last.guide += 1;
+        } else if (action === 'pause' || action === 'reject') {
+            last.pause += 1;
+        } else {
+            last.proceed += 1;
+        }
+
+        renderActivitySparkline(chart);
     }
 
     // ========================================================================
@@ -869,9 +1026,47 @@
             });
         }
 
-        // Initialize chart and WebSocket (deferred for canvas dimensions)
+        // Pin state reactivity
+        var scopeLabel = document.getElementById('pulse-scope-label');
+        var unpinBtn = document.getElementById('pulse-unpin-btn');
+        var pulseAgentName = document.getElementById('pulse-agent-name');
+        var freshnessEl = document.getElementById('data-freshness');
+
+        function applyPinState(pinnedId) {
+            var pinnedName = state.get('pinnedAgentName');
+            if (pinnedId) {
+                if (scopeLabel) scopeLabel.textContent = 'Pinned';
+                if (unpinBtn) unpinBtn.classList.remove('hidden');
+                if (pulseAgentName) {
+                    pulseAgentName.textContent = pinnedName || pinnedId;
+                    pulseAgentName.title = pinnedName || pinnedId;
+                }
+                if (freshnessEl) freshnessEl.textContent = 'Waiting for data from ' + (pinnedName || pinnedId) + '...';
+            } else {
+                if (scopeLabel) scopeLabel.textContent = 'Last check-in';
+                if (unpinBtn) unpinBtn.classList.add('hidden');
+            }
+        }
+
+        state.on('pinnedAgentId', function (newVal) {
+            applyPinState(newVal);
+        });
+
+        // Apply initial pin state (restored from localStorage)
+        applyPinState(state.get('pinnedAgentId'));
+
+        if (unpinBtn) {
+            unpinBtn.addEventListener('click', function () {
+                state.set({ pinnedAgentId: null, pinnedAgentName: null });
+                localStorage.removeItem('unitares_pinned_agent_id');
+                localStorage.removeItem('unitares_pinned_agent_name');
+            });
+        }
+
+        // Initialize charts and WebSocket (deferred for canvas dimensions)
         requestAnimationFrame(function () {
             initEISVChart();
+            initActivitySparkline();
             initWebSocket();
         });
     }
@@ -901,6 +1096,8 @@
         addEventEntry: addEventEntry,
         fetchInitialEvents: fetchInitialEvents,
         rebuildChartFromSelection: rebuildChartFromSelection,
-        updateAgentDropdown: updateAgentDropdown
+        updateAgentDropdown: updateAgentDropdown,
+        initActivitySparkline: initActivitySparkline,
+        addActivityDataPoint: addActivityDataPoint
     };
 })();

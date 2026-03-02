@@ -19,6 +19,15 @@ from ..rate_limiter import get_rate_limiter
 from .utils import error_response
 from .error_helpers import rate_limit_error
 
+
+class _LazyMCPServer:
+    def __getattr__(self, name):
+        from src.mcp_handlers.shared import get_mcp_server
+        return getattr(get_mcp_server(), name)
+        
+mcp_server = _LazyMCPServer()
+
+
 logger = get_logger(__name__)
 
 # Type alias for middleware return
@@ -308,8 +317,6 @@ async def inject_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCon
                 # Check label match
                 is_label_match = False
                 try:
-                    from .shared import get_mcp_server
-                    mcp_server = get_mcp_server()
                     if bound_id in mcp_server.agent_metadata:
                         meta = mcp_server.agent_metadata[bound_id]
                         if getattr(meta, 'label', None) == provided_id:
@@ -360,19 +367,16 @@ async def inject_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCon
 # ============================================================
 
 async def validate_params(name: str, arguments: Dict[str, Any], ctx: DispatchContext) -> MiddlewareResult:
-    """Parameter validation: aliases → generic coercion → Pydantic model_validate (if available)."""
-    from .validators import apply_param_aliases, _apply_generic_coercion
+    """Parameter validation: aliases → Pydantic model_validate (if available)."""
+    from .validators import apply_param_aliases
 
     # Step 1: Fuzzy parameter aliases (e.g., "content" → "summary")
     arguments = apply_param_aliases(name, arguments)
 
-    # Step 2: Generic type coercion (handles MCP transport quirks: "0.5" → 0.5, "true" → True)
-    arguments = _apply_generic_coercion(arguments)
-
     # Step 3: Pydantic model validation (structural + range + enum validation)
     try:
-        from src.tool_schemas import PYDANTIC_SCHEMAS
-        schema_model = PYDANTIC_SCHEMAS.get(name)
+        from src.tool_schemas import get_pydantic_schemas
+        schema_model = get_pydantic_schemas().get(name)
     except Exception:
         schema_model = None
 
@@ -392,14 +396,8 @@ async def validate_params(name: str, arguments: Dict[str, Any], ctx: DispatchCon
             # Non-validation errors (import failure, etc.): log and continue with coerced dict
             logger.debug(f"Pydantic validation skipped for {name}: {e}")
     else:
-        # No Pydantic schema: fall back to legacy per-tool validation
-        from .validators import validate_and_coerce_params
-        coerced_args, validation_error, param_coercions = validate_and_coerce_params(name, arguments)
-        if validation_error:
-            return [validation_error]
-        arguments = coerced_args
-        if param_coercions:
-            arguments["_param_coercions"] = param_coercions
+        # Fallback debug log - should not happen if migration 100% successful
+        logger.warning(f"[VALIDATION] Schema for {name} not found in Pydantic models!")
 
     return name, arguments, ctx
 

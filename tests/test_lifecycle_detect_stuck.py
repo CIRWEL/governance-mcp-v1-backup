@@ -455,7 +455,7 @@ class TestDetectStuckAgentsEdgeCases:
 
         from src.mcp_handlers.lifecycle_stuck import _detect_stuck_agents
         # Need to also patch UNITARESMonitor since it's used to wrap persisted state
-        with patch("src.mcp_handlers.lifecycle_stuck.UNITARESMonitor") as mock_monitor_cls:
+        with patch("src.governance_monitor.UNITARESMonitor") as mock_monitor_cls:
             monitor_instance = MagicMock()
             monitor_instance.state = persisted_state
             monitor_instance.get_metrics.return_value = {"mean_risk": 0.7}
