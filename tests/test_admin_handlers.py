@@ -512,7 +512,7 @@ class TestDescribeTool:
         }
 
         with patch("src.tool_schemas.get_tool_definitions", return_value=[mock_tool]), \
-             patch("src.mcp_handlers.validators.TOOL_PARAM_SCHEMAS", {}), \
+             patch("src.tool_schemas.get_pydantic_schemas", return_value={}), \
              patch("src.mcp_handlers.validators.PARAM_ALIASES", {}):
             from src.mcp_handlers.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({
@@ -2092,26 +2092,23 @@ class TestDescribeToolAdditional:
 
     @pytest.mark.asyncio
     async def test_describe_tool_lite_with_known_schema(self, patch_context_agent_id):
-        """Test lite mode with TOOL_PARAM_SCHEMAS entry covers lines 1945-2022."""
+        """Test lite mode with Pydantic schema produces structured lite output."""
+        from pydantic import BaseModel, Field
+        from typing import Optional
+
+        class MockUpdateParams(BaseModel):
+            complexity: float = Field(..., description="Task complexity")
+            response_text: Optional[str] = Field(None, description="Agent response")
+            confidence: Optional[float] = Field(0.7, description="Confidence")
+
         mock_tool = MagicMock()
         mock_tool.name = "process_agent_update"
         mock_tool.description = "Share your work and get feedback"
         mock_tool.inputSchema = {"type": "object", "properties": {}}
 
-        lite_schema = {
-            "required": ["complexity"],
-            "optional": {
-                "response_text": {"type": "string"},
-                "confidence": {"type": "number", "default": 0.7},
-                "task_type": {"type": "string", "values": ["convergent", "divergent"]},
-            },
-            "example": "process_agent_update(complexity=0.5)"
-        }
-
         with patch("src.tool_schemas.get_tool_definitions", return_value=[mock_tool]), \
-             patch("src.mcp_handlers.validators.TOOL_PARAM_SCHEMAS", {"process_agent_update": lite_schema}), \
+             patch("src.tool_schemas.get_pydantic_schemas", return_value={"process_agent_update": MockUpdateParams}), \
              patch("src.mcp_handlers.validators.PARAM_ALIASES", {"process_agent_update": {"text": "response_text"}}), \
-             patch("src.mcp_handlers.validators.DISCOVERY_TYPE_ALIASES", {}), \
              patch("src.tool_modes.TOOL_TIERS", {"essential": {"process_agent_update"}, "common": set(), "advanced": set()}), \
              patch("src.tool_modes.TOOL_OPERATIONS", {"process_agent_update": "write"}):
             from src.mcp_handlers.tool_introspection import handle_describe_tool
@@ -2125,7 +2122,6 @@ class TestDescribeToolAdditional:
             assert data["tool"] == "process_agent_update"
             assert data["tier"] == "essential"
             assert "parameters" in data
-            assert "example" in data
             assert "common_patterns" in data
             assert "parameter_aliases" in data
 
@@ -2145,7 +2141,7 @@ class TestDescribeToolAdditional:
         }
 
         with patch("src.tool_schemas.get_tool_definitions", return_value=[mock_tool]), \
-             patch("src.mcp_handlers.validators.TOOL_PARAM_SCHEMAS", {}), \
+             patch("src.tool_schemas.get_pydantic_schemas", return_value={}), \
              patch("src.mcp_handlers.validators.PARAM_ALIASES", {"custom_tool": {"text": "param1"}}):
             from src.mcp_handlers.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({
@@ -2363,7 +2359,7 @@ class TestGetConnectionStatusAdditional:
         meta.label = "MyAgent"
         mock_server.agent_metadata = {"uuid-xyz": meta}
 
-        with patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_server), \
+        with patch("src.mcp_handlers.admin.mcp_server", mock_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {"tool1": None}), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value="uuid-xyz"):
             from src.mcp_handlers.admin import handle_get_connection_status

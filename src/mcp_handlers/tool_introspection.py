@@ -1082,62 +1082,43 @@ async def handle_describe_tool(arguments: Dict[str, Any]) -> Sequence[TextConten
 
         # === LITE MODE: Simplified schema for smaller models ===
         if lite:
-            from .validators import TOOL_PARAM_SCHEMAS
-            lite_schema = TOOL_PARAM_SCHEMAS.get(tool_name)
-            
-            if lite_schema:
-                # Use our simplified schema
-                required = lite_schema.get("required", [])
-                optional = lite_schema.get("optional", {})
-                example = lite_schema.get("example", "")
-                
-                # Build simple param list
-                from .validators import DISCOVERY_TYPE_ALIASES
-                params_simple = []
-                for param in required:
-                    params_simple.append(f"{param} (required)")
-                # Always show client_session_id first if present
-                shown_optional = set()
-                if "client_session_id" in optional:
-                    spec = optional["client_session_id"]
-                    params_simple.append("client_session_id: string (recommended for identity continuity)")
-                    shown_optional.add("client_session_id")
-                max_shown = 5
-                for param, spec in list(optional.items()):
-                    if param in shown_optional:
-                        continue
-                    if len(shown_optional) >= max_shown:
-                        break
-                    shown_optional.add(param)
-                    param_type = spec.get("type", "any")
-                    default = spec.get("default")
-                    values = spec.get("values", [])
-                    if values:
-                        # Special handling for discovery_type to show key aliases
-                        if param == "discovery_type" and values:
-                            # Show common aliases: ticket→improvement, bug→bug_found, etc.
-                            common_aliases = {
-                                "bug_found": "bug, fix, issue",
-                                "improvement": "ticket, task, implementation",
-                                "insight": "observation, finding",
-                                "note": "memo, comment (default)",
-                                "exploration": "experiment, research"
-                            }
-                            alias_hints = [f"{k} ({v})" for k, v in common_aliases.items() if k in values]
-                            if alias_hints:
-                                params_simple.append(f"{param}: one of {values} (common aliases: {', '.join(alias_hints)})")
-                            else:
-                                params_simple.append(f"{param}: one of {values}")
+            # Try Pydantic schema first for structured lite output
+            lite_schema = None
+            try:
+                from src.tool_schemas import get_pydantic_schemas
+                pydantic_model = get_pydantic_schemas().get(tool_name)
+                if pydantic_model:
+                    schema = pydantic_model.model_json_schema()
+                    properties = schema.get("properties", {})
+                    required_fields = schema.get("required", [])
+
+                    params_simple = []
+                    for field_name in required_fields:
+                        if field_name == "client_session_id":
+                            continue
+                        params_simple.append(f"{field_name} (required)")
+
+                    shown = 0
+                    for field_name, field_info in properties.items():
+                        if field_name in required_fields or field_name == "client_session_id":
+                            continue
+                        if shown >= 5:
+                            break
+                        shown += 1
+                        field_type = field_info.get("type", "any")
+                        default = field_info.get("default")
+                        if default is not None:
+                            params_simple.append(f"{field_name}: {field_type} (default: {default})")
                         else:
-                            params_simple.append(f"{param}: one of {values}")
-                    elif default is not None:
-                        params_simple.append(f"{param}: {param_type} (default: {default})")
-                    else:
-                        params_simple.append(f"{param}: {param_type}")
-                remaining = len(optional) - len(shown_optional)
-                if remaining > 0:
-                    params_simple.append(f"... and {remaining} more (use lite=false for full schema)")
-                
+                            params_simple.append(f"{field_name}: {field_type}")
+
+                    lite_schema = {"params_simple": params_simple, "required": required_fields}
+            except Exception:
+                pass
+
+            if lite_schema:
+                params_simple = lite_schema["params_simple"]
+
                 # Get common patterns
                 common_patterns = get_common_patterns(tool_name)
 
@@ -1166,7 +1147,6 @@ async def handle_describe_tool(arguments: Dict[str, Any]) -> Sequence[TextConten
                     "tier_note": tier_guidance.get(tool_tier, ""),
                     "operation": TOOL_OPERATIONS.get(tool_name, "read"),  # read/write/admin
                     "parameters": params_simple,
-                    "example": example,
                     "note": "Lite mode - use describe_tool(tool_name=..., lite=false) for full schema"
                 }
 
