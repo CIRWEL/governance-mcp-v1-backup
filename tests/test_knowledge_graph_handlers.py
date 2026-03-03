@@ -113,7 +113,7 @@ def patch_common(mock_mcp_server, mock_graph):
     """Patch all common dependencies for knowledge graph handlers."""
     with patch("src.mcp_handlers.context.get_context_agent_id", return_value=None), \
          patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-         patch("src.mcp_handlers.knowledge_graph.get_mcp_server", return_value=mock_mcp_server), \
+         patch("src.mcp_handlers.knowledge_graph.mcp_server", mock_mcp_server), \
          patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph", new_callable=AsyncMock, return_value=mock_graph), \
          patch("src.mcp_handlers.knowledge_graph.record_ms"):
         yield mock_mcp_server, mock_graph
@@ -1923,7 +1923,7 @@ class TestResolveAgentDisplayAdditional:
         """Exception in resolve returns fallback (lines 176-177)."""
         from src.mcp_handlers.knowledge_graph import _resolve_agent_display
 
-        with patch("src.mcp_handlers.knowledge_graph.get_mcp_server", side_effect=RuntimeError("broken")):
+        with patch("src.mcp_handlers.shared.get_mcp_server", side_effect=RuntimeError("broken")):
             result = _resolve_agent_display("any-agent")
 
         assert result["agent_id"] == "any-agent"
