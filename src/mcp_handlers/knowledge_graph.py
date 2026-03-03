@@ -267,7 +267,10 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
     discovery_type = arguments.get("discovery_type", "note")
     
     # Validate discovery_type enum
-    
+    VALID_DISCOVERY_TYPES = {"architectural_decision", "learning", "pattern", "bug_fix", "refactoring", "documentation", "experiment", "question", "note", "rule", "insight", "bug_found", "improvement", "exploration", "observation"}
+    if discovery_type not in VALID_DISCOVERY_TYPES:
+        return error_response(f"Invalid discovery_type '{discovery_type}'. Valid types: {sorted(VALID_DISCOVERY_TYPES)}")
+
     summary, error = require_argument(arguments, "summary",
                                     "summary is required - what did you discover/learn?")
     if error:
@@ -322,20 +325,30 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
             resp_data = arguments["response_to"]
             if isinstance(resp_data, dict) and "discovery_id" in resp_data and "response_type" in resp_data:
                 # Validate discovery_id format
-                parent_id = resp_data["discovery_id"]
-                
+                parent_id = str(resp_data["discovery_id"]).strip()
+                if not parent_id:
+                    return error_response("Invalid response_to.discovery_id (empty)")
+
                 # Validate response_type enum
                 response_type = resp_data["response_type"]
-                
+                VALID_RESPONSE_TYPES = {"extend", "question", "disagree", "support", "answer", "follow_up", "correction", "elaboration", "supersedes"}
+                if response_type not in VALID_RESPONSE_TYPES:
+                    return error_response(f"Invalid response_type '{response_type}'. Valid: {sorted(VALID_RESPONSE_TYPES)}")
+
                 from src.knowledge_graph import ResponseTo
                 response_to = ResponseTo(
                     discovery_id=parent_id,
                     response_type=response_type
                 )
-        
+
         # Validate severity if provided
         severity = arguments.get("severity")
-        
+        if severity is not None:
+            VALID_SEVERITIES = {"low", "medium", "high", "critical"}
+            severity = str(severity).lower()
+            if severity not in VALID_SEVERITIES:
+                return error_response(f"Invalid severity '{severity}'. Valid: {sorted(VALID_SEVERITIES)}")
+
         # ENHANCED PROVENANCE: Capture agent state at creation time
         # Answers: "What was the agent's context when they made this discovery?"
         provenance = None
@@ -1248,9 +1261,9 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
                     errors.append(f"Discovery {idx}: discovery_type is required")
                     continue
                 
-                discovery_type, error = validate_discovery_type(discovery_type)
-                if error:
-                    errors.append(f"Discovery {idx}: {error.text if hasattr(error, 'text') else str(error)}")
+                VALID_TYPES = {"architectural_decision", "learning", "pattern", "bug_fix", "refactoring", "documentation", "experiment", "question", "note", "rule", "insight", "bug_found", "improvement", "exploration", "observation"}
+                if discovery_type not in VALID_TYPES:
+                    errors.append(f"Discovery {idx}: invalid discovery_type '{discovery_type}'")
                     continue
                 
                 summary = disc_data.get("summary", "")
@@ -1292,14 +1305,14 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
                 if "response_to" in disc_data and disc_data["response_to"]:
                     resp_data = disc_data["response_to"]
                     if isinstance(resp_data, dict) and "discovery_id" in resp_data and "response_type" in resp_data:
-                        # Validate discovery_id format
-                        parent_id, error = validate_discovery_id(resp_data["discovery_id"])
-                        if error:
-                            errors.append(f"Discovery {idx}: Invalid response_to.discovery_id - {error.text if hasattr(error, 'text') else str(error)}")
+                        parent_id = str(resp_data["discovery_id"]).strip()
+                        if not parent_id:
+                            errors.append(f"Discovery {idx}: Invalid response_to.discovery_id (empty)")
                             continue
-                        
-                        response_type, error = validate_response_type(resp_data["response_type"])
-                        if not error:
+
+                        response_type = resp_data["response_type"]
+                        VALID_RESPONSE_TYPES = {"extend", "question", "disagree", "support", "answer", "follow_up", "correction", "elaboration", "supersedes"}
+                        if response_type in VALID_RESPONSE_TYPES:
                             response_to = ResponseTo(
                                 discovery_id=parent_id,
                                 response_type=response_type
@@ -1308,9 +1321,9 @@ async def _handle_store_knowledge_graph_batch(arguments: Dict[str, Any], agent_i
                 # Validate severity
                 severity = disc_data.get("severity")
                 if severity is not None:
-                    severity, error = validate_severity(severity)
-                    if error:
-                        severity = None  # Use default if invalid
+                    VALID_SEVERITIES = {"low", "medium", "high", "critical"}
+                    if severity not in VALID_SEVERITIES:
+                        severity = "medium"  # Use default if invalid
                 
                 discovery = DiscoveryNode(
                     id=discovery_id,
@@ -1537,16 +1550,21 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             resp_data = arguments["response_to"]
             if isinstance(resp_data, dict) and "discovery_id" in resp_data and "response_type" in resp_data:
                 # Validate discovery_id format
-                parent_id = resp_data["discovery_id"]
-                
+                parent_id = str(resp_data["discovery_id"]).strip()
+                if not parent_id:
+                    return error_response("Invalid response_to.discovery_id (empty)")
+
                 # Validate response_type enum
                 response_type = resp_data["response_type"]
-                
+                VALID_RESPONSE_TYPES = {"extend", "question", "disagree", "support", "answer", "follow_up", "correction", "elaboration", "supersedes"}
+                if response_type not in VALID_RESPONSE_TYPES:
+                    return error_response(f"Invalid response_type '{response_type}'. Valid: {sorted(VALID_RESPONSE_TYPES)}")
+
                 response_to = ResponseTo(
                     discovery_id=parent_id,
                     response_type=response_type
                 )
-        
+
         # Build tags — notes are ephemeral by default (auto-archived after 7 days)
         # unless the caller signals permanence via tags or lasting=True
         tags = normalize_tags(arguments.get("tags", []))
