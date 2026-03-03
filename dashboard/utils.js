@@ -187,6 +187,13 @@ class DashboardAPI {
             const responseText = await response.text();
             console.log(`[API] Response status: ${response.status}`, responseText.substring(0, 200));
 
+            // Detect HTML responses (e.g. ngrok interstitial, proxy error pages)
+            const isHTML = responseText.trimStart().startsWith('<!') || responseText.trimStart().startsWith('<html');
+            if (isHTML) {
+                console.error('[API] Got HTML instead of JSON — likely a proxy interstitial page');
+                throw new Error('Server returned an HTML page instead of JSON. If using a tunnel (ngrok), visit the dashboard URL in your browser first to pass the interstitial.');
+            }
+
             if (!response.ok) {
                 let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
 
@@ -196,7 +203,6 @@ class DashboardAPI {
                         errorMessage = errorData.error;
                     }
                 } catch {
-                    // Not JSON, use text as-is
                     if (responseText) {
                         errorMessage = responseText.substring(0, 200);
                     }

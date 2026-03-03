@@ -2903,32 +2903,14 @@ body {
 }
 
 /* Activity sparkline */
-.activity-sparkline-section {
-    min-width: 0;
-    margin-top: 0.5rem;
-}
-
-.activity-sparkline-section h3 {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-    margin-bottom: 0.5rem;
-    padding-bottom: 0.25rem;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.activity-sparkline-label {
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: normal;
-    opacity: 0.6;
-}
-
-.activity-sparkline-wrap {
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.02);
+.activity-sparkline-inline {
+    width: 100px;
+    height: 24px;
+    position: relative;
+    flex-shrink: 0;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.03);
+    cursor: help;
 }
 
 /* Recent Decisions log entries */
