@@ -156,3 +156,4 @@ tests/additional_security_report.json
 config/generated-*.json
 data/telemetry/*.jsonl
 .kimi_governance_session
+sketch/

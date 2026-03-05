@@ -126,18 +126,60 @@ Deployed since December 2025. Current numbers:
 | V operating range | 100% of agents within [-0.1, 0.1] |
 | Dialectic sessions | 66 |
 | Knowledge discoveries | 500 |
-| Test suite | 5,400+ tests |
+| Test suite | 5,700+ tests, ~80% coverage |
+
+### See It In Action
+
+<p align="center">
+  <img src="papers/unitares-v5/figures/fig1_ei_scatter.png" width="45%" alt="Energy-Integrity scatter showing basin structure"/>
+  <img src="papers/unitares-v5/figures/fig3_coherence_hist.png" width="45%" alt="Coherence distribution across agents"/>
+</p>
+
+<p align="center">
+  <em>Left: E-I scatter plot showing agent basin structure. Right: Coherence distribution across 903 agents.</em>
+</p>
+
+<p align="center">
+  <img src="papers/unitares-v5/figures/fig5_regime_profiles.png" width="45%" alt="EISV regime profiles"/>
+  <img src="papers/unitares-v5/figures/fig6_discovery_types.png" width="45%" alt="Knowledge discovery types"/>
+</p>
+
+<p align="center">
+  <em>Left: EISV regime profiles across operating modes. Right: Knowledge graph discovery type distribution.</em>
+</p>
+
+> All figures from real production data. See the [paper](papers/unitares-v5/) for methodology and analysis.
 
 ---
 
 ## Architecture
+
+```mermaid
+graph LR
+    A[AI Agent] -->|check-in| M[MCP Server :8767]
+    M -->|EISV evolution| ODE[ODE Solver]
+    ODE -->|state| M
+    M -->|verdict + guidance| A
+    M <-->|state, audit, calibration| PG[(PostgreSQL + AGE)]
+    M <-->|knowledge graph| PG
+    M -.->|session cache| R[(Redis)]
+    M -->|web UI| D[Dashboard]
+
+    subgraph governance_core
+        ODE
+        C[Coherence C·V·]
+        DR[Ethical Drift Δη]
+        C --> ODE
+        DR --> ODE
+    end
+```
 
 ```
 governance_core/       Pure math — ODEs, coherence, scoring (no I/O)
 src/                   MCP server, agent state, knowledge graph, dialectic
 dashboard/             Web dashboard (vanilla JS + Chart.js)
 papers/                Academic paper with contraction proofs
-tests/                 5,300+ tests
+tests/                 5,700+ tests, ~80% coverage
 ```
 
 | Storage | Purpose | Required |
