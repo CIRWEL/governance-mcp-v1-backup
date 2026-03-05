@@ -491,6 +491,7 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
         enrich_health_status_toplevel,
         enrich_cirs_response_fields,
         enrich_cirs_dampening_advisory,
+        enrich_detected_patterns,
         enrich_knowledge_surfacing,
         enrich_onboarding_info,
         enrich_convergence_guidance,
@@ -556,6 +557,7 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             enrich_health_status_toplevel(ctx)
             enrich_cirs_response_fields(ctx)
             enrich_cirs_dampening_advisory(ctx)
+            enrich_detected_patterns(ctx)
             enrich_onboarding_info(ctx)
             await enrich_knowledge_surfacing(ctx)
             await enrich_convergence_guidance(ctx)

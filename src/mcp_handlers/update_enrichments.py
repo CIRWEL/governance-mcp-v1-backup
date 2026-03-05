@@ -294,6 +294,55 @@ def enrich_cirs_dampening_advisory(ctx: UpdateContext) -> None:
         logger.debug(f"Could not enrich CIRS dampening advisory: {e}")
 
 
+def enrich_detected_patterns(ctx: UpdateContext) -> None:
+    """Surface pattern tracker detections (loops, time-box, untested hypotheses) as advisories."""
+    try:
+        from src.pattern_tracker import get_pattern_tracker
+        tracker = get_pattern_tracker()
+        if not ctx.agent_id:
+            return
+
+        patterns_data = tracker.get_patterns(ctx.agent_id)
+        detected = []
+
+        # get_patterns returns time_box and untested_hypothesis patterns
+        for p in patterns_data.get('patterns', []):
+            if p.get('detected', True):  # time_box/hypothesis patterns don't have 'detected' key
+                detected.append(p)
+
+        # Also check for loops by scanning recent history
+        history = tracker.pattern_history.get(ctx.agent_id, [])
+        if history:
+            from datetime import datetime, timezone, timedelta
+            window_start = datetime.now(timezone.utc) - timedelta(minutes=tracker.window_minutes)
+            recent = [p for p in history if p.timestamp >= window_start]
+            # Count by (tool, args_hash)
+            from collections import Counter
+            counts = Counter((p.tool_name, p.args_hash) for p in recent)
+            for (tool, _), count in counts.items():
+                if count >= tracker.loop_threshold:
+                    detected.append({
+                        'type': 'loop',
+                        'tool_name': tool,
+                        'count': count,
+                        'message': f"Called {tool} with similar arguments {count} times recently. Consider a different approach.",
+                    })
+
+        if not detected:
+            return
+
+        severity_map = {'loop': 'high', 'time_box': 'moderate', 'untested_hypothesis': 'moderate'}
+        for pattern in detected:
+            ctx.response_data.setdefault('advisories', []).append({
+                'source': 'pattern_tracker',
+                'severity': severity_map.get(pattern.get('type'), 'low'),
+                'type': pattern.get('type'),
+                'message': pattern.get('message', 'Behavioral pattern detected'),
+            })
+    except Exception as e:
+        logger.debug(f"Could not enrich detected patterns: {e}")
+
+
 # ─── Knowledge Surfacing ───────────────────────────────────────────────
 
 async def enrich_knowledge_surfacing(ctx: UpdateContext) -> None:

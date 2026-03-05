@@ -546,12 +546,30 @@ class UNITARESMonitor:
         # - UNITARES_PARAMS_PROFILE=default|v41
         # - UNITARES_PARAMS_JSON='{"beta_I": 0.05, ...}'
         active_params = get_active_params()
+
+        # Calibration feedback: overconfidence raises entropy S
+        # When agents claim high confidence but achieve low trajectory health,
+        # the calibration error becomes a thermodynamic price on S.
+        calibration_penalty = 0.0
+        try:
+            metrics = calibration_checker.compute_calibration_metrics()
+            if metrics:
+                # Find max overconfidence across bins with sufficient data
+                for bin_metrics in metrics.values():
+                    if bin_metrics.count >= 5:
+                        # Positive = expected > actual = overconfident
+                        overconfidence = bin_metrics.expected_accuracy - bin_metrics.accuracy
+                        if overconfidence > 0:
+                            calibration_penalty = max(calibration_penalty, 0.2 * overconfidence)
+        except Exception:
+            pass  # Fail-safe: no penalty if calibration unavailable
+
         self.state.unitaires_state = step_state(
             state=self.state.unitaires_state,
             theta=self.state.unitaires_theta,
             delta_eta=delta_eta,
             dt=dt,
-            noise_S=0.0,  # Can add noise if needed
+            noise_S=calibration_penalty,  # Overconfidence raises entropy
             params=active_params,
             complexity=complexity  # Complexity now affects S dynamics
         )
@@ -1280,6 +1298,13 @@ class UNITARESMonitor:
 
         # Store for later access and time-series logging
         self._last_drift_vector = drift_vector
+
+        # Track consecutive high-drift updates for auto-dialectic trigger
+        drift_dialectic_threshold = 0.7
+        if drift_vector.norm > drift_dialectic_threshold:
+            self._consecutive_high_drift = getattr(self, '_consecutive_high_drift', 0) + 1
+        else:
+            self._consecutive_high_drift = 0
 
         # Convert to list format for dynamics engine (all 4 components)
         grounded_agent_state['ethical_drift'] = drift_vector.to_list()
