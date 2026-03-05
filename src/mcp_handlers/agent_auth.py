@@ -1,0 +1,362 @@
+"""Agent authentication and identity verification for MCP handlers."""
+from typing import Dict, Any, Tuple, Optional
+from mcp.types import TextContent
+import json
+from datetime import datetime
+
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
+
+
+def compute_agent_signature(
+    agent_id: Optional[str] = None,
+    arguments: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Centralized agent signature computation.
+
+    Priority order:
+    1. Explicit agent_id parameter
+    2. Context agent_id (set at dispatch entry)
+    3. Session binding lookup
+    """
+    try:
+        from .context import get_context_agent_id
+        from .shared import get_mcp_server
+        mcp_server = get_mcp_server()
+
+        context_bound_id = get_context_agent_id()
+        bound_id = agent_id or context_bound_id
+
+        logger.debug(f"compute_agent_signature: agent_id={agent_id}, context={context_bound_id}, final={bound_id}")
+
+        if not bound_id:
+            return {"uuid": None}
+
+        agent_uuid = bound_id
+
+        display_label = None
+        structured_id = None
+        if bound_id in mcp_server.agent_metadata:
+            meta = mcp_server.agent_metadata[bound_id]
+            display_label = getattr(meta, 'label', None)
+            structured_id = getattr(meta, 'structured_id', None)
+
+        signature = {"uuid": agent_uuid}
+        if structured_id:
+            signature["agent_id"] = structured_id
+        if display_label:
+            signature["display_name"] = display_label
+        return signature
+
+    except Exception as e:
+        logger.debug(f"compute_agent_signature error: {e}")
+        return {"uuid": None}
+
+
+def check_agent_can_operate(agent_uuid: str) -> Optional[TextContent]:
+    """
+    Check if agent is allowed to perform operations (circuit breaker enforcement).
+
+    Returns None if agent can operate, or an error TextContent if blocked.
+    """
+    from .shared import get_mcp_server
+    from .error_handling import error_response
+    mcp_server = get_mcp_server()
+
+    if agent_uuid not in mcp_server.agent_metadata:
+        return None
+
+    meta = mcp_server.agent_metadata[agent_uuid]
+
+    if meta.status == "paused":
+        return error_response(
+            "Agent is paused - circuit breaker active",
+            error_code="AGENT_PAUSED",
+            error_category="state_error",
+            details={
+                "agent_id": agent_uuid[:12],
+                "paused_at": meta.paused_at,
+                "status": "paused",
+            },
+            recovery={
+                "action": "Use self_recovery(action='quick') or self_recovery(action='review', reflection='...') to request recovery",
+                "note": "Circuit breaker triggered due to governance threshold violation",
+                "alternative": "Wait for auto-dialectic recovery to complete",
+            }
+        )
+    elif meta.status == "archived":
+        return error_response(
+            "Agent is archived and cannot perform operations",
+            error_code="AGENT_ARCHIVED",
+            error_category="state_error",
+            details={"agent_id": agent_uuid[:12], "status": "archived"},
+            recovery={"action": "Create a new agent or restore via agent(action='update')"}
+        )
+
+    return None
+
+
+def require_argument(arguments: Dict[str, Any], name: str,
+                    error_message: str = None) -> Tuple[Any, Optional[TextContent]]:
+    """
+    Get required argument from arguments dict.
+
+    Uses standardized error taxonomy for better agent self-service debugging.
+    """
+    value = arguments.get(name)
+    if value is None:
+        from .error_helpers import missing_parameter_error
+        tool_name = arguments.get("_tool_name")
+        if error_message:
+            context = {"custom_message": error_message}
+            return None, missing_parameter_error(name, tool_name=tool_name, context=context)[0]
+        return None, missing_parameter_error(name, tool_name=tool_name)[0]
+    return value, None
+
+
+def require_agent_id(arguments: Dict[str, Any]) -> Tuple[str, Optional[TextContent]]:
+    """
+    Get or auto-generate agent_id.
+
+    Priority:
+    - If agent_id provided: use it (with basic safety validation)
+    - If session-bound: use that
+    - If neither: auto-generate a UUID-based ID
+    """
+    agent_id = arguments.get("agent_id")
+    explicit_agent_id = agent_id
+
+    # FALLBACK 1: Check session-bound identity
+    if not agent_id:
+        try:
+            from .context import get_context_agent_id
+            bound_id = get_context_agent_id()
+            if bound_id:
+                agent_id = bound_id
+                logger.debug(f"Using session-bound identity UUID: {agent_id}")
+                arguments["agent_id"] = agent_id
+        except Exception as e:
+            logger.debug(f"Could not retrieve session-bound identity: {e}")
+
+    # Canonical ID clarification: warn if explicit agent_id doesn't match session
+    if explicit_agent_id:
+        try:
+            from .context import get_context_agent_id
+            bound_uuid = get_context_agent_id()
+            if bound_uuid and explicit_agent_id != bound_uuid:
+                try:
+                    from .shared import get_mcp_server
+                    mcp_server = get_mcp_server()
+                    if bound_uuid in mcp_server.agent_metadata:
+                        meta = mcp_server.agent_metadata[bound_uuid]
+                        label = getattr(meta, 'label', None)
+                        structured_id = getattr(meta, 'structured_id', None)
+                        if explicit_agent_id in (label, structured_id):
+                            logger.debug(f"Explicit agent_id '{explicit_agent_id}' matches label/structured_id, using UUID '{bound_uuid[:8]}...'")
+                            agent_id = bound_uuid
+                            arguments["agent_id"] = agent_id
+                        else:
+                            logger.debug(f"Explicit agent_id '{explicit_agent_id}' differs from session-bound UUID '{bound_uuid[:8]}...' - using session-bound UUID")
+                            agent_id = bound_uuid
+                            arguments["agent_id"] = agent_id
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # FALLBACK 2: Auto-generate if still missing
+    if not agent_id:
+        import uuid
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        short_uuid = str(uuid.uuid4())[:8]
+        agent_id = f"auto_{timestamp}_{short_uuid}"
+        arguments["agent_id"] = agent_id
+        logger.info(f"Auto-generated agent_id: {agent_id}")
+
+    # Validate format and reserved names
+    from .validators import validate_agent_id_format
+    validated_id, format_error = validate_agent_id_format(agent_id)
+    if format_error:
+        return None, format_error
+
+    from .validators import validate_agent_id_reserved_names
+    validated_id, reserved_error = validate_agent_id_reserved_names(validated_id)
+    if reserved_error:
+        return None, reserved_error
+
+    return validated_id, None
+
+
+def require_registered_agent(arguments: Dict[str, Any]) -> Tuple[str, Optional[TextContent]]:
+    """
+    Get required agent_id AND verify the agent is registered in the system.
+
+    Returns agent_id (model+date) for storage. Sets arguments["_agent_display"]
+    and arguments["_agent_uuid"] for internal use.
+    """
+    from .error_handling import error_response
+
+    agent_id, error = require_agent_id(arguments)
+    if error:
+        return None, error
+
+    try:
+        from .shared import get_mcp_server
+        from .context import get_context_agent_id
+        import uuid as uuid_module
+
+        mcp_server = get_mcp_server()
+
+        try:
+            ensure_metadata_loaded = getattr(mcp_server, 'ensure_metadata_loaded', None)
+            if ensure_metadata_loaded:
+                ensure_metadata_loaded()
+        except Exception as e:
+            logger.debug(f"Could not ensure metadata loaded: {e}")
+
+        is_uuid = False
+        try:
+            uuid_module.UUID(agent_id, version=4)
+            is_uuid = True
+        except (ValueError, AttributeError):
+            pass
+
+        agent_found = False
+        actual_uuid = None
+        structured_id = None
+        display_name = None
+        label = None
+
+        if is_uuid:
+            if agent_id in mcp_server.agent_metadata:
+                agent_found = True
+                actual_uuid = agent_id
+                meta = mcp_server.agent_metadata[agent_id]
+                structured_id = getattr(meta, 'structured_id', None)
+                display_name = getattr(meta, 'display_name', None) or getattr(meta, 'label', None)
+                label = getattr(meta, 'label', None)
+        else:
+            for uuid_key, meta in mcp_server.agent_metadata.items():
+                if getattr(meta, 'label', None) == agent_id:
+                    agent_found = True
+                    actual_uuid = uuid_key
+                    structured_id = getattr(meta, 'structured_id', None)
+                    display_name = getattr(meta, 'display_name', None) or getattr(meta, 'label', None)
+                    label = getattr(meta, 'label', None)
+                    break
+
+        if not agent_found:
+            bound_uuid = get_context_agent_id()
+            if bound_uuid and bound_uuid in mcp_server.agent_metadata:
+                agent_found = True
+                actual_uuid = bound_uuid
+                meta = mcp_server.agent_metadata[bound_uuid]
+                structured_id = getattr(meta, 'structured_id', None)
+                display_name = getattr(meta, 'display_name', None) or getattr(meta, 'label', None)
+                label = getattr(meta, 'label', None)
+
+        if not agent_found:
+            from .naming_helpers import (
+                detect_interface_context,
+                generate_name_suggestions,
+                format_naming_guidance
+            )
+
+            context = detect_interface_context()
+            existing_names = [
+                getattr(m, 'label', None)
+                for m in mcp_server.agent_metadata.values()
+                if getattr(m, 'label', None)
+            ]
+            suggestions = generate_name_suggestions(
+                context=context,
+                existing_names=existing_names
+            )
+            naming_guidance = format_naming_guidance(suggestions=suggestions)
+
+            return None, error_response(
+                f"Agent '{agent_id}' is not registered. Identity auto-creates on first tool call.",
+                recovery={
+                    "error_type": "agent_not_registered",
+                    "action": "Call onboard() first to create your identity, or call process_agent_update() to auto-create",
+                    "related_tools": ["onboard", "process_agent_update", "identity", "list_tools"],
+                    "workflow": [
+                        "1. Call onboard() - creates identity + gives you templates (recommended)",
+                        "   OR call process_agent_update() - identity auto-creates",
+                        "2. Save client_session_id from response",
+                        "3. Call identity(name='your_name') to name yourself",
+                        "4. Include client_session_id in all future calls",
+                        "5. Then call this tool again"
+                    ],
+                    "naming_suggestions": naming_guidance,
+                    "onboarding_sequence": ["onboard", "identity", "process_agent_update", "list_tools"],
+                    "tip": "onboard() is the START HERE tool - it gives you everything you need in one call!"
+                }
+            )
+
+        public_agent_id = structured_id or label or f"Agent_{actual_uuid[:8]}"
+        arguments["agent_id"] = public_agent_id
+        arguments["_agent_display"] = {
+            "agent_id": public_agent_id,
+            "display_name": display_name or label or public_agent_id,
+            "label": label,
+        }
+        arguments["_agent_uuid"] = actual_uuid
+
+        return actual_uuid, None
+
+    except Exception as e:
+        return None, error_response(
+            f"Could not verify agent registration: {str(e)}",
+            recovery={
+                "action": "System error checking agent registration. Try onboard() or health_check() first.",
+                "related_tools": ["onboard", "health_check", "identity"],
+                "workflow": [
+                    "1. Call health_check() to verify system is healthy",
+                    "2. Call onboard() to create your identity",
+                    "3. Save client_session_id and include it in future calls"
+                ],
+                "note": "Identity auto-creates on first tool call. Use onboard() for the best first-time experience."
+            }
+        )
+
+
+def verify_agent_ownership(agent_id: str, arguments: Dict[str, Any], allow_operator: bool = False) -> bool:
+    """
+    Verify that the current session owns/is bound to the given agent_id.
+
+    Uses UUID-based auth via session binding. Supports operator exception
+    for cross-agent operations.
+    """
+    try:
+        from .context import get_context_agent_id
+        from .shared import get_mcp_server
+
+        mcp_server = get_mcp_server()
+
+        bound_id = get_context_agent_id()
+        if bound_id == agent_id:
+            return True
+
+        if bound_id:
+            meta = mcp_server.agent_metadata.get(bound_id)
+            if meta and getattr(meta, 'agent_uuid', None) == agent_id:
+                return True
+
+            if allow_operator and meta:
+                label = getattr(meta, 'label', '') or ''
+                tags = getattr(meta, 'tags', []) or []
+                is_operator = (
+                    label.lower() == 'operator' or
+                    'operator' in [t.lower() for t in tags]
+                )
+                if is_operator:
+                    logger.info(f"Operator {bound_id} granted cross-agent access to {agent_id}")
+                    return True
+
+        return False
+    except Exception as e:
+        logger.debug(f"verify_agent_ownership failed: {e}")
+        return False

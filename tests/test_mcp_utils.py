@@ -212,7 +212,7 @@ class TestCheckAgentCanOperate:
         mock_srv.return_value = _mock_server({"a": _meta(status="active")})
         assert check_agent_can_operate("a") is None
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     @patch("src.mcp_handlers.shared.get_mcp_server")
     def test_paused_blocked(self, mock_srv, mock_sig):
         mock_srv.return_value = _mock_server({"p": _meta(status="paused", paused_at="2026-01-01")})
@@ -223,7 +223,7 @@ class TestCheckAgentCanOperate:
         assert d["error_code"] == "AGENT_PAUSED"
         assert "self_recovery" in d["recovery"]["action"]
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     @patch("src.mcp_handlers.shared.get_mcp_server")
     def test_archived_blocked(self, mock_srv, mock_sig):
         mock_srv.return_value = _mock_server({"a": _meta(status="archived")})
@@ -237,7 +237,7 @@ class TestCheckAgentCanOperate:
 
 
 class TestErrorResponse:
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_basic(self, mock_sig):
         r = error_response("Something went wrong")
         assert isinstance(r, TextContent)
@@ -246,57 +246,57 @@ class TestErrorResponse:
         assert "went wrong" in d["error"]
         assert "server_time" in d
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_explicit_code_category(self, mock_sig):
         d = _parse_tc(error_response("x", error_code="C", error_category="validation_error"))
         assert d["error_code"] == "C"
         assert d["error_category"] == "validation_error"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_auto_inferred(self, mock_sig):
         d = _parse_tc(error_response("Resource not found"))
         assert d["error_code"] == "NOT_FOUND"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_explicit_overrides(self, mock_sig):
         d = _parse_tc(error_response("not found", error_code="MY", error_category="system_error"))
         assert d["error_code"] == "MY"
         assert d["error_category"] == "system_error"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_partial_explicit(self, mock_sig):
         d = _parse_tc(error_response("Agent not found", error_code="MY"))
         assert d["error_code"] == "MY"
         assert d["error_category"] == "validation_error"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_details_merged(self, mock_sig):
         d = _parse_tc(error_response("x", details={"agent_id": "abc", "count": 42}))
         assert d["agent_id"] == "abc" and d["count"] == 42
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_recovery(self, mock_sig):
         d = _parse_tc(error_response("x", recovery={"action": "retry"}))
         assert d["recovery"]["action"] == "retry"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_context(self, mock_sig):
         d = _parse_tc(error_response("x", context={"op": "search"}))
         assert d["context"]["op"] == "search"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_no_code_for_generic(self, mock_sig):
         d = _parse_tc(error_response("All systems nominal"))
         assert "error_code" not in d
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_sanitize_details(self, mock_sig):
         d = _parse_tc(error_response("x", details={"p": "/Users/s/h/d/m.py crash"}))
         assert "/Users/s" not in d.get("p", "")
 
 
 class TestSuccessResponse:
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": "u1"})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": "u1"})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value="u1")
     def test_basic(self, mc, ms):
         r = success_response({"msg": "hi"})
@@ -304,38 +304,38 @@ class TestSuccessResponse:
         assert d["success"] is True and d["msg"] == "hi"
         assert d["caller_agent_id"] == "u1"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": "u1"})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": "u1"})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value="u1")
     def test_lite_omits_sig(self, mc, ms):
         d = _parse_tc(success_response({"x": 1}, arguments={"lite_response": True})[0])
         assert "agent_signature" not in d
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value=None)
     def test_no_resolved_when_unbound(self, mc, ms):
         d = _parse_tc(success_response({"x": 1})[0])
         assert "caller_agent_id" not in d
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": "u1"})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": "u1"})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value="u1")
     def test_param_coercions(self, mc, ms):
         c = [{"param": "c", "from": "0.8", "to": 0.8}]
         d = _parse_tc(success_response({"x": 1}, arguments={"_param_coercions": c})[0])
         assert d["_param_coercions"]["applied"] == c
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": "u1"})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": "u1"})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value="u1")
     def test_coercions_hidden_lite(self, mc, ms):
         d = _parse_tc(success_response({"x": 1}, arguments={"lite_response": True, "_param_coercions": [{"p": "x"}]})[0])
         assert "_param_coercions" not in d
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value=None)
     def test_non_serializable(self, mc, ms):
         d = _parse_tc(success_response({"ts": datetime(2026, 1, 15, 12, 0), "d": date(2026, 1, 15)})[0])
         assert d["ts"] == "2026-01-15T12:00:00" and d["d"] == "2026-01-15"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": "u1"})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": "u1"})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value="u1")
     def test_explicit_agent_id_forwarded(self, mc, ms):
         success_response({"x": 1}, agent_id="my-a")
@@ -562,7 +562,7 @@ class TestRequireRegisteredAgent:
         s = _mock_server()
         s.ensure_metadata_loaded = MagicMock()
         ms.return_value = s
-        with patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             u, e = require_registered_agent({"agent_id": "unk"})
             assert u is None and "not registered" in _parse_tc(e)["error"]
 
@@ -703,19 +703,19 @@ class TestGenerateActionableFeedback:
 
 
 class TestEdgeCases:
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_error_with_datetime_detail(self, ms):
         d = _parse_tc(error_response("x", details={"when": datetime(2026, 1, 1, 12, 0)}))
         assert d["success"] is False
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value=None)
     def test_success_enum(self, mc, ms):
         class S(Enum):
             A = "active"
         assert _parse_tc(success_response({"s": S.A})[0])["s"] == "active"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value=None)
     def test_success_set(self, mc, ms):
         d = _parse_tc(success_response({"t": {"a", "b", "c"}})[0])
@@ -726,11 +726,11 @@ class TestEdgeCases:
         t = format_metrics_text(r)
         assert "Agent: rt" in t and "coherence: 0.950" in t
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     def test_unknown_category(self, ms):
         assert _parse_tc(error_response("x", error_code="C", error_category="custom"))["error_category"] == "custom"
 
-    @patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None})
+    @patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None})
     @patch("src.mcp_handlers.context.get_context_agent_id", return_value=None)
     def test_empty_data(self, mc, ms):
         assert _parse_tc(success_response({})[0])["success"] is True

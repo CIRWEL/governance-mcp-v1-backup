@@ -408,39 +408,39 @@ class TestMakeJsonSerializable:
 
 class TestErrorResponse:
     def test_basic_error(self):
-        with patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Something went wrong")
         data = json.loads(tc.text)
         assert data["success"] is False
         assert "Something went wrong" in data["error"]
 
     def test_with_error_code(self):
-        with patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Not found", error_code="NOT_FOUND", error_category="validation_error")
         data = json.loads(tc.text)
         assert data["error_code"] == "NOT_FOUND"
         assert data["error_category"] == "validation_error"
 
     def test_auto_inferred_code(self):
-        with patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Agent not found")
         data = json.loads(tc.text)
         assert data.get("error_code") == "NOT_FOUND"
 
     def test_with_recovery(self):
-        with patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Bad", recovery={"action": "retry"})
         data = json.loads(tc.text)
         assert data["recovery"]["action"] == "retry"
 
     def test_with_details(self):
-        with patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Bad", details={"agent_id": "a1"})
         data = json.loads(tc.text)
         assert data["agent_id"] == "a1"
 
     def test_with_context(self):
-        with patch("src.mcp_handlers.utils.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Bad", context={"tool": "test"})
         data = json.loads(tc.text)
         assert data["context"]["tool"] == "test"
