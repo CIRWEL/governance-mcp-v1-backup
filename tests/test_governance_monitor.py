@@ -1144,6 +1144,49 @@ class TestMakeDecision:
         decision = monitor.make_decision(0.3)
         assert 'action' in decision
 
+    def test_cirs_hard_block_forces_pause(self, monitor):
+        """CIRS hard_block response tier should force pause regardless of risk."""
+        from src.cirs import OscillationState
+        osc = OscillationState(oi=4.5, flips=5, resonant=True, trigger='oi')
+        decision = monitor.make_decision(
+            0.1,  # Low risk — would normally proceed
+            unitares_verdict='safe',
+            response_tier='hard_block',
+            oscillation_state=osc,
+        )
+        assert decision['action'] == 'pause'
+        assert 'CIRS' in decision['reason']
+        assert decision['nearest_edge'] == 'oscillation'
+
+    def test_cirs_soft_dampen_upgrades_safe_to_caution(self, monitor):
+        """CIRS soft_dampen should upgrade safe verdict to caution (proceed with guidance)."""
+        from src.cirs import OscillationState
+        osc = OscillationState(oi=2.0, flips=2, resonant=True, trigger='flips')
+        decision = monitor.make_decision(
+            0.1,  # Low risk
+            unitares_verdict='safe',
+            response_tier='soft_dampen',
+            oscillation_state=osc,
+        )
+        # safe → caution upgrade → proceed with guidance
+        assert decision['action'] == 'proceed'
+        assert decision.get('verdict_context') == 'aware'
+
+    def test_cirs_proceed_no_change(self, monitor):
+        """CIRS proceed response tier should not alter standard logic."""
+        decision = monitor.make_decision(
+            0.1,
+            unitares_verdict='safe',
+            response_tier='proceed',
+        )
+        assert decision['action'] in ('proceed', 'approve')
+
+    def test_cirs_none_response_tier_no_change(self, monitor):
+        """None response_tier (no CIRS) should behave like standard logic."""
+        decision = monitor.make_decision(0.1, unitares_verdict='safe')
+        decision2 = monitor.make_decision(0.1, unitares_verdict='safe', response_tier=None)
+        assert decision['action'] == decision2['action']
+
 
 # ============================================================================
 # get_metrics

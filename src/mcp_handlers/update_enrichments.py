@@ -272,6 +272,28 @@ def enrich_cirs_response_fields(ctx: UpdateContext) -> None:
         logger.debug(f"Could not enrich CIRS fields: {e}")
 
 
+def enrich_cirs_dampening_advisory(ctx: UpdateContext) -> None:
+    """Surface CIRS oscillation dampening as an advisory when resonance is active."""
+    try:
+        cirs = ctx.response_data.get('cirs', {})
+        if not cirs.get('resonant'):
+            return
+        response_tier = cirs.get('response_tier', 'proceed')
+        oi = cirs.get('oi', 0.0)
+        flips = cirs.get('flips', 0)
+        severity = 'high' if response_tier == 'hard_block' else 'moderate'
+        ctx.response_data.setdefault('advisories', []).append({
+            'source': 'cirs',
+            'severity': severity,
+            'message': (
+                f"Oscillation detected (OI={oi:.2f}, {flips} flips). "
+                f"Governance thresholds dampened to stabilize verdict sequence."
+            )
+        })
+    except Exception as e:
+        logger.debug(f"Could not enrich CIRS dampening advisory: {e}")
+
+
 # ─── Knowledge Surfacing ───────────────────────────────────────────────
 
 async def enrich_knowledge_surfacing(ctx: UpdateContext) -> None:

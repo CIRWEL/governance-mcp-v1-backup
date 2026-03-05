@@ -642,6 +642,39 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
     except Exception as e:
         logger.debug(f"CIRS neighbor pressure skipped: {e}")
 
+    # CIRS: Persist resonance event to PostgreSQL
+    try:
+        cirs_data = ctx.result.get('cirs', {})
+        if cirs_data.get('resonant'):
+            from src.db import get_db
+            _db = get_db()
+            if _db:
+                await _db.record_outcome_event(
+                    agent_id=agent_id,
+                    outcome_type='cirs_resonance',
+                    is_bad=True,
+                    outcome_score=0.0,
+                    session_id=ctx.arguments.get('client_session_id'),
+                    eisv_e=ctx.metrics_dict.get('E'),
+                    eisv_i=ctx.metrics_dict.get('I'),
+                    eisv_s=ctx.metrics_dict.get('S'),
+                    eisv_v=ctx.metrics_dict.get('V'),
+                    eisv_phi=ctx.metrics_dict.get('phi'),
+                    eisv_verdict=ctx.metrics_dict.get('verdict'),
+                    eisv_coherence=ctx.metrics_dict.get('coherence'),
+                    eisv_regime=ctx.metrics_dict.get('regime'),
+                    detail={
+                        'source': 'cirs_resonance',
+                        'oi': cirs_data.get('oi'),
+                        'flips': cirs_data.get('flips'),
+                        'trigger': cirs_data.get('trigger'),
+                        'response_tier': cirs_data.get('response_tier'),
+                    },
+                )
+                logger.info(f"CIRS resonance event persisted for {agent_id}")
+    except Exception as e:
+        logger.debug(f"CIRS resonance persistence skipped: {e}")
+
     # PostgreSQL: Record EISV state
     try:
         await agent_storage.record_agent_state(

@@ -986,15 +986,21 @@ class UNITARESMonitor:
         
         return float(np.clip(risk, 0.0, 1.0))
     
-    def make_decision(self, risk_score: float, unitares_verdict: str = None) -> Dict:
+    def make_decision(self, risk_score: float, unitares_verdict: str = None,
+                      response_tier: str = None, oscillation_state: 'OscillationState' = None) -> Dict:
         """
         Makes autonomous governance decision using UNITARES Phase-3 verdict and config.make_decision()
-        
+
         If unitares_verdict is provided, it influences the decision:
         - "safe" -> bias toward approve
         - "caution" -> bias toward revise
         - "high-risk" -> bias toward reject
-        
+
+        If response_tier is provided (from CIRS oscillation detection):
+        - "hard_block" -> force pause (pathological oscillation)
+        - "soft_dampen" -> upgrade safe verdict to caution
+        - "proceed" -> no change
+
         Returns decision dict with action and reason (fully autonomous, no human-in-the-loop).
         """
         # Compute margin for proprioceptive feedback
@@ -1005,7 +1011,24 @@ class UNITARESMonitor:
             void_value=self.state.V,
             coherence_history=self.state.coherence_history,
         )
-        
+
+        # CIRS oscillation override — checked before verdict logic
+        if response_tier == 'hard_block':
+            oi = oscillation_state.oi if oscillation_state else 0.0
+            flips = oscillation_state.flips if oscillation_state else 0
+            return {
+                'action': 'pause',
+                'reason': f'CIRS resonance detected (OI={oi:.2f}, flips={flips}) — decision oscillating',
+                'guidance': 'Governance is flip-flopping. Reduce complexity or wait for state to settle.',
+                'critical': False,
+                'margin': 'critical',
+                'nearest_edge': 'oscillation'
+            }
+
+        # CIRS soft dampen — upgrade safe verdict to caution (adds guidance)
+        if response_tier == 'soft_dampen' and unitares_verdict == 'safe':
+            unitares_verdict = 'caution'
+
         # Use UNITARES verdict to influence decision if available
         if unitares_verdict == "high-risk":
             # Override: high-risk verdict -> reject (check if critical)
@@ -1476,19 +1499,32 @@ class UNITARESMonitor:
                         f"trigger={oscillation_state.trigger}"
                     )
 
+            # Use damped thresholds if damping was applied, otherwise static config
+            effective_tau = (damping_result.tau_new
+                            if damping_result and damping_result.damping_applied
+                            else config.COHERENCE_CRITICAL_THRESHOLD)
+            effective_beta = (damping_result.beta_new
+                              if damping_result and damping_result.damping_applied
+                              else config.RISK_REVISE_THRESHOLD)
+
             # Classify response tier (proceed/soft_dampen/hard_block)
             response_tier = classify_response(
                 coherence=float(self.state.coherence),
                 risk=float(risk_score),
-                tau=config.COHERENCE_CRITICAL_THRESHOLD,
-                beta=config.RISK_REVISE_THRESHOLD,
+                tau=effective_tau,
+                beta=effective_beta,
                 tau_low=CIRS_DEFAULTS['tau_low'],
                 beta_high=CIRS_DEFAULTS['beta_high'],
                 oscillation_state=oscillation_state
             )
 
-        # Step 5: Make decision (using UNITARES verdict)
-        decision = self.make_decision(risk_score, unitares_verdict=unitares_verdict)
+        # Step 5: Make decision (using UNITARES verdict + CIRS oscillation state)
+        decision = self.make_decision(
+            risk_score,
+            unitares_verdict=unitares_verdict,
+            response_tier=response_tier,
+            oscillation_state=oscillation_state
+        )
         
         # Record prediction for STRATEGIC calibration (trajectory health)
         #

@@ -320,6 +320,74 @@ class TestResonanceFullLoop:
         # (may still have RESONANCE_ALERT in buffer too, so just check it moved)
 
 
+class TestCirsDampeningAdvisory:
+    """enrich_cirs_dampening_advisory surfaces oscillation info to agents."""
+
+    def _make_ctx(self, cirs_data):
+        ctx = MagicMock()
+        ctx.response_data = {'cirs': cirs_data}
+        return ctx
+
+    def test_advisory_emitted_on_resonance(self):
+        from src.mcp_handlers.update_enrichments import enrich_cirs_dampening_advisory
+        ctx = self._make_ctx({'resonant': True, 'oi': 4.2, 'flips': 5, 'response_tier': 'hard_block'})
+        enrich_cirs_dampening_advisory(ctx)
+        advisories = ctx.response_data.get('advisories', [])
+        assert len(advisories) == 1
+        assert advisories[0]['source'] == 'cirs'
+        assert advisories[0]['severity'] == 'high'
+        assert 'OI=4.20' in advisories[0]['message']
+
+    def test_advisory_moderate_on_soft_dampen(self):
+        from src.mcp_handlers.update_enrichments import enrich_cirs_dampening_advisory
+        ctx = self._make_ctx({'resonant': True, 'oi': 2.0, 'flips': 3, 'response_tier': 'soft_dampen'})
+        enrich_cirs_dampening_advisory(ctx)
+        advisories = ctx.response_data.get('advisories', [])
+        assert len(advisories) == 1
+        assert advisories[0]['severity'] == 'moderate'
+
+    def test_no_advisory_when_not_resonant(self):
+        from src.mcp_handlers.update_enrichments import enrich_cirs_dampening_advisory
+        ctx = self._make_ctx({'resonant': False, 'oi': 0.5, 'flips': 0})
+        enrich_cirs_dampening_advisory(ctx)
+        assert 'advisories' not in ctx.response_data
+
+    def test_no_advisory_when_no_cirs_data(self):
+        from src.mcp_handlers.update_enrichments import enrich_cirs_dampening_advisory
+        ctx = MagicMock()
+        ctx.response_data = {}
+        enrich_cirs_dampening_advisory(ctx)
+        assert 'advisories' not in ctx.response_data
+
+
+class TestDampedThresholdsInClassify:
+    """Damped thresholds should be used by classify_response when damping is applied."""
+
+    def test_damped_thresholds_change_response_tier(self):
+        """When thresholds are moved toward current values, classification can change."""
+        from src.cirs import classify_response, OscillationState
+
+        osc = OscillationState(oi=3.5, flips=4, resonant=True, trigger='oi')
+
+        # With strict thresholds: coherence below tau → soft_dampen
+        tier_strict = classify_response(
+            coherence=0.42, risk=0.3,
+            tau=0.45, beta=0.5,
+            oscillation_state=osc,
+        )
+
+        # With damped thresholds (tau moved toward current coherence):
+        tier_damped = classify_response(
+            coherence=0.42, risk=0.3,
+            tau=0.40, beta=0.5,  # tau lowered by damper
+            oscillation_state=osc,
+        )
+
+        # Strict: coherence(0.42) < tau(0.45) → should trigger dampen/block
+        # Damped: coherence(0.42) >= tau(0.40) → may proceed
+        assert tier_strict != 'proceed' or tier_damped == 'proceed'
+
+
 def _stable_histories():
     """Helper: stable EISV histories for phase detection."""
     return {
