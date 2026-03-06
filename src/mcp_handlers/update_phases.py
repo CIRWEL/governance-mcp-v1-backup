@@ -360,6 +360,19 @@ def validate_inputs(ctx: UpdateContext) -> Optional[Sequence[TextContent]]:
     # Complexity
     ctx.complexity = ctx.arguments.get("complexity", 0.5)
 
+    # Pre-ODE: Enforce complexity_limit from dialectic conditions
+    if ctx.meta and getattr(ctx.meta, "dialectic_conditions", None):
+        try:
+            from .dialectic_enforcement import enforce_complexity_limit
+            ctx.complexity, cap_warning = enforce_complexity_limit(
+                ctx.meta.dialectic_conditions, ctx.complexity
+            )
+            if cap_warning:
+                ctx.dialectic_enforcement_warning = cap_warning
+                ctx.arguments["complexity"] = ctx.complexity
+        except Exception as e:
+            logger.warning(f"Could not enforce complexity limit: {e}", exc_info=True)
+
     # Confidence & Auto-Calibration
     reported_confidence = ctx.arguments.get("confidence")
     ctx.confidence = reported_confidence
@@ -570,6 +583,21 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
     ctx.risk_score = ctx.metrics_dict.get('risk_score', None)
     ctx.coherence = ctx.metrics_dict.get('coherence', None)
     void_active = ctx.metrics_dict.get('void_active', False)
+
+    # Post-ODE: Enforce risk_target and coherence_target from dialectic conditions
+    try:
+        if ctx.meta and getattr(ctx.meta, 'dialectic_conditions', None):
+            from .dialectic_enforcement import enforce_post_ode_conditions
+            decision = ctx.result.get('decision', {})
+            escalated_decision, condition_warnings = enforce_post_ode_conditions(
+                ctx.meta.dialectic_conditions, ctx.metrics_dict, decision
+            )
+            if escalated_decision is not decision:
+                ctx.result['decision'] = escalated_decision
+                ctx.result['dialectic_escalation'] = True
+            ctx.warnings.extend(condition_warnings)
+    except Exception as e:
+        logger.debug(f"Dialectic condition enforcement skipped: {e}")
 
     ctx.health_status, ctx.health_message = mcp_server.health_checker.get_health_status(
         risk_score=ctx.risk_score,

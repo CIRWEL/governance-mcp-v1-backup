@@ -902,7 +902,7 @@ async def enrich_websocket_broadcast(ctx: UpdateContext) -> None:
     try:
         from src.broadcaster import broadcaster_instance
 
-        if not broadcaster_instance:
+        if broadcaster_instance is None:
             return
 
         mcp_server = ctx.mcp_server
@@ -915,16 +915,18 @@ async def enrich_websocket_broadcast(ctx: UpdateContext) -> None:
         )
 
         # Extract sensor data if present (Lumen check-ins)
-        broadcast_sensor_data = None
-        params_raw = ctx.arguments.get("parameters", [])
-        if isinstance(params_raw, list):
-            for p in params_raw:
-                if isinstance(p, dict) and p.get("key") == "sensor_data":
-                    try:
-                        broadcast_sensor_data = json.loads(p.get("value"))
-                        break
-                    except Exception:
-                        pass
+        # Accept as direct argument (preferred) or legacy parameters list format
+        broadcast_sensor_data = ctx.arguments.get("sensor_data")
+        if broadcast_sensor_data is None:
+            params_raw = ctx.arguments.get("parameters", [])
+            if isinstance(params_raw, list):
+                for p in params_raw:
+                    if isinstance(p, dict) and p.get("key") == "sensor_data":
+                        try:
+                            broadcast_sensor_data = json.loads(p.get("value"))
+                            break
+                        except Exception:
+                            pass
 
         # Extract EISV values
         eisv_nested = metrics.get("eisv", {})

@@ -1833,7 +1833,24 @@ class PostgresBackend(DatabaseBackend):
                 LIMIT ${param_idx}
             """, *params)
 
-            return [self._row_to_discovery_dict(row) for row in rows]
+            results = [self._row_to_discovery_dict(row) for row in rows]
+
+            # Batch-populate responses_from backlinks
+            if results:
+                ids = [r["id"] for r in results]
+                backlink_rows = await conn.fetch("""
+                    SELECT response_to_id, id FROM knowledge.discoveries
+                    WHERE response_to_id = ANY($1)
+                    ORDER BY created_at
+                """, ids)
+                backlinks_map: Dict[str, List[str]] = {}
+                for br in backlink_rows:
+                    backlinks_map.setdefault(br["response_to_id"], []).append(br["id"])
+                for r in results:
+                    if r["id"] in backlinks_map:
+                        r["responses_from"] = backlinks_map[r["id"]]
+
+            return results
 
     async def kg_full_text_search(
         self,
@@ -1884,15 +1901,27 @@ class PostgresBackend(DatabaseBackend):
             return [self._row_to_discovery_dict(row) for row in rows]
 
     async def kg_get_discovery(self, discovery_id: str) -> Optional[Dict[str, Any]]:
-        """Get a single discovery by ID."""
+        """Get a single discovery by ID, including backlinks."""
         async with self.acquire() as conn:
             row = await conn.fetchrow("""
                 SELECT * FROM knowledge.discoveries WHERE id = $1
             """, discovery_id)
 
-            if row:
-                return self._row_to_discovery_dict(row)
-            return None
+            if not row:
+                return None
+
+            d = self._row_to_discovery_dict(row)
+
+            # Populate responses_from backlinks
+            backlinks = await conn.fetch("""
+                SELECT id FROM knowledge.discoveries
+                WHERE response_to_id = $1
+                ORDER BY created_at
+            """, discovery_id)
+            if backlinks:
+                d["responses_from"] = [r["id"] for r in backlinks]
+
+            return d
 
     async def kg_update_status(
         self,

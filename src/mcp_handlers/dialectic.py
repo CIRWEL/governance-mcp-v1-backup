@@ -67,6 +67,7 @@ logger = get_logger(__name__)
 
 
 # Import from mcp_server_std module (using shared utility)
+from .shared import get_mcp_server
 
 class _LazyMCPServer:
     def __getattr__(self, name):

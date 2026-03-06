@@ -366,36 +366,18 @@ async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextC
     complexity = arguments.get("complexity", 0.5)
 
     # Dialectic condition enforcement (only applies to existing agents)
+    dialectic_warnings = []
     if meta and agent_state_source == "existing":
         try:
             if getattr(meta, "dialectic_conditions", None):
-                caps = []
-                for c in meta.dialectic_conditions:
-                    if not isinstance(c, dict):
-                        continue
-                    ctype = c.get("type")
-                    if ctype == "complexity_limit":
-                        v = c.get("value")
-                        if isinstance(v, (int, float)):
-                            caps.append(float(v))
-                    # Accept reduce/set adjustments as an implicit cap target_value
-                    if ctype == "complexity_adjustment" and c.get("action") == "reduce":
-                        v = c.get("target_value")
-                        if isinstance(v, (int, float)):
-                            caps.append(float(v))
-                # Only enforce sane caps in [0,1]
-                caps = [v for v in caps if 0.0 <= v <= 1.0]
-                if caps:
-                    cap = min(caps)
-                    if complexity > cap:
-                        dialectic_enforcement_warning = (
-                            f"Dialectic condition enforced: complexity {complexity:.2f} capped to {cap:.2f}. "
-                            f"(Agent has active dialectic_conditions complexity cap.)"
-                        )
-                        complexity = cap
-                        arguments["complexity"] = cap
+                from .dialectic_enforcement import enforce_complexity_limit
+                complexity, cap_warning = enforce_complexity_limit(
+                    meta.dialectic_conditions, complexity
+                )
+                if cap_warning:
+                    dialectic_enforcement_warning = cap_warning
+                    arguments["complexity"] = complexity
         except Exception as e:
-            # Don't fail updates if condition parsing fails; treat as non-blocking.
             logger.warning(f"Could not enforce dialectic conditions: {e}", exc_info=True)
 
     # Confidence: If not provided (None), let governance_monitor derive from state
@@ -414,6 +396,22 @@ async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextC
 
     # Run simulation (doesn't persist state) with confidence
     result = monitor.simulate_update(agent_state, confidence=confidence)
+
+    # Post-ODE: Enforce risk_target and coherence_target
+    if meta and agent_state_source == "existing":
+        try:
+            if getattr(meta, "dialectic_conditions", None):
+                from .dialectic_enforcement import enforce_post_ode_conditions
+                decision = result.get("decision", {})
+                escalated_decision, condition_warnings = enforce_post_ode_conditions(
+                    meta.dialectic_conditions, result.get("metrics", {}), decision
+                )
+                if escalated_decision is not decision:
+                    result["decision"] = escalated_decision
+                    result["dialectic_escalation"] = True
+                dialectic_warnings.extend(condition_warnings)
+        except Exception as e:
+            logger.warning(f"Could not enforce post-ODE dialectic conditions: {e}", exc_info=True)
 
     # LITE MODE: Simplified response for smaller models/local agents
     lite_mode = arguments.get("lite", False)
@@ -451,9 +449,11 @@ async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextC
             "No agent was registered. Call onboard() or process_agent_update() to create one."
         )
 
-    # Add dialectic warning if applicable
+    # Add dialectic warnings if applicable
     if dialectic_enforcement_warning:
         response["dialectic_warning"] = dialectic_enforcement_warning
+    if dialectic_warnings:
+        response["dialectic_condition_warnings"] = dialectic_warnings
 
     return success_response(response)
 
