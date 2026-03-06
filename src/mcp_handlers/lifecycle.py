@@ -419,25 +419,35 @@ async def handle_list_agents(arguments: ToolArgumentsDict) -> Sequence[TextConte
                 agent_info.setdefault("health_status", "unknown")
                 agent_info.setdefault("metrics", None)
 
-            # Trust tier from cached trajectory data, with DB fallback
+            # Trust tier from cached trajectory data (DB fallback done in batch below)
             cached_tier = getattr(meta, 'trust_tier', None)
-            if cached_tier is None:
-                try:
-                    from src.trajectory_identity import compute_trust_tier
-                    from src.db import get_db as _get_db
-                    identity = await _get_db().get_identity(agent_id)
-                    if identity and identity.metadata:
-                        tier_info = compute_trust_tier(identity.metadata)
-                        cached_tier = tier_info.get("name", "unknown")
-                        # Cache for next time
-                        meta.trust_tier = cached_tier
-                        meta.trust_tier_num = tier_info.get("tier", 0)
-                except Exception as e:
-                    logger.debug(f"Trust tier DB fallback failed for {agent_id[:8]}: {e}")
             agent_info["trust_tier"] = cached_tier
 
             agents_list.append(agent_info)
-        
+
+        # Batch-load trust tiers for agents missing cached values (avoids N+1 queries)
+        agents_needing_tiers = [a for a in agents_list if a["trust_tier"] is None]
+        if agents_needing_tiers:
+            try:
+                from src.trajectory_identity import compute_trust_tier
+                from src.db import get_db as _get_db
+                db = _get_db()
+                ids_to_fetch = [a["agent_id"] for a in agents_needing_tiers]
+                identities = await db.get_identities_batch(ids_to_fetch)
+                for agent_info in agents_needing_tiers:
+                    aid = agent_info["agent_id"]
+                    identity = identities.get(aid)
+                    if identity and identity.metadata:
+                        tier_info = compute_trust_tier(identity.metadata)
+                        agent_info["trust_tier"] = tier_info.get("name", "unknown")
+                        # Cache for next time
+                        meta_obj = mcp_server.agent_metadata.get(aid)
+                        if meta_obj:
+                            meta_obj.trust_tier = agent_info["trust_tier"]
+                            meta_obj.trust_tier_num = tier_info.get("tier", 0)
+            except Exception as e:
+                logger.debug(f"Batch trust tier lookup failed: {e}")
+
         # Sort by last_update (most recent first)
         agents_list.sort(key=lambda x: x.get("last_update", ""), reverse=True)
         

@@ -386,6 +386,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Delete agent_state rows older than retention_days, keeping the most recent
+-- row per identity regardless of age (so we never lose the latest snapshot).
+CREATE OR REPLACE FUNCTION core.cleanup_old_agent_state(
+    p_retention_days INTEGER DEFAULT 90
+)
+RETURNS INTEGER AS $$
+DECLARE
+    v_count INTEGER;
+BEGIN
+    WITH latest AS (
+        SELECT DISTINCT ON (identity_id) state_id
+        FROM core.agent_state
+        ORDER BY identity_id, recorded_at DESC
+    ),
+    deleted AS (
+        DELETE FROM core.agent_state
+        WHERE recorded_at < now() - (p_retention_days || ' days')::INTERVAL
+          AND state_id NOT IN (SELECT state_id FROM latest)
+        RETURNING 1
+    )
+    SELECT COUNT(*) INTO v_count FROM deleted;
+
+    RETURN v_count;
+END;
+$$ LANGUAGE plpgsql;
+
 -- =============================================================================
 -- VIEWS
 -- =============================================================================

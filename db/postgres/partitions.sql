@@ -339,6 +339,12 @@ BEGIN
         core.cleanup_expired_sessions()
     );
 
+    -- Clean up old agent_state rows (keep last 90 days)
+    v_result := v_result || jsonb_build_object(
+        'agent_state_cleaned',
+        core.cleanup_old_agent_state(90)
+    );
+
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql;

@@ -1154,6 +1154,23 @@ async def main():
 
         asyncio.create_task(startup_kg_lifecycle())
 
+        # === Background task: Partition maintenance (weekly) ===
+        async def periodic_partition_maintenance():
+            """Run audit.partition_maintenance() weekly to create/drop partitions."""
+            await asyncio.sleep(60.0)  # Wait for DB to be stable
+            while True:
+                try:
+                    from src.db import get_db
+                    db = get_db()
+                    async with db.acquire() as conn:
+                        result = await conn.fetchval("SELECT audit.partition_maintenance()")
+                    logger.info(f"Partition maintenance completed: {result}")
+                except Exception as e:
+                    logger.debug(f"Partition maintenance skipped: {e}")
+                await asyncio.sleep(7 * 24 * 3600)  # Run weekly
+
+        asyncio.create_task(periodic_partition_maintenance())
+
         # === Background task: Metadata loading (non-blocking) ===
         async def background_metadata_load():
             """Load metadata in background after server starts accepting connections."""
