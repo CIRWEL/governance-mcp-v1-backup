@@ -27,11 +27,13 @@ class TestInitGuard:
     @pytest.mark.asyncio
     async def test_init_skips_when_pool_exists(self):
         """init() should be a no-op when pool already exists."""
+        import time
         from src.db.postgres_backend import PostgresBackend
 
         backend = PostgresBackend()
         mock_pool = MagicMock()
         backend._pool = mock_pool
+        backend._last_pool_check = time.time()  # Prevent health check from firing
 
         with patch("asyncpg.create_pool", new_callable=AsyncMock) as create:
             await backend.init()

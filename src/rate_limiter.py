@@ -34,13 +34,16 @@ class RateLimiter:
         self.request_history: Dict[str, deque] = defaultdict(lambda: deque())
     
     def _cleanup_old_requests(self, agent_id: str, window_seconds: int) -> None:
-        """Remove requests older than window from history"""
+        """Remove requests older than window from history."""
         now = time.time()
         cutoff = now - window_seconds
-        
+
         history = self.request_history[agent_id]
         while history and history[0] < cutoff:
             history.popleft()
+        # Evict empty keys to prevent unbounded dict growth from ephemeral agents
+        if not history:
+            del self.request_history[agent_id]
     
     def check_rate_limit(self, agent_id: str) -> tuple[bool, Optional[str]]:
         """
@@ -55,28 +58,30 @@ class RateLimiter:
             - error_message: None if allowed, error message if rate limited
         """
         now = time.time()
-        history = self.request_history[agent_id]
-        
-        # Clean up old requests (keep last hour)
+
+        # Clean up old requests (keep last hour) — may delete empty key
         self._cleanup_old_requests(agent_id, window_seconds=3600)
-        
+
+        # Re-fetch after cleanup (key may have been evicted and re-created by defaultdict)
+        history = self.request_history[agent_id]
+
         # Check per-minute limit
         minute_cutoff = now - 60
         recent_minute = sum(1 for ts in history if ts > minute_cutoff)
-        
+
         if recent_minute >= self.max_per_minute:
             return False, f"Rate limit exceeded: {recent_minute}/{self.max_per_minute} requests per minute. Wait a few seconds and retry."
-        
+
         # Check per-hour limit
         hour_cutoff = now - 3600
         recent_hour = sum(1 for ts in history if ts > hour_cutoff)
-        
+
         if recent_hour >= self.max_per_hour:
             return False, f"Rate limit exceeded: {recent_hour}/{self.max_per_hour} requests per hour. Please reduce request frequency."
-        
+
         # Record this request
         history.append(now)
-        
+
         return True, None
     
     def get_stats(self, agent_id: str) -> Dict[str, int]:

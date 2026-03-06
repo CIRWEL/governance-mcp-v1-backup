@@ -219,6 +219,42 @@ def create_related_to_edge(
     return cypher, params
 
 
+def create_spawned_edge(
+    parent_agent_id: str,
+    child_agent_id: str,
+    spawn_reason: Optional[str] = None,
+    at: Optional[datetime] = None,
+) -> tuple[str, Dict[str, Any]]:
+    """
+    Build Cypher query to create SPAWNED edge (parent)-[:SPAWNED]->(child).
+
+    Returns:
+        (cypher_query, params_dict)
+    """
+    props = {}
+    if spawn_reason:
+        props["spawn_reason"] = spawn_reason
+    if at:
+        props["at"] = at.isoformat()
+
+    if props:
+        props_items = ", ".join(f"{k}: ${{{k}}}" for k in props.keys())
+        props_str = f" {{{props_items}}}"
+    else:
+        props_str = ""
+
+    params = {"parent_id": parent_agent_id, "child_id": child_agent_id, **props}
+
+    cypher = f"""
+        MATCH (parent:Agent {{id: ${{parent_id}}}})
+        MATCH (child:Agent {{id: ${{child_id}}}})
+        MERGE (parent)-[r:SPAWNED{props_str}]->(child)
+        RETURN r
+    """
+
+    return cypher, params
+
+
 def create_tagged_edge(
     discovery_id: str,
     tag_name: str,
@@ -405,6 +441,98 @@ def query_agent_discoveries(
     return cypher, params
 
 
+def query_tags_with_discoveries() -> tuple[str, Dict[str, Any]]:
+    """
+    Build Cypher query to return all (Tag.name, Discovery.id) pairs.
+
+    Returns:
+        (cypher_query, params_dict)
+    """
+    cypher = """
+        MATCH (d:Discovery)-[:TAGGED]->(t:Tag)
+        RETURN t.name AS tag_name, d.id AS discovery_id
+    """
+    return cypher, {}
+
+
+def create_concept_node(
+    concept_id: str,
+    label: str,
+    source_tags: Optional[List[str]] = None,
+) -> tuple[str, Dict[str, Any]]:
+    """
+    Build Cypher query to MERGE a Concept vertex.
+
+    Returns:
+        (cypher_query, params_dict)
+    """
+    props: Dict[str, Any] = {
+        "id": concept_id,
+        "label": label,
+    }
+    if source_tags:
+        props["source_tags"] = source_tags
+
+    props_str = ", ".join(f"{k}: ${{{k}}}" for k in props.keys())
+
+    cypher = f"""
+        MERGE (c:Concept {{id: ${{id}}}})
+        SET c += {{{props_str}}}
+        RETURN c
+    """
+    return cypher, props
+
+
+def create_about_edge(
+    discovery_id: str,
+    concept_id: str,
+) -> tuple[str, Dict[str, Any]]:
+    """
+    Build Cypher query to create Discovery -[:ABOUT]-> Concept edge.
+
+    Returns:
+        (cypher_query, params_dict)
+    """
+    params = {
+        "discovery_id": discovery_id,
+        "concept_id": concept_id,
+    }
+
+    cypher = """
+        MATCH (d:Discovery {id: ${discovery_id}})
+        MATCH (c:Concept {id: ${concept_id}})
+        MERGE (d)-[r:ABOUT]->(c)
+        RETURN r
+    """
+    return cypher, params
+
+
+def create_concept_relates_to_edge(
+    c1_id: str,
+    c2_id: str,
+    strength: float = 1.0,
+) -> tuple[str, Dict[str, Any]]:
+    """
+    Build Cypher query to create Concept -[:RELATES_TO]-> Concept edge with strength.
+
+    Returns:
+        (cypher_query, params_dict)
+    """
+    params = {
+        "c1_id": c1_id,
+        "c2_id": c2_id,
+        "strength": strength,
+    }
+
+    cypher = """
+        MATCH (c1:Concept {id: ${c1_id}})
+        MATCH (c2:Concept {id: ${c2_id}})
+        MERGE (c1)-[r:RELATES_TO {strength: ${strength}}]->(c2)
+        RETURN r
+    """
+    return cypher, params
+
+
 def create_indexes(graph_name: str = "governance_graph") -> List[tuple[str, Dict[str, Any]]]:
     """
     Build SQL statements to create indexes on the AGE graph schema.
@@ -435,6 +563,10 @@ def create_indexes(graph_name: str = "governance_graph") -> List[tuple[str, Dict
 
         # Tag indexes
         (f'CREATE INDEX IF NOT EXISTS idx_tag_name ON {graph_name}."Tag"(name)', {}),
+
+        # Concept indexes
+        (f'CREATE INDEX IF NOT EXISTS idx_concept_id ON {graph_name}."Concept"(id)', {}),
+        (f'CREATE INDEX IF NOT EXISTS idx_concept_label ON {graph_name}."Concept"(label)', {}),
     ]
 
     return indexes

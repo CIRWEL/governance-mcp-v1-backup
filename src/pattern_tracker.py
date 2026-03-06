@@ -92,15 +92,19 @@ class PatternTracker:
         """
         self.window_minutes = window_minutes
         self.loop_threshold = loop_threshold
-        
+        self._max_agents = 500  # Evict stale agents beyond this count
+
         # Per-agent pattern history (rolling window)
         self.pattern_history: Dict[str, deque] = {}
-        
+
         # Per-agent investigation sessions
         self.investigations: Dict[str, InvestigationSession] = {}
-        
+
         # Per-agent hypotheses (untested changes)
         self.hypotheses: Dict[str, List[Hypothesis]] = {}
+
+        # Track last-seen time per agent for eviction
+        self._agent_last_seen: Dict[str, 'datetime'] = {}
     
     def normalize_args(self, tool_name: str, args: Dict[str, Any]) -> str:
         """Normalize args for pattern matching (ignore timestamps, IDs, etc.)."""
@@ -141,7 +145,12 @@ class PatternTracker:
             Loop detection result if detected, None otherwise
         """
         now = datetime.now(timezone.utc)
-        
+        self._agent_last_seen[agent_id] = now
+
+        # Periodic eviction of stale agents
+        if len(self._agent_last_seen) > self._max_agents:
+            self._evict_stale_agents(now)
+
         # Initialize history if needed
         if agent_id not in self.pattern_history:
             self.pattern_history[agent_id] = deque(maxlen=100)
@@ -289,6 +298,16 @@ class PatternTracker:
                 hypothesis.tested = True
                 hypothesis.test_time = now
     
+    def _evict_stale_agents(self, now: datetime, max_age_minutes: int = 60) -> None:
+        """Remove agents not seen in the last max_age_minutes."""
+        cutoff = now - timedelta(minutes=max_age_minutes)
+        stale = [aid for aid, ts in self._agent_last_seen.items() if ts < cutoff]
+        for aid in stale:
+            self.pattern_history.pop(aid, None)
+            self.investigations.pop(aid, None)
+            self.hypotheses.pop(aid, None)
+            del self._agent_last_seen[aid]
+
     def get_patterns(self, agent_id: str) -> Dict[str, Any]:
         """Get all detected patterns for an agent."""
         patterns = []

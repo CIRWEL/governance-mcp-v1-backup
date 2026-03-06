@@ -263,7 +263,8 @@ class KnowledgeGraphAGE:
                     embeddings = await get_embeddings_service()
                     text = f"{discovery.summary}\n{discovery.details[:500] if discovery.details else ''}"
                     emb = await embeddings.embed(text)
-                    asyncio.create_task(self._store_embedding(discovery.id, emb))
+                    task = asyncio.create_task(self._store_embedding(discovery.id, emb))
+                    task.add_done_callback(lambda t: logger.debug(f"_store_embedding failed: {t.exception()}") if t.exception() else None)
             except Exception as e:
                 logger.debug(f"Failed to create embedding for {discovery.id}: {e}")
 
@@ -727,10 +728,10 @@ class KnowledgeGraphAGE:
         # Fallback: Use PostgreSQL for persistent rate limit tracking
         db = await self._get_db()
         
-        async with db._pool.acquire() as conn:
+        async with db.acquire() as conn:
             from datetime import datetime, timedelta
             one_hour_ago = datetime.now() - timedelta(hours=1)
-            
+
             # Count recent stores
             count = await conn.fetchval(
                 """
@@ -890,9 +891,9 @@ class KnowledgeGraphAGE:
         db = await self._get_db()
         if not hasattr(db, '_pool') or db._pool is None:
             return False
-        
+
         try:
-            async with db._pool.acquire() as conn:
+            async with db.acquire() as conn:
                 # Check if vector extension exists
                 ext_exists = await conn.fetchval(
                     "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')"
@@ -929,7 +930,7 @@ class KnowledgeGraphAGE:
         # Convert list to pgvector string format: '[0.1, 0.2, ...]'
         embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
-        async with db._pool.acquire() as conn:
+        async with db.acquire() as conn:
             # Build query with optional agent filter
             if agent_id:
                 # Join with AGE graph to filter by agent
@@ -960,7 +961,7 @@ class KnowledgeGraphAGE:
         embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
 
         try:
-            async with db._pool.acquire() as conn:
+            async with db.acquire() as conn:
                 await conn.execute("""
                     INSERT INTO core.discovery_embeddings (discovery_id, embedding, model_name)
                     VALUES ($1, $2::vector, 'all-MiniLM-L6-v2')
@@ -1283,7 +1284,8 @@ class KnowledgeGraphAGE:
         # Store embeddings for future pgvector use (async, best-effort)
         if use_pgvector:
             for discovery, emb in zip(candidates, candidate_embeddings):
-                asyncio.create_task(self._store_embedding(discovery.id, emb))
+                task = asyncio.create_task(self._store_embedding(discovery.id, emb))
+                task.add_done_callback(lambda t: logger.debug(f"_store_embedding failed: {t.exception()}") if t.exception() else None)
         
         # Rank by similarity
         scored = await embeddings.rank_by_similarity(

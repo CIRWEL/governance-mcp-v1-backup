@@ -82,7 +82,7 @@ class PostgresBackend(DatabaseBackend):
                     async with self._pool.acquire(timeout=5) as conn:
                         await conn.fetchval("SELECT 1")
                     self._last_pool_check = now
-                    
+
                     # Check pool size and warn if getting full
                     pool_size = self._pool.get_size()
                     pool_max = self._pool.get_max_size()
@@ -92,12 +92,19 @@ class PostgresBackend(DatabaseBackend):
                             f"Consider increasing DB_POSTGRES_MAX_CONN or checking for connection leaks."
                         )
                 except Exception as e:
+                    # Health check failed — acquire lock before destroying pool
+                    # to prevent race with concurrent _ensure_pool / init calls
                     logger.warning(f"Pool health check failed, destroying pool (backend={id(self)}): {e}")
-                    try:
-                        await self._pool.close()
-                    except Exception:
-                        pass
-                    self._pool = None
+                    if self._init_lock is None:
+                        self._init_lock = asyncio.Lock()
+                    async with self._init_lock:
+                        # Only destroy if still the same pool (another task may have already replaced it)
+                        if self._pool is not None:
+                            try:
+                                await self._pool.close()
+                            except Exception:
+                                pass
+                            self._pool = None
 
         if self._pool is not None:
             return self._pool
@@ -112,37 +119,37 @@ class PostgresBackend(DatabaseBackend):
             if self._pool is not None:
                 return self._pool
 
-            logger.info("Creating PostgreSQL connection pool...")
-            # Wrap pool creation in timeout to prevent infinite retry loop
-            # If PostgreSQL isn't running, fail fast (5 seconds) instead of retrying forever
-            try:
-                self._pool = await asyncio.wait_for(
-                    asyncpg.create_pool(
-                        self._db_url,
-                        min_size=self._min_conn,
-                        max_size=self._max_conn,
-                        command_timeout=30,
-                        max_inactive_connection_lifetime=300,  # Close idle connections after 5 minutes
-                        max_queries=50000,  # Recycle connections after 50k queries
-                    ),
-                    timeout=5.0  # Fail fast if PostgreSQL isn't available
-                )
-            except asyncio.TimeoutError:
-                raise ConnectionError(
-                    f"PostgreSQL connection timeout after 5s. "
-                    f"Is PostgreSQL running on {self._db_url}? "
-                    f"Check: psql -d {self._db_url.split('/')[-1]}"
-                )
-            except Exception as e:
-                # Re-raise with clearer error message
-                raise ConnectionError(
-                    f"Failed to connect to PostgreSQL at {self._db_url}: {e}. "
-                    f"Is PostgreSQL running?"
-                ) from e
-            
+            self._pool = await self._create_pool()
             self._last_pool_check = time.time()
             logger.info("PostgreSQL connection pool created")
             return self._pool
+
+    async def _create_pool(self):
+        """Create a new connection pool. Caller must hold _init_lock."""
+        logger.info("Creating PostgreSQL connection pool...")
+        try:
+            return await asyncio.wait_for(
+                asyncpg.create_pool(
+                    self._db_url,
+                    min_size=self._min_conn,
+                    max_size=self._max_conn,
+                    command_timeout=30,
+                    max_inactive_connection_lifetime=300,  # Close idle connections after 5 minutes
+                    max_queries=50000,  # Recycle connections after 50k queries
+                ),
+                timeout=5.0  # Fail fast if PostgreSQL isn't available
+            )
+        except asyncio.TimeoutError:
+            raise ConnectionError(
+                f"PostgreSQL connection timeout after 5s. "
+                f"Is PostgreSQL running on {self._db_url}? "
+                f"Check: psql -d {self._db_url.split('/')[-1]}"
+            )
+        except Exception as e:
+            raise ConnectionError(
+                f"Failed to connect to PostgreSQL at {self._db_url}: {e}. "
+                f"Is PostgreSQL running?"
+            ) from e
 
     def acquire(self, timeout: float = None):
         """
@@ -202,45 +209,13 @@ class PostgresBackend(DatabaseBackend):
 
     async def init(self) -> None:
         """Initialize connection pool and verify schema."""
-        import asyncio
-        import time
+        already_existed = self._pool is not None
+        # Delegate pool creation to _ensure_pool (handles locking, dedup)
+        await self._ensure_pool()
 
-        # Guard: don't recreate pool if it already exists and is usable
-        if self._pool is not None:
+        # Skip schema verification if pool already existed (already verified)
+        if already_existed:
             return
-
-        # Initialize lock if not already created
-        if self._init_lock is None:
-            self._init_lock = asyncio.Lock()
-
-        # Wrap pool creation in timeout to prevent infinite retry loop
-        # If PostgreSQL isn't running, fail fast (5 seconds) instead of retrying forever
-        try:
-            self._pool = await asyncio.wait_for(
-                asyncpg.create_pool(
-                    self._db_url,
-                    min_size=self._min_conn,
-                    max_size=self._max_conn,
-                    command_timeout=30,
-                    max_inactive_connection_lifetime=300,  # Close idle connections after 5 minutes
-                    max_queries=50000,  # Recycle connections after 50k queries
-                ),
-                timeout=5.0  # Fail fast if PostgreSQL isn't available
-            )
-        except asyncio.TimeoutError:
-            raise ConnectionError(
-                f"PostgreSQL connection timeout after 5s. "
-                f"Is PostgreSQL running on {self._db_url}? "
-                f"Check: psql -d {self._db_url.split('/')[-1]}"
-            )
-        except Exception as e:
-            # Re-raise with clearer error message
-            raise ConnectionError(
-                f"Failed to connect to PostgreSQL at {self._db_url}: {e}. "
-                f"Is PostgreSQL running?"
-            ) from e
-        
-        self._last_pool_check = time.time()
 
         # Verify schema exists
         async with self.acquire() as conn:
