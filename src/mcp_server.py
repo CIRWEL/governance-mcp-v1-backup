@@ -1192,6 +1192,13 @@ async def main():
             """Aggressively clean up orphan agents to prevent proliferation."""
             await asyncio.sleep(2.0)  # Wait for server initialization
 
+            # Ensure metadata is loaded before trying to archive orphans
+            try:
+                from src.agent_metadata_persistence import load_metadata_async
+                await load_metadata_async()
+            except Exception:
+                pass  # Will be loaded lazily
+
             try:
                 from src.mcp_handlers.lifecycle import handle_archive_orphan_agents
                 result = await handle_archive_orphan_agents({
