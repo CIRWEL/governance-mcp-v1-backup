@@ -416,6 +416,13 @@ async def execute_locked_update(ctx: UpdateContext) -> Optional[Sequence[TextCon
         "complexity": ctx.complexity
     }
 
+    # Inject sensor EISV for spring coupling (agents with physical sensors, e.g. Lumen)
+    sensor_data = ctx.arguments.get("sensor_data")
+    if sensor_data and isinstance(sensor_data, dict):
+        sensor_eisv = sensor_data.get("eisv")
+        if sensor_eisv and isinstance(sensor_eisv, dict):
+            ctx.agent_state["sensor_eisv"] = sensor_eisv
+
     # Policy checks
     from .validators import (
         validate_file_path_policy,
