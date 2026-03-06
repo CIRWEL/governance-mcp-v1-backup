@@ -11,7 +11,7 @@ Modules:
 """
 
 from typing import Optional, Dict, Any, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 from mcp.types import TextContent
@@ -30,7 +30,6 @@ except ImportError:
         SESSION_TTL_HOURS = 24
 
 logger = get_logger(__name__)
-
 
 # --- identity_session (leaf) ---
 from .identity_session import (
@@ -63,16 +62,7 @@ from .identity_resolution import (
     resolve_session_identity,
     resolve_by_name_claim,
 )
-
-
-class _LazyMCPServer:
-    def __getattr__(self, name):
-        from src.mcp_handlers.shared import get_mcp_server
-        return getattr(get_mcp_server(), name)
-
-mcp_server = _LazyMCPServer()
-
-
+from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
 # =============================================================================
 # DATE CONTEXT HELPER (only used by onboard handler)
 # =============================================================================
@@ -92,7 +82,6 @@ def _get_date_context() -> dict:
         "month": now.strftime('%B'),
         "weekday": now.strftime('%A'),
     }
-
 
 # =============================================================================
 # TOOL HANDLER (replaces identity() tool)
@@ -173,7 +162,6 @@ async def handle_identity_v2(
         "created": identity.get("created", False),
         "message": f"Identity: {display_name or agent_id}",
     }
-
 
 # =============================================================================
 # DECORATOR-COMPATIBLE ADAPTER
@@ -436,6 +424,82 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
     return success_response(response_data, agent_id=final_agent_id, arguments=arguments)
 
 
+@mcp_tool("bind_session", timeout=5.0)
+async def handle_bind_session(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    Bind current MCP session to an existing agent identity.
+
+    Bridges the identity gap between REST hooks (which onboard via curl)
+    and MCP Streamable HTTP (which uses a different session key).
+
+    Call this once at session start with the client_session_id from your
+    startup hook context.
+    """
+    arguments = arguments or {}
+    client_session_id = arguments.get("client_session_id")
+    if not client_session_id:
+        return error_response("client_session_id is required")
+
+    # Get the current MCP session key (the one we want to rebind)
+    from .context import get_session_signals
+    signals = get_session_signals()
+    mcp_session_key = await derive_session_key(signals)
+
+    # Resolve the agent from the provided client_session_id
+    target_identity = await resolve_session_identity(client_session_id, persist=False)
+    if not target_identity or target_identity.get("created"):
+        return error_response(
+            f"No existing agent found for client_session_id '{client_session_id[:20]}...'. "
+            "Ensure the session-start hook onboarded successfully."
+        )
+
+    target_uuid = target_identity["agent_uuid"]
+    target_label = target_identity.get("label")
+    target_agent_id = target_identity.get("agent_id", target_uuid)
+
+    # Rebind: cache the MCP session key → target agent UUID
+    if mcp_session_key and mcp_session_key != client_session_id:
+        await _cache_session(mcp_session_key, target_uuid, display_agent_id=target_agent_id)
+
+        # Also create a PostgreSQL session binding for the MCP key
+        try:
+            db = get_db()
+            if hasattr(db, "init"):
+                await db.init()
+            identity_record = await db.get_identity(target_uuid)
+            if identity_record:
+                await db.create_session(
+                    session_id=mcp_session_key,
+                    identity_id=identity_record.identity_id,
+                    expires_at=datetime.now() + timedelta(hours=GovernanceConfig.SESSION_TTL_HOURS),
+                    client_type="mcp",
+                    client_info={"agent_uuid": target_uuid, "bound_via": "bind_session"}
+                )
+        except Exception as e:
+            logger.debug(f"[BIND_SESSION] PostgreSQL session binding failed (non-fatal): {e}")
+
+        logger.info(
+            f"[BIND_SESSION] Bound MCP session {mcp_session_key[:20]}... -> "
+            f"agent {target_label or target_agent_id} ({target_uuid[:8]}...)"
+        )
+
+    # Update request context so subsequent calls in this request use the correct agent
+    try:
+        from .context import update_context_agent_id
+        update_context_agent_id(target_uuid)
+    except Exception:
+        pass
+
+    return success_response({
+        "bound": True,
+        "agent_uuid": target_uuid,
+        "agent_id": target_agent_id,
+        "display_name": target_label,
+        "mcp_session_key": mcp_session_key[:20] + "..." if mcp_session_key else None,
+        "message": f"MCP session bound to agent '{target_label or target_agent_id}'",
+    })
+
+
 @mcp_tool("onboard", timeout=15.0)
 async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
@@ -629,6 +693,13 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             else:
                 logger.debug(f"[ONBOARD] Fresh identity {agent_uuid[:8]}... was already persisted")
 
+            # Create SPAWNED edge in AGE graph (non-blocking)
+            if _parent_agent_id:
+                import asyncio
+                asyncio.create_task(
+                    _create_spawned_edge_bg(agent_uuid, _parent_agent_id, _spawn_reason)
+                )
+
             # Cache with the adjusted session_key (may include model suffix)
             await _cache_session(session_key, agent_uuid, display_agent_id=agent_id)
 
@@ -763,7 +834,6 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     # Use lite_response to skip redundant signature
     arguments["lite_response"] = True
     return success_response(result, agent_id=agent_uuid, arguments=arguments)
-
 
 def _build_onboard_response(
     *,
@@ -954,7 +1024,6 @@ def _build_onboard_response(
 
     return result
 
-
 # =============================================================================
 # TRAJECTORY IDENTITY VERIFICATION TOOL
 # =============================================================================
@@ -1018,7 +1087,6 @@ async def handle_verify_trajectory_identity(arguments: Dict[str, Any]) -> Sequen
         logger.error(f"[TRAJECTORY] Verification failed: {e}")
         return error_response(f"Trajectory verification failed: {e}")
 
-
 @mcp_tool("get_trajectory_status", timeout=10.0)
 async def handle_get_trajectory_status(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
@@ -1062,3 +1130,22 @@ async def handle_get_trajectory_status(arguments: Dict[str, Any]) -> Sequence[Te
     except Exception as e:
         logger.error(f"[TRAJECTORY] Status check failed: {e}")
         return error_response(f"Trajectory status check failed: {e}")
+
+async def _create_spawned_edge_bg(
+    child_id: str, parent_id: str, reason: str | None
+):
+    """Create SPAWNED edge in AGE graph (fire-and-forget background task)."""
+    try:
+        db = get_db()
+        from src.db.age_queries import create_spawned_edge, create_agent_node
+        # Ensure both Agent nodes exist
+        q, p = create_agent_node(parent_id)
+        await db.graph_query(q, p)
+        q, p = create_agent_node(child_id)
+        await db.graph_query(q, p)
+        # Create edge
+        q, p = create_spawned_edge(parent_id, child_id, spawn_reason=reason)
+        await db.graph_query(q, p)
+        logger.info(f"[SPAWNED] Created edge {parent_id[:8]}... -> {child_id[:8]}...")
+    except Exception as e:
+        logger.debug(f"SPAWNED edge creation failed (non-fatal): {e}")

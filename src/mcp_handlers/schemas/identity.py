@@ -112,3 +112,8 @@ class GetTrajectoryStatusParams(AgentIdentityMixin):
 class VerifyTrajectoryIdentityParams(AgentIdentityMixin):
     """Parameters for verify_trajectory_identity"""
 
+
+class BindSessionParams(AgentIdentityMixin):
+    """Bind current MCP session to an existing agent identity via client_session_id."""
+    pass  # client_session_id is inherited from AgentIdentityMixin
+

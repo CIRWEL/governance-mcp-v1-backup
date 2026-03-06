@@ -116,6 +116,7 @@ TOOL_ORDER = [
     "call_model",
     "onboard",
     "identity",
+    "bind_session",
     "debug_request_context",
     "knowledge",
     "agent",
