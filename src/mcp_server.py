@@ -1154,6 +1154,24 @@ async def main():
 
         asyncio.create_task(startup_kg_lifecycle())
 
+        # === Background task: Concept extraction (daily) ===
+        async def concept_extraction_background_task(interval_hours: float = 24.0):
+            """Daily concept extraction from tags + embeddings."""
+            await asyncio.sleep(300)  # 5 min startup delay
+            while True:
+                try:
+                    from src.concept_extraction import ConceptExtractor
+                    extractor = ConceptExtractor()
+                    result = await extractor.run()
+                    logger.info(f"[CONCEPT_EXTRACTION] {result}")
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.debug(f"[CONCEPT_EXTRACTION] Skipped: {e}")
+                await asyncio.sleep(interval_hours * 3600)
+
+        asyncio.create_task(concept_extraction_background_task())
+
         # === Background task: Partition maintenance (weekly) ===
         async def periodic_partition_maintenance():
             """Run audit.partition_maintenance() weekly to create/drop partitions."""
@@ -1329,9 +1347,8 @@ async def main():
                 expired_session_keys = []
                 try:
                     db = get_db()
-                    pool = db._pool
-                    if pool:
-                        async with pool.acquire() as conn:
+                    async with db.acquire() as conn:
+                        async with conn.transaction():
                             # Collect expired session keys for Redis cleanup
                             rows = await conn.fetch(
                                 "SELECT session_id FROM core.sessions WHERE expires_at <= now()"
