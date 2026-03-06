@@ -130,6 +130,7 @@ def _make_monitor(agent_id="agent-1", **state_kwargs):
     """Create a mock monitor object with state and metrics."""
     state = _make_monitor_state(**state_kwargs)
     monitor = MagicMock()
+    monitor.agent_id = agent_id
     monitor.state = state
     monitor.get_metrics = MagicMock(return_value={
         "E": 0.7,

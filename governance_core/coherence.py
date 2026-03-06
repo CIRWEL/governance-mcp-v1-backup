@@ -109,24 +109,38 @@ def lambda1(theta: Theta, params: DynamicsParams, lambda1_min: float = 0.05, lam
     return adaptive_lambda1
 
 
-def lambda2(theta: Theta, params: DynamicsParams) -> float:
+def lambda2(theta: Theta, params: DynamicsParams, lambda2_min: float = 0.02, lambda2_max: float = 0.10) -> float:
     """
-    Compute λ₂ parameter.
+    Compute λ₂ parameter (adaptive via theta.eta2).
 
-    λ₂(Θ) = λ₂_base
+    λ₂ controls how much coherence reduces semantic uncertainty S.
+    Now adaptive via theta.eta2, mapped to [lambda2_min, lambda2_max].
 
-    This parameter controls how much coherence reduces
-    semantic uncertainty S.
+    Mapping: eta2 ∈ [0.1, 0.5] → lambda2 ∈ [lambda2_min, lambda2_max]
+    Default range: [0.02, 0.10] — conservative, centered around lambda2_base=0.05.
 
     Args:
-        theta: Control parameters (unused in current implementation)
-        params: Dynamics parameters (for lambda2_base)
+        theta: Control parameters (eta2 controls lambda2 adaptation)
+        params: Dynamics parameters (for lambda2_base as fallback)
+        lambda2_min: Minimum lambda2 value (default: 0.02)
+        lambda2_max: Maximum lambda2 value (default: 0.10)
 
     Returns:
-        λ₂ value (coherence → S reduction strength)
-
-    Notes:
-        - Currently not Theta-dependent
-        - Could be extended to λ₂(Θ) = θ.η₂ · λ₂_base
+        λ₂ value (coherence → S reduction strength) in [lambda2_min, lambda2_max]
     """
+    eta2 = getattr(theta, 'eta2', None)
+    if eta2 is None:
+        return params.lambda2_base
+
+    eta2_min = 0.1
+    eta2_max = 0.5
+    eta2_range = eta2_max - eta2_min
+    lambda2_range = lambda2_max - lambda2_min
+
+    eta2_clamped = max(eta2_min, min(eta2_max, eta2))
+
+    if eta2_range > 0:
+        normalized = (eta2_clamped - eta2_min) / eta2_range
+        return lambda2_min + normalized * lambda2_range
+
     return params.lambda2_base

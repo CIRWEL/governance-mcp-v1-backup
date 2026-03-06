@@ -475,8 +475,16 @@ class TestCoherence:
         assert 0.05 <= lambda1_above <= 0.20
 
     def test_lambda2(self, default_theta, default_params):
-        """Test lambda2 computation."""
+        """Test lambda2 computation (adaptive via eta2)."""
         l2 = lambda2(default_theta, default_params)
+        # eta2=0.3 maps to midpoint of [0.02, 0.10] = 0.06
+        assert abs(l2 - 0.06) < 1e-9
+
+    def test_lambda2_fallback_no_eta2(self, default_params):
+        """Test lambda2 falls back to base when eta2 is absent."""
+        from types import SimpleNamespace
+        theta_no_eta2 = SimpleNamespace(C1=1.0, eta1=0.3)  # no eta2 attr
+        l2 = lambda2(theta_no_eta2, default_params)
         assert l2 == default_params.lambda2_base
 
 
