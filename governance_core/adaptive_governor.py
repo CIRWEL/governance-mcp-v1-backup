@@ -118,6 +118,43 @@ class GovernorState:
     last_i_beta: float = 0.0
     last_d_beta: float = 0.0
 
+    def to_dict(self) -> Dict:
+        """Serialize for persistence. Omits transient observability fields."""
+        return {
+            "tau": self.tau,
+            "beta": self.beta,
+            "phase": self.phase,
+            "error_integral_tau": self.error_integral_tau,
+            "error_integral_beta": self.error_integral_beta,
+            "prev_error_tau": self.prev_error_tau,
+            "prev_error_beta": self.prev_error_beta,
+            "oi": self.oi,
+            "flips": self.flips,
+            "resonant": self.resonant,
+            "was_resonant": self.was_resonant,
+            "ema_coherence": self.ema_coherence,
+            "ema_risk": self.ema_risk,
+            "neighbor_pressure": self.neighbor_pressure,
+            "agents_in_resonance": self.agents_in_resonance,
+            "history": self.history[-10:] if self.history else [],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "GovernorState":
+        """Restore from persisted dict. Unknown keys ignored for forward compat."""
+        state = cls()
+        for key in ("tau", "beta", "phase", "error_integral_tau", "error_integral_beta",
+                     "prev_error_tau", "prev_error_beta", "oi", "ema_coherence", "ema_risk",
+                     "neighbor_pressure"):
+            if key in data:
+                setattr(state, key, data[key])
+        state.flips = int(data.get("flips", 0))
+        state.resonant = bool(data.get("resonant", False))
+        state.was_resonant = bool(data.get("was_resonant", False))
+        state.agents_in_resonance = int(data.get("agents_in_resonance", 0))
+        state.history = list(data.get("history", []))
+        return state
+
 
 class Verdict:
     """Governance verdict constants.

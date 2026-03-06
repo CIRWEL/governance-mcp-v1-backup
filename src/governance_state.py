@@ -174,7 +174,9 @@ class GovernanceState:
             # CIRS v0.1 metrics
             'oi_history': [float(o) for o in cap_history(getattr(self, 'oi_history', []))],
             'resonance_events': int(getattr(self, 'resonance_events', 0)),
-            'damping_applied_count': int(getattr(self, 'damping_applied_count', 0))
+            'damping_applied_count': int(getattr(self, 'damping_applied_count', 0)),
+            # CIRS v2: Adaptive Governor state (persisted across restarts)
+            'governor_state': getattr(self, '_governor_state_dict', None),
         }
     
     @classmethod
@@ -253,6 +255,9 @@ class GovernanceState:
         state.oi_history = [float(o) for o in data.get('oi_history', [])]
         state.resonance_events = int(data.get('resonance_events', 0))
         state.damping_applied_count = int(data.get('damping_applied_count', 0))
+
+        # CIRS v2: Adaptive Governor state (backward compatible)
+        state._governor_state_dict = data.get('governor_state', None)
 
         return state
     

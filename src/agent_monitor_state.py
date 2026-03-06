@@ -55,12 +55,22 @@ def _write_state_file(state_file: Path, state_data: dict) -> None:
         os.fsync(f.fileno())
 
 
+def _snapshot_governor_state(monitor: UNITARESMonitor) -> None:
+    """Snapshot AdaptiveGovernor state into GovernanceState for persistence."""
+    gov = getattr(monitor, 'adaptive_governor', None)
+    if gov is not None and hasattr(gov, 'state'):
+        monitor.state._governor_state_dict = gov.state.to_dict()
+    else:
+        monitor.state._governor_state_dict = None
+
+
 async def save_monitor_state_async(agent_id: str, monitor: UNITARESMonitor) -> None:
     """
     Async version of save_monitor_state - uses file-based storage.
 
     Uses async file locking to avoid blocking the event loop.
     """
+    _snapshot_governor_state(monitor)
     state_data = monitor.state.to_dict_with_history()
 
     state_file = get_state_file(agent_id)
@@ -112,6 +122,7 @@ async def save_monitor_state_async(agent_id: str, monitor: UNITARESMonitor) -> N
 
 def save_monitor_state(agent_id: str, monitor: UNITARESMonitor) -> None:
     """Save monitor state to file with locking to prevent race conditions."""
+    _snapshot_governor_state(monitor)
     state_data = monitor.state.to_dict_with_history()
 
     state_file = get_state_file(agent_id)

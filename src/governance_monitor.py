@@ -262,6 +262,12 @@ class UNITARESMonitor:
             persisted_state = self.load_persisted_state()
             if persisted_state is not None:
                 self.state = persisted_state
+                # Restore AdaptiveGovernor state if available
+                gov_dict = getattr(persisted_state, '_governor_state_dict', None)
+                if gov_dict and self.adaptive_governor is not None:
+                    from governance_core.adaptive_governor import GovernorState
+                    self.adaptive_governor.state = GovernorState.from_dict(gov_dict)
+                    logger.debug(f"Restored governor state: tau={self.adaptive_governor.state.tau:.3f}, beta={self.adaptive_governor.state.beta:.3f}")
                 # Ensure created_at is set (fallback to now if not in state)
                 if not hasattr(self, 'created_at'):
                     self.created_at = datetime.now()
