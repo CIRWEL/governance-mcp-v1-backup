@@ -45,6 +45,9 @@ class DynamicsParams:
     kappa: float = 0.3           # (E-I) → V coupling
     delta: float = 0.4           # V decay rate
 
+    # Sensor anchoring (for agents with physical sensors, e.g. Lumen)
+    k_anchor: float = 0.2        # Spring coupling to sensor-derived EISV (0 = no anchoring)
+
     # Coherence parameters
     Cmax: float = 1.0            # Maximum coherence value
     coherence_scale: float = 1.0  # V scaling factor (1.0 = pure thermodynamic, no scaling)
@@ -75,10 +78,12 @@ class Theta:
 
     Attributes:
         C1: Coherence function control parameter (affects tanh steepness)
-        eta1: Ethical drift sensitivity multiplier
+        eta1: Ethical drift sensitivity multiplier (controls lambda1 adaptation)
+        eta2: Coherence coupling multiplier (controls lambda2 adaptation)
     """
     C1: float
     eta1: float
+    eta2: float = 0.3  # Default mirrors eta1 initial value
 
 
 @dataclass

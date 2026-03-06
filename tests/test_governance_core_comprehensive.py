@@ -354,6 +354,62 @@ class TestDynamics:
         assert isinstance(diagnostics, dict)
         assert "will_saturate" in diagnostics or "I_current" in diagnostics
 
+    def test_sensor_anchor_pulls_state_toward_reference(self, default_theta, default_params):
+        """Sensor spring coupling should pull ODE state toward sensor values."""
+        # ODE state is high-E, sensor state is low-E
+        ode_state = State(E=0.9, I=0.9, S=0.02, V=0.0)
+        sensor = State(E=0.4, I=0.7, S=0.2, V=0.1)
+
+        new_state = compute_dynamics(
+            state=ode_state,
+            delta_eta=[0.0],
+            theta=default_theta,
+            params=default_params,
+            dt=0.1,
+            sensor_eisv=sensor,
+        )
+
+        # E should have decreased (pulled toward 0.4 from 0.9)
+        assert new_state.E < ode_state.E
+        # S should have increased (pulled toward 0.2 from 0.02)
+        assert new_state.S > ode_state.S
+
+    def test_no_sensor_anchor_backward_compatible(self, default_state, default_theta, default_params):
+        """sensor_eisv=None should produce identical results to not passing it."""
+        delta_eta = [0.1, 0.0, -0.05]
+
+        result_without = compute_dynamics(
+            state=default_state, delta_eta=delta_eta,
+            theta=default_theta, params=default_params, dt=0.1,
+        )
+        result_with_none = compute_dynamics(
+            state=default_state, delta_eta=delta_eta,
+            theta=default_theta, params=default_params, dt=0.1,
+            sensor_eisv=None,
+        )
+
+        assert result_without.E == result_with_none.E
+        assert result_without.I == result_with_none.I
+        assert result_without.S == result_with_none.S
+        assert result_without.V == result_with_none.V
+
+    def test_sensor_anchor_respects_bounds(self, default_theta, default_params):
+        """Even with extreme sensor values, state should stay in bounds."""
+        ode_state = State(E=0.5, I=0.5, S=0.5, V=0.0)
+        # Extreme sensor values at the edges
+        sensor = State(E=1.0, I=0.0, S=2.0, V=2.0)
+
+        new_state = compute_dynamics(
+            state=ode_state, delta_eta=[0.0],
+            theta=default_theta, params=default_params, dt=0.1,
+            sensor_eisv=sensor,
+        )
+
+        assert 0.0 <= new_state.E <= 1.0
+        assert 0.0 <= new_state.I <= 1.0
+        assert 0.0 <= new_state.S <= 2.0
+        assert -2.0 <= new_state.V <= 2.0
+
 
 # ============================================================================
 # 2. COHERENCE.PY TESTS

@@ -78,6 +78,7 @@ def compute_dynamics(
     dt: float = 0.1,
     noise_S: float = 0.0,
     complexity: float = 0.5,
+    sensor_eisv: Optional[State] = None,
 ) -> State:
     """
     Compute one time step of UNITARES Phase-3 dynamics.
@@ -94,6 +95,9 @@ def compute_dynamics(
         dt: Time step for integration
         noise_S: Optional noise term for S dynamics
         complexity: Task complexity [0, 1] - increases entropy S (default: 0.5)
+        sensor_eisv: Optional sensor-derived EISV state for anchoring (e.g. from Lumen's Pi).
+            When provided, adds a spring coupling term k_anchor*(sensor - state) to each
+            derivative, preventing the ODE from diverging from physical sensor reality.
 
     Returns:
         New state after dt time evolution
@@ -104,12 +108,16 @@ def compute_dynamics(
         - S represents disorder/uncertainty that decays and is driven by drift
         - V accumulates E-I imbalance and creates feedback via coherence
         - Coherence C(V,Θ) acts as a stabilizing feedback mechanism
+        - When sensor_eisv is provided, each dimension gets a restoring force
+          toward the observed sensor value (spring coupling with strength k_anchor)
 
     Implementation Notes:
         - All state variables are clipped to their physical bounds
         - Drift norm ‖Δη‖ is computed once and squared for efficiency
         - Coherence is computed via the coherence module
         - Lambda functions λ₁, λ₂ are Theta-dependent
+        - Sensor anchoring is additive and does not change equilibrium analysis
+          (at equilibrium, sensor and ODE states converge, making the term zero)
     """
     # SECURITY: Clip complexity to valid range [0,1] as defense-in-depth
     # Even if validation fails upstream, dynamics equations remain stable
@@ -170,6 +178,13 @@ def compute_dynamics(
         - params.delta * V               # Decay toward zero (recent history dominates)
     )
 
+    # Sensor anchoring: spring coupling pulls ODE toward observed sensor state
+    if sensor_eisv is not None:
+        dE_dt += params.k_anchor * (sensor_eisv.E - E)
+        dI_dt += params.k_anchor * (sensor_eisv.I - I)
+        dS_dt += params.k_anchor * (sensor_eisv.S - S)
+        dV_dt += params.k_anchor * (sensor_eisv.V - V)
+
     # Euler integration with clipping to physical bounds
     E_new = clip(E + dE_dt * dt, params.E_min, params.E_max)
     I_new = clip(I + dI_dt * dt, params.I_min, params.I_max)
@@ -187,6 +202,7 @@ def step_state(
     noise_S: float = 0.0,
     params: Optional[DynamicsParams] = None,
     complexity: float = 0.5,
+    sensor_eisv: Optional[State] = None,
 ) -> State:
     """
     Convenience wrapper for compute_dynamics with default params.
@@ -202,6 +218,7 @@ def step_state(
         noise_S: Optional noise for S
         params: Optional parameters (uses DEFAULT_PARAMS if None)
         complexity: Task complexity [0, 1] (default: 0.5)
+        sensor_eisv: Optional sensor-derived EISV for spring coupling
 
     Returns:
         New state after dt
@@ -219,6 +236,7 @@ def step_state(
         dt=dt,
         noise_S=noise_S,
         complexity=complexity,
+        sensor_eisv=sensor_eisv,
     )
 
 

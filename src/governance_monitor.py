@@ -537,6 +537,21 @@ class UNITARESMonitor:
             complexity = 0.5
         complexity = float(np.clip(complexity, 0.0, 1.0))  # Ensure in valid range
 
+        # Extract sensor EISV for spring coupling (agents with physical sensors, e.g. Lumen)
+        sensor_eisv = None
+        raw_sensor_eisv = agent_state.get('sensor_eisv')
+        if raw_sensor_eisv and isinstance(raw_sensor_eisv, dict):
+            try:
+                from governance_core.dynamics import State as CoreState
+                sensor_eisv = CoreState(
+                    E=float(raw_sensor_eisv.get('E', 0.5)),
+                    I=float(raw_sensor_eisv.get('I', 0.5)),
+                    S=float(raw_sensor_eisv.get('S', 0.2)),
+                    V=float(raw_sensor_eisv.get('V', 0.0)),
+                )
+            except (TypeError, ValueError, KeyError):
+                sensor_eisv = None
+
         # Store parameters for potential future use (deprecated - not used in coherence)
         # Note: param_coherence removed in favor of pure thermodynamic signal
         self.prev_parameters = parameters.copy() if len(parameters) > 0 else None
@@ -571,7 +586,8 @@ class UNITARESMonitor:
             dt=dt,
             noise_S=calibration_penalty,  # Overconfidence raises entropy
             params=active_params,
-            complexity=complexity  # Complexity now affects S dynamics
+            complexity=complexity,  # Complexity now affects S dynamics
+            sensor_eisv=sensor_eisv,  # Spring coupling to physical sensors (if available)
         )
 
         # Epistemic humility safeguard: Enforce entropy floor (S >= 0.001) always
