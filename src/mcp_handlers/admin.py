@@ -875,13 +875,9 @@ async def handle_get_connection_status(arguments: Dict[str, Any]) -> Sequence[Te
     is_stdio = any("mcp_server_std.py" in a for a in argv)
     transport = "HTTP" if is_http else ("STDIO" if is_stdio else "unknown")
     
-    # Check if tools are available (basic check)
-    tools_available = False
-    try:
-        from . import TOOL_HANDLERS
-        tools_available = len(TOOL_HANDLERS) > 0
-    except Exception:
-        pass
+    # Check if tools are available
+    import src.mcp_handlers as _handlers
+    tools_available = len(getattr(_handlers, 'TOOL_HANDLERS', {})) > 0
     
     # Get current session identity if available
     session_bound = False

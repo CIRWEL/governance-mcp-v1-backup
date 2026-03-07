@@ -2331,32 +2331,22 @@ class TestDebugRequestContextAdditional:
 class TestGetConnectionStatusAdditional:
 
     @pytest.mark.asyncio
-    async def test_connection_status_tool_import_error(self):
-        """Test TOOL_HANDLERS import error path (tools_available stays False)."""
+    async def test_connection_status_no_tools(self):
+        """Test tools_available=False when TOOL_HANDLERS is empty."""
         from src.mcp_handlers.admin import handle_get_connection_status
 
         mock_server = MagicMock()
         mock_server.agent_metadata = {}
 
-        # Make the 'from . import TOOL_HANDLERS' raise an ImportError
-        # by temporarily removing the attribute from the real module
-        import src.mcp_handlers as pkg
-        had_attr = hasattr(pkg, 'TOOL_HANDLERS')
-        if had_attr:
-            saved = pkg.TOOL_HANDLERS
-            delattr(pkg, 'TOOL_HANDLERS')
-        try:
-            with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_server), \
-                 patch("src.mcp_handlers.admin.mcp_server", mock_server), \
-                 patch("src.mcp_handlers.context.get_context_agent_id", return_value=None):
-                result = await handle_get_connection_status({})
+        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_server), \
+             patch("src.mcp_handlers.admin.mcp_server", mock_server), \
+             patch("src.mcp_handlers.context.get_context_agent_id", return_value=None), \
+             patch("src.mcp_handlers.TOOL_HANDLERS", {}):
+            result = await handle_get_connection_status({})
 
-                data = parse_result(result)
-                assert "status" in data
-                assert data["tools_available"] is False
-        finally:
-            if had_attr:
-                pkg.TOOL_HANDLERS = saved
+            data = parse_result(result)
+            assert data["status"] == "disconnected"
+            assert data["tools_available"] is False
 
     @pytest.mark.asyncio
     async def test_connection_status_with_structured_id(self):
