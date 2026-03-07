@@ -619,7 +619,7 @@ async def handle_pi_sync_eisv(arguments: Dict[str, Any]) -> Sequence[TextContent
     if update_governance:
         try:
             import numpy as np
-            from src import mcp_server
+            # mcp_server already imported at module level via shared.py lazy proxy
 
             # Derive complexity and confidence from anima readings:
             # - Low stability → high complexity (turbulent state is harder to work in)

@@ -740,7 +740,7 @@ class TestHandlePiSyncEisv:
             "metrics": {"risk_score": 0.1, "coherence": 0.9},
         }
 
-        with patch("src.mcp_server.process_update_authenticated_async",
+        with patch("src.agent_state.process_update_authenticated_async",
                     create=True, new_callable=AsyncMock,
                     return_value=mock_gov_result):
             result = await handle_pi_sync_eisv({"update_governance": True})
@@ -763,7 +763,7 @@ class TestHandlePiSyncEisv:
             }
         }
 
-        with patch("src.mcp_server.process_update_authenticated_async",
+        with patch("src.agent_state.process_update_authenticated_async",
                     create=True, new_callable=AsyncMock,
                     side_effect=RuntimeError("db down")):
             result = await handle_pi_sync_eisv({"update_governance": True})
