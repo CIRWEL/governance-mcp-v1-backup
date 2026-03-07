@@ -206,10 +206,12 @@ class GovernanceState:
             )
         
         # Load UNITARES theta
+        # C1 is a system-wide parameter (coherence steepness), always use current default.
+        # eta1 is per-agent adaptive state, load from stored data.
         if 'unitaires_theta' in data:
             ut = data['unitaires_theta']
             state.unitaires_theta = Theta(
-                C1=float(ut.get('C1', DEFAULT_THETA.C1)),
+                C1=DEFAULT_THETA.C1,
                 eta1=float(ut.get('eta1', DEFAULT_THETA.eta1))
             )
         

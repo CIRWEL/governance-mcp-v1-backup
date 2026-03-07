@@ -810,11 +810,10 @@ class UNITARESMonitor:
             # Fallback if range is zero
             new_eta1 = self.state.unitaires_theta.eta1
         
-        # Update theta (preserve C1, update eta1)
-        old_theta = self.state.unitaires_theta
+        # Update theta: C1 from system default, eta1 from PI controller
         self.state.unitaires_theta = Theta(
-            C1=old_theta.C1,  # Keep C1 unchanged (affects coherence, not lambda1)
-            eta1=new_eta1     # Update eta1 (affects lambda1)
+            C1=DEFAULT_THETA.C1,  # System parameter, always use current default
+            eta1=new_eta1          # Per-agent adaptive state
         )
         
         # Get updated lambda1 (should match new_lambda1 from PI controller)
@@ -828,7 +827,7 @@ class UNITARESMonitor:
             logger.info(
                 f"PI Controller λ₁ update: {lambda1_current:.4f} → {updated_lambda1:.4f} "
                 f"(void_freq={void_freq_current:.3f}, coherence={coherence_current:.3f}, "
-                f"η1={old_theta.eta1:.3f}→{new_eta1:.3f}{gain_info})"
+                f"η1→{new_eta1:.3f}{gain_info})"
             )
 
         return updated_lambda1
