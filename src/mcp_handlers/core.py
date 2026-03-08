@@ -534,6 +534,9 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             if early_exit:
                 return early_exit
 
+            # Cache monitor on ctx so Phase 5/6 don't re-lookup
+            ctx.monitor = mcp_server.monitors.get(ctx.agent_id)
+
             # Phase 5: Side effects (health, CIRS, PG, outcomes)
             await execute_post_update_effects(ctx)
 
