@@ -1,8 +1,8 @@
 """
 Comprehensive tests for src/mcp_handlers/model_inference.py
 
-Tests the handle_call_model tool handler and create_model_inference_client
-factory function with fully mocked external API calls (OpenAI SDK).
+Tests the handle_call_model tool handler with fully mocked external
+API calls (OpenAI SDK).
 
 IMPORTANT: The privacy parameter defaults to "local", which routes to Ollama
 before any provider-specific logic. Tests for non-Ollama providers must
@@ -1159,57 +1159,3 @@ class TestEnergyTracking:
 
         parsed = _parse_text_content(result)
         assert parsed["success"] is True
-
-
-# =============================================================================
-# Tests: create_model_inference_client factory
-# =============================================================================
-
-class TestCreateModelInferenceClient:
-    """Tests for the create_model_inference_client factory function."""
-
-    # The factory function does `from openai import OpenAI` internally,
-    # so these tests need the actual openai package installed.
-    pytestmark = pytest.mark.skipif(
-        not _mi.OPENAI_AVAILABLE,
-        reason="openai package not installed"
-    )
-
-    def test_returns_none_when_openai_not_available(self):
-        """Returns None when OpenAI SDK is not installed."""
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", False):
-            from src.mcp_handlers.model_inference import create_model_inference_client
-            result = create_model_inference_client()
-        assert result is None
-
-    def test_returns_none_when_no_api_key(self):
-        """Returns None when no API key is configured."""
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch.dict("os.environ", {}, clear=True):
-            from src.mcp_handlers.model_inference import create_model_inference_client
-            result = create_model_inference_client()
-        assert result is None
-
-    def test_returns_client_when_configured(self):
-        """Returns OpenAI client when properly configured."""
-        mock_client = MagicMock()
-
-        env = {"OPENAI_API_KEY": "sk-test"}
-        # The factory function does `from openai import OpenAI` internally,
-        # so we need to patch the openai module's OpenAI class
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("openai.OpenAI", return_value=mock_client), \
-             patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import create_model_inference_client
-            result = create_model_inference_client()
-        assert result is mock_client
-
-    def test_returns_none_on_creation_error(self):
-        """Returns None if client creation raises an exception."""
-        env = {"OPENAI_API_KEY": "sk-test"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("openai.OpenAI", side_effect=Exception("init error")), \
-             patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import create_model_inference_client
-            result = create_model_inference_client()
-        assert result is None

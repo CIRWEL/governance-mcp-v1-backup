@@ -348,22 +348,4 @@ async def handle_call_model(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             }
         )]
 
-def create_model_inference_client():
-    """Factory function to create model inference client if available."""
-    if not OPENAI_AVAILABLE:
-        return None
-    
-    from openai import OpenAI
-    
-    base_url = os.getenv("NGROK_AI_ENDPOINT", "https://api.openai.com/v1")
-    api_key = os.getenv("NGROK_API_KEY") or os.getenv("OPENAI_API_KEY")
-    
-    if not api_key:
-        return None
-    
-    try:
-        return OpenAI(base_url=base_url, api_key=api_key)
-    except Exception as e:
-        logger.warning(f"Could not create model inference client: {e}")
-        return None
 

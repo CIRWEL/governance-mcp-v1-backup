@@ -12,7 +12,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.governance_state import GovernanceState, interpret_eisv_quick
+from src.governance_state import GovernanceState
 from governance_core import State, Theta, DEFAULT_STATE, DEFAULT_THETA
 
 
@@ -448,53 +448,3 @@ class TestEstimateRiskSimple:
         state.coherence = 0.0
         risk = state._estimate_risk_simple()
         assert 0 <= risk <= 1
-
-
-# ============================================================================
-# interpret_eisv_quick (module-level helper)
-# ============================================================================
-
-class TestInterpretEisvQuick:
-
-    def test_productive(self):
-        result = interpret_eisv_quick(0.7, 0.7, 0.1, 0.0, risk_score=0.1)
-        assert result["mode"] == "productive"
-        assert result["health"] == "healthy"
-
-    def test_stalled(self):
-        result = interpret_eisv_quick(0.2, 0.2, 0.1, 0.0, risk_score=0.1)
-        assert result["mode"] == "stalled"
-
-    def test_exploring_social(self):
-        result = interpret_eisv_quick(0.7, 0.2, 0.5, 0.0, risk_score=0.1)
-        assert result["mode"] == "exploring_social"
-
-    def test_risk_health(self):
-        result = interpret_eisv_quick(0.5, 0.5, 0.1, 0.0, risk_score=0.7)
-        assert result["health"] == "at_risk"
-
-    def test_coherence_health(self):
-        result = interpret_eisv_quick(0.5, 0.5, 0.1, 0.0, coherence=0.8)
-        assert result["health"] == "healthy"
-
-    def test_no_metrics_unknown(self):
-        result = interpret_eisv_quick(0.5, 0.5, 0.1, 0.0)
-        assert result["health"] == "unknown"
-
-    def test_basin_high(self):
-        result = interpret_eisv_quick(0.5, 0.7, 0.1, 0.0)
-        assert result["basin"] == "high"
-
-    def test_basin_low(self):
-        result = interpret_eisv_quick(0.5, 0.3, 0.1, 0.0)
-        assert result["basin"] == "low"
-
-    def test_basin_transitional(self):
-        result = interpret_eisv_quick(0.5, 0.5, 0.1, 0.0)
-        assert result["basin"] == "transitional"
-
-    def test_summary_format(self):
-        result = interpret_eisv_quick(0.7, 0.7, 0.1, 0.0, risk_score=0.1)
-        assert "summary" in result
-        assert "healthy" in result["summary"]
-        assert "productive" in result["summary"]
