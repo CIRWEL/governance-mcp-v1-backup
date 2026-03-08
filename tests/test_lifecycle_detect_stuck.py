@@ -507,8 +507,8 @@ class TestBaselineRelativeMargin:
         assert result["nearest_edge"] == "coherence"
         assert result["details"]["coherence_tight_threshold"] == pytest.approx(0.08, abs=0.001)
 
-    def test_no_history_falls_back_to_fixed(self):
-        """Without coherence_history, uses fixed 0.15 threshold (legacy behavior)."""
+    def test_no_history_returns_settling(self):
+        """Without coherence_history, returns 'settling' (warmup grace period)."""
         from config.governance_config import GovernanceConfig
         result = GovernanceConfig.compute_proprioceptive_margin(
             risk_score=0.3,
@@ -517,10 +517,9 @@ class TestBaselineRelativeMargin:
             void_value=0.0,
             coherence_history=None,
         )
-        # absolute_margin = 0.09, fixed threshold = 0.15
-        # 0.09 < 0.15 → tight (the old false-positive behavior)
-        assert result["margin"] == "tight"
-        assert result["details"]["coherence_tight_threshold"] == 0.15
+        # No history → warmup grace period
+        assert result["margin"] == "settling"
+        assert result["nearest_edge"] is None
 
     def test_short_history_falls_back_to_fixed(self):
         """With < 10 history entries, uses fixed 0.15 threshold."""

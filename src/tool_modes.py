@@ -55,7 +55,6 @@ LITE_MODE_TOOLS: Set[str] = {
     "describe_tool",              # Pull full tool details on demand
 
     # Convenient shortcuts (kept for discoverability)
-    "search_knowledge_graph",     # Direct search (common operation)
     "leave_note",                 # Quick notes
     "call_model",                 # LLM access
 }
@@ -120,7 +119,6 @@ TOOL_TIERS: dict[str, Set[str]] = {
         "list_agents",            # View all agents
         "health_check",           # System status
         "store_knowledge_graph",  # Record discoveries
-        "search_knowledge_graph", # Find discoveries
         "leave_note",             # Quick notes
     },
     "common": {  # Tier 2: Regularly used tools
@@ -301,7 +299,6 @@ TOOL_CATEGORIES = {
     },
     "knowledge": {
         "store_knowledge_graph",   # Primary: add knowledge (handles responses via response_to)
-        "search_knowledge_graph",  # Primary: find knowledge (semantic search built-in)
         "get_discovery_details",   # Drill into discovery (includes related/chain)
         "leave_note",
         "update_discovery_status_graph",

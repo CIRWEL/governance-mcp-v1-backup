@@ -431,7 +431,7 @@ def _register_common_aliases():
     from src.mcp_handlers.tool_stability import resolve_tool_alias
     from src.mcp_handlers.wrapper_generator import create_typed_wrapper
 
-    common = ["status", "list_agents", "observe_agent", "checkin"]
+    common = ["status", "list_agents", "observe_agent"]
     count = 0
     for alias_name in common:
         actual, info = resolve_tool_alias(alias_name)

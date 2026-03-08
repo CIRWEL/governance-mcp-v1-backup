@@ -405,6 +405,14 @@ class GovernanceConfig:
             mid = len(coherence_history) // 2
             baseline = sum(coherence_history[:mid]) / mid
             coherence_tight_threshold = max(baseline * 0.10, 0.03)
+        elif not coherence_history or len(coherence_history) < 3:
+            # Warmup: not enough data to judge margin
+            return {
+                'margin': 'settling',
+                'nearest_edge': None,
+                'distance_to_edge': None,
+                'details': {'note': 'Warming up — margin calculated after 3+ check-ins'}
+            }
         else:
             coherence_tight_threshold = 0.15
 

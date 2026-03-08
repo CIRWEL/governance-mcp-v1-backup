@@ -43,7 +43,7 @@ async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent
 
         # Filter: recent_days=1 by default (show today's agents + Lumen)
         recent_days = int(arguments.get("recent_days", 1))
-        min_updates = int(arguments.get("min_updates", 1))
+        min_updates = int(arguments.get("min_updates", 3))
         cutoff = datetime.now(timezone.utc) - timedelta(days=recent_days) if recent_days > 0 else None
 
         agents = []
@@ -80,9 +80,15 @@ async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent
         # Sort: Lumen first, then by update count
         agents.sort(key=lambda a: (0 if a.get("label") == "Lumen" else 1, -(a.get("updates") or 0)))
 
+        # Apply limit
+        limit = int(arguments.get("limit", 15))
+        total = len(agents)
+        agents = agents[:limit]
+
         return success_response({
             "agents": agents,
-            "total": len(agents),
+            "total": total,
+            "showing": len(agents),
         })
 
     except Exception as e:

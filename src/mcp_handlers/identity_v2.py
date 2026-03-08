@@ -127,7 +127,7 @@ async def handle_identity_v2(
                 "message": f"Resumed identity: {display_name or agent_id}",
                 "session_continuity": {
                     "client_session_id": stable_session_id,
-                    "instruction": "Include client_session_id in ALL future tool calls for stable identity",
+                    "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
                 },
             }
 
@@ -413,8 +413,7 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
     if not result.get("session_continuity"):
         response_data["session_continuity"] = {
             "client_session_id": client_session_id,
-            "instruction": "Include client_session_id in ALL future tool calls to maintain identity",
-            "example": f'{{"name": "process_agent_update", "arguments": {{"client_session_id": "{client_session_id}", "response_text": "...", "complexity": 0.5}}}}'
+            "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
         }
 
     # Use lite_response to skip redundant agent_signature (identity already contains all that info)
@@ -770,6 +769,12 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             agent_label = name
             # Refresh identity object
             identity["label"] = name
+        else:
+            logger.warning(f"[ONBOARD] set_agent_label returned False for {agent_uuid[:8]}... name={name}")
+            # Fallback: use the name for this response even if DB persistence failed
+            if agent_label is None:
+                agent_label = name
+                identity["label"] = name
 
     # TRAJECTORY IDENTITY: Store genesis signature if provided (optional, non-blocking)
     # Agents from anima-mcp can include trajectory_signature in their onboard call
@@ -856,6 +861,10 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
 
     logger.info(f"[ONBOARD] Agent {agent_uuid[:8]}... onboarded (is_new={is_new}, label={agent_label})")
 
+    # Fire-and-forget: auto-archive ephemeral agents (0 updates, older than 2 hours)
+    import asyncio
+    asyncio.create_task(_auto_archive_ephemeral_agents())
+
     # Use lite_response to skip redundant signature
     arguments["lite_response"] = True
     return success_response(result, agent_id=agent_uuid, arguments=arguments)
@@ -882,7 +891,6 @@ def _build_onboard_response(
             "tool": "process_agent_update",
             "why": "Log your work. Call after completing tasks.",
             "args_min": {
-                "client_session_id": stable_session_id,
                 "response_text": "...",
                 "complexity": 0.5
             },
@@ -896,9 +904,7 @@ def _build_onboard_response(
         {
             "tool": "get_governance_metrics",
             "why": "Check your state (energy, coherence, etc.)",
-            "args_min": {
-                "client_session_id": stable_session_id
-            },
+            "args_min": {},
             "args_full": {
                 "client_session_id": stable_session_id
             }
@@ -906,12 +912,10 @@ def _build_onboard_response(
         {
             "tool": "identity",
             "why": "Rename yourself or check identity later",
-            "args_min": {
-                "client_session_id": stable_session_id
-            },
+            "args_min": {},
             "args_full": {
                 "client_session_id": stable_session_id,
-                "name": "YourName_model_date"
+                "name": "YourName"
             }
         }
     ]
@@ -985,7 +989,7 @@ def _build_onboard_response(
         "client_session_id": stable_session_id,
         "session_continuity": {
             "client_session_id": stable_session_id,
-            "instruction": "Include client_session_id in ALL future tool calls to maintain identity",
+            "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
             "tip": client_tips.get(client_hint, client_tips["unknown"])
         },
 
@@ -1162,6 +1166,46 @@ async def handle_get_trajectory_status(arguments: Dict[str, Any]) -> Sequence[Te
     except Exception as e:
         logger.error(f"[TRAJECTORY] Status check failed: {e}")
         return error_response(f"Trajectory status check failed: {e}")
+
+async def _auto_archive_ephemeral_agents():
+    """Fire-and-forget: archive agents with 0 updates older than 2 hours."""
+    try:
+        from datetime import timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
+        archived = 0
+        db = get_db()
+        for agent_id, meta in list(mcp_server.agent_metadata.items()):
+            if meta.status != "active":
+                continue
+            if meta.total_updates > 0:
+                continue
+            # Skip Lumen
+            if getattr(meta, "label", "") == "Lumen":
+                continue
+            # Check age via last_update or created_at
+            last = meta.last_update
+            if not last:
+                continue
+            try:
+                last_dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                if last_dt >= cutoff:
+                    continue
+            except Exception:
+                continue
+            # Archive it
+            try:
+                await db.update_agent_fields(agent_id, status="archived")
+                meta.status = "archived"
+                archived += 1
+            except Exception:
+                pass
+        if archived:
+            logger.info(f"[AUTO_ARCHIVE] Archived {archived} ephemeral agent(s) (0 updates, >2h old)")
+    except Exception as e:
+        logger.debug(f"[AUTO_ARCHIVE] Cleanup failed (non-fatal): {e}")
+
 
 async def _create_spawned_edge_bg(
     child_id: str, parent_id: str, reason: str | None
