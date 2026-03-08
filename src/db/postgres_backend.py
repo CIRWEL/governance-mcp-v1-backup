@@ -248,17 +248,16 @@ class PostgresBackend(DatabaseBackend):
             return {"status": "error", "error": "Pool not initialized"}
 
         async with self.acquire() as conn:
-            # Basic connectivity
-            result = await conn.fetchval("SELECT 1")
-
-            # Schema version (from migrations table)
-            version = await conn.fetchval("""
-                SELECT MAX(version) FROM core.schema_migrations
+            # Single query for schema version and counts (also proves connectivity)
+            row = await conn.fetchrow("""
+                SELECT
+                    (SELECT MAX(version) FROM core.schema_migrations) AS schema_version,
+                    (SELECT COUNT(*) FROM core.identities) AS identity_count,
+                    (SELECT COUNT(*) FROM core.sessions WHERE is_active = TRUE) AS active_session_count
             """)
-
-            # Counts
-            identity_count = await conn.fetchval("SELECT COUNT(*) FROM core.identities")
-            session_count = await conn.fetchval("SELECT COUNT(*) FROM core.sessions WHERE is_active = TRUE")
+            version = row["schema_version"]
+            identity_count = row["identity_count"]
+            session_count = row["active_session_count"]
 
             # AGE status
             age_available = False
