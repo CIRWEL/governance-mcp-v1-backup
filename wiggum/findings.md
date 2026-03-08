@@ -196,3 +196,98 @@ While `compute_calibration_metrics()` is cheap (O(5) bin iteration), the code du
 **After:** 1 canonical function, 1 computation per update (cached via `_cal_error_ready` flag)
 **Risk:** None — identical logic, fail-safe try/except preserved in the helper, fallback for skipped Phase 4
 **Tests:** 5478 passed, 35 skipped
+
+## Iteration 4: Eliminate redundant monitor lookups in update pipeline
+
+**File:** `src/mcp_handlers/update_phases.py`, lines 641-642, 706-785
+**Category:** Code Quality
+**Date:** 2026-03-07
+
+### Problem
+
+Two code quality issues in `update_phases.py`:
+
+**1. `ctx.monitor` field defined but never populated (unused infrastructure)**
+
+`UpdateContext` declares a `monitor: Optional[Any] = None` field (line 42) intended to carry the monitor reference between phases. However, it was never assigned. Every function that needs the monitor performed its own `mcp_server.monitors.get(agent_id)` dict lookup instead.
+
+In `execute_post_update_effects` alone, `mcp_server.monitors.get(agent_id)` was called 4 times for the same agent within the same function invocation:
+
+- Line 712: CIRS state announce
+- Line 725: CIRS resonance signal
+- Line 747: CIRS neighbor pressure
+- Line 791: Drift dialectic trigger
+
+All 4 lookups retrieve the same monitor from the same dict with the same key. While each `.get()` call is O(1), the pattern is noisy — it obscures that these blocks all operate on the same monitor, and each block redundantly shadows the same local `monitor` variable.
+
+**2. Duplicate `getattr(monitor, '_last_continuity_metrics', None)` in Phase 4**
+
+In `compute_behavioral_sensor_eisv` preparation (Phase 4, lines 447-457), the continuity metrics object was fetched from the monitor twice:
+
+```python
+# First fetch (line 447):
+cm = getattr(monitor, '_last_continuity_metrics', None)
+if cm is not None:
+    comp_div = getattr(cm, 'complexity_divergence', None)
+
+# Second fetch (line 453) — DUPLICATE:
+cm = getattr(monitor, '_last_continuity_metrics', None)
+if cm is not None:
+    cont_E = getattr(cm, 'E_input', None)
+    cont_I = getattr(cm, 'I_input', None)
+    cont_S = getattr(cm, 'S_input', None)
+```
+
+The second `getattr` call returns exactly the same object. All 4 field extractions should be in a single block.
+
+### Investigation
+
+- Confirmed `ctx.monitor` field exists on `UpdateContext` (line 42) with `monitor: Optional[Any] = None`
+- Confirmed `ctx.monitor` is never assigned anywhere in the codebase (`grep 'ctx\.monitor' src/` — 0 matches)
+- Confirmed the monitor is guaranteed to exist after `process_update_authenticated_async` returns (Phase 4 creates or updates it)
+- Confirmed the 4 Phase 5 lookups all use the same `agent_id` variable (set to `ctx.agent_id` at line 652)
+- Confirmed each try/except block already handles `None` monitor (either via `if monitor` guard or by catching AttributeError)
+- Confirmed the `cm` object (`_last_continuity_metrics`) is a simple attribute, not a property with side effects
+
+### Fix
+
+**Monitor caching:** Added `ctx.monitor = mcp_server.monitors.get(ctx.agent_id)` at line 642, immediately after the ODE update completes. Then replaced all 4 `mcp_server.monitors.get(agent_id)` calls in `execute_post_update_effects` with `monitor = ctx.monitor`.
+
+**Continuity metrics dedup:** Merged the two `getattr(monitor, '_last_continuity_metrics', None)` blocks into one:
+
+```python
+# Before: 2 getattr calls, 2 conditionals, 10 lines
+comp_div = None
+cm = getattr(monitor, '_last_continuity_metrics', None)
+if cm is not None:
+    comp_div = getattr(cm, 'complexity_divergence', None)
+cont_E, cont_I, cont_S = None, None, None
+cm = getattr(monitor, '_last_continuity_metrics', None)
+if cm is not None:
+    cont_E = getattr(cm, 'E_input', None)
+    cont_I = getattr(cm, 'I_input', None)
+    cont_S = getattr(cm, 'S_input', None)
+
+# After: 1 getattr call, 1 conditional, 7 lines
+comp_div = None
+cont_E, cont_I, cont_S = None, None, None
+cm = getattr(monitor, '_last_continuity_metrics', None)
+if cm is not None:
+    comp_div = getattr(cm, 'complexity_divergence', None)
+    cont_E = getattr(cm, 'E_input', None)
+    cont_I = getattr(cm, 'I_input', None)
+    cont_S = getattr(cm, 'S_input', None)
+```
+
+**Before:** 4 redundant `monitors.get()` calls in Phase 5, unused `ctx.monitor` field, duplicate `getattr` in Phase 4
+**After:** 1 lookup cached on `ctx.monitor`, reused across Phase 5; single `getattr` for continuity metrics
+**Risk:** None — `ctx.monitor` is set after the ODE guarantees the monitor exists; each try/except block still catches failures independently
+**Tests:** 5478 passed, 35 skipped
+
+### Additional findings catalogued for future iterations
+
+**Phase 6 enrichments still do independent monitor lookups:**
+- `update_enrichments.py` lines 26, 46, 214, 568, 701, 874 each call `mcp_server.monitors.get(ctx.agent_id)` or `mcp_server.get_or_create_monitor(ctx.agent_id)` independently. Now that `ctx.monitor` is populated, these could all use `ctx.monitor` instead. Two of them (lines 214, 874) use `get_or_create_monitor` which is unnecessarily expensive post-ODE — the monitor is guaranteed to exist.
+
+**`_safe_float` duplication remains:**
+- `lifecycle.py:39` (default=0.0) and `self_recovery.py:61` (default=0.5) — identical logic, different defaults. Could be consolidated into a shared utility with a `default` parameter.
