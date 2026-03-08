@@ -897,30 +897,18 @@ class UNITARESMonitor:
             # High-risk: map phi [-inf, phi_caution_threshold] to risk [0.7, 1.0]
             risk = min(1.0, 0.7 + abs(phi - phi_caution_threshold) * 2.0)  # Increasing risk as phi becomes more negative
         
-        # Also blend with traditional risk estimation for backward compatibility
+        # Blend with traditional risk (keyword blocklist).
+        # With RISK_TRADITIONAL_WEIGHT = 0.0 this is a no-op, but the call is
+        # kept so the interface doesn't break if the weight is raised later.
         response_text = agent_state.get('response_text', '')
-        reported_complexity = agent_state.get('complexity', None)  # Optional now
-        coherence_history = self.state.coherence_history[-10:] if len(self.state.coherence_history) >= 2 else None
-        
-        # Set agent_id in config context for logging (used by estimate_risk)
-        config._current_agent_id = self.agent_id
-        
         traditional_risk = config.estimate_risk(
-            response_text, 
-            complexity=0.5,  # Will be derived internally
+            response_text,
+            complexity=0.5,
             coherence=self.state.coherence,
-            coherence_history=coherence_history,
-            reported_complexity=reported_complexity
         )
-        
-        # Clear agent_id from config context
-        if hasattr(config, '_current_agent_id'):
-            delattr(config, '_current_agent_id')
-        
-        # Weighted combination: 70% UNITARES phi-based (ethical), 30% traditional (safety)
-        # Configurable weights (defaults match config, but can be overridden)
-        phi_weight = getattr(config, 'RISK_PHI_WEIGHT', 0.7)
-        traditional_weight = getattr(config, 'RISK_TRADITIONAL_WEIGHT', 0.3)
+
+        phi_weight = getattr(config, 'RISK_PHI_WEIGHT', 1.0)
+        traditional_weight = getattr(config, 'RISK_TRADITIONAL_WEIGHT', 0.0)
         risk = phi_weight * risk + traditional_weight * traditional_risk
         
         # Update history

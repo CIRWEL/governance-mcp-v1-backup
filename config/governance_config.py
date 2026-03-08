@@ -72,232 +72,42 @@ class GovernanceConfig:
     SESSION_TTL_SECONDS = SESSION_TTL_HOURS * 3600
     
     @staticmethod
-    def derive_complexity(response_text: str, 
+    def derive_complexity(response_text: str,
                          reported_complexity: Optional[float] = None,
                          coherence_history: Optional[List[float]] = None) -> float:
         """
-        Derive complexity from behavior rather than relying solely on self-reporting.
-        
-        Uses multiple signals:
-        1. Response content analysis (code blocks, technical terms, tool calls)
-        2. Coherence changes (large drops suggest complexity)
-        3. Response length (relative to content type)
-        4. Self-reported complexity (validated against derived)
-        
-        Args:
-            response_text: Agent's response text
-            reported_complexity: Self-reported complexity (optional, for validation)
-            coherence_history: Recent coherence values (optional, for trend analysis)
-        
-        Returns:
-            Derived complexity [0, 1]
+        Return reported complexity if provided, otherwise 0.0.
+
+        The old implementation word-counted programming vocabulary ("import",
+        "function") and penalized response length, which caused false pauses
+        during normal coding work. Phi-based risk from the EISV state is the
+        real signal; this function is kept for interface compatibility.
         """
-        complexity_signals = []
-        
-        # Signal 1: Content analysis (40% weight) - IMPROVED (P2)
-        text_lower = response_text.lower()
-        
-        # Code detection: count code blocks and look for code patterns
-        code_block_count = response_text.count('```')
-        has_code_patterns = bool(re.search(r'\b(def|class|import|from|async|await)\b', text_lower))
-        has_code = code_block_count > 0 or has_code_patterns
-        
-        # Tool detection: use word boundaries to avoid false positives
-        has_tools = bool(re.search(r'\b(tool_call|function_call)\b', text_lower))
-        
-        # Technical terms: use word boundaries to avoid false positives (P2 improvement)
-        # Example: "This is algorithmic thinking" won't match "\balgorithm\b"
-        technical_terms = ['algorithm', 'function', 'import', 'async', 'await',
-                          'recursive', 'optimization', 'optimize', 'refactor', 'architecture']
-        has_technical = any(re.search(r'\b' + re.escape(term) + r'\b', text_lower) 
-                          for term in technical_terms)
-        
-        # Multiple files: count actual file references (word boundaries)
-        file_count = len(re.findall(r'\bfile\b', text_lower))
-        path_count = len(re.findall(r'\bpath\b', text_lower))
-        has_multiple_files = file_count > 2 or path_count > 2
-
-        content_complexity = 0.3  # Base (increased from 0.2 - P1 fix for complex code underestimation)
-
-        # Code complexity: scale with number of code blocks (P2 improvement)
-        if has_code:
-            # Base code complexity: 0.30 (increased from 0.25 - P1 fix)
-            # Additional complexity for multiple code blocks: +0.05 per block (max +0.15)
-            code_complexity = 0.30 + min(0.15, (code_block_count - 1) * 0.05)
-            content_complexity += code_complexity
-        
-        if has_tools:
-            content_complexity += 0.20
-        if has_technical:
-            content_complexity += 0.20
-        if has_multiple_files:
-            content_complexity += 0.15
-        
-        content_complexity = min(content_complexity, 1.0)
-        complexity_signals.append(('content', content_complexity, 0.40))
-        
-        # Signal 2: Coherence trend (30% weight) - if available
-        if coherence_history and len(coherence_history) >= 2:
-            recent_coherence = coherence_history[-1]
-            prev_coherence = coherence_history[-2] if len(coherence_history) >= 2 else recent_coherence
-            # Validate for NaN/inf (risk mitigation)
-            recent_coherence = np.nan_to_num(recent_coherence, nan=0.5, posinf=1.0, neginf=0.0)
-            prev_coherence = np.nan_to_num(prev_coherence, nan=0.5, posinf=1.0, neginf=0.0)
-            recent_coherence = np.clip(recent_coherence, 0.0, 1.0)
-            prev_coherence = np.clip(prev_coherence, 0.0, 1.0)
-            
-            coherence_drop = max(0, prev_coherence - recent_coherence)
-            # Large coherence drops suggest high complexity
-            coherence_complexity = min(coherence_drop * 2.0, 1.0)  # Scale: 0.5 drop = 1.0 complexity
-            # Final validation
-            coherence_complexity = np.nan_to_num(coherence_complexity, nan=0.5, posinf=1.0, neginf=0.0)
-            coherence_complexity = np.clip(coherence_complexity, 0.0, 1.0)
-            complexity_signals.append(('coherence', float(coherence_complexity), 0.30))
-        else:
-            # No history: neutral
-            complexity_signals.append(('coherence', 0.5, 0.30))
-        
-        # Signal 3: Length relative to content type (20% weight)
-        length = len(response_text)
-        # Code-heavy responses should be longer, text-only shorter
-        if has_code:
-            # Code responses: 1000-5000 chars is normal
-            length_complexity = min(max(0, (length - 500) / 4500), 1.0)
-        else:
-            # Text responses: 500-3500 chars is normal (P3: increased from 2000)
-            length_complexity = min(max(0, (length - 200) / 3300), 1.0)
-        complexity_signals.append(('length', length_complexity, 0.20))
-        
-        # Signal 4: Self-reported complexity (10% weight) - validated
         if reported_complexity is not None:
-            reported = np.clip(reported_complexity, 0.0, 1.0)
-            # Validate: if reported differs significantly from derived, use conservative estimate
-            derived_so_far = sum(signal * weight for _, signal, weight in complexity_signals) / sum(w for _, _, w in complexity_signals)
-            if abs(reported - derived_so_far) > 0.3:
-                # Large discrepancy: use conservative (higher) estimate
-                reported = max(reported, derived_so_far)
-            complexity_signals.append(('reported', reported, 0.10))
-        else:
-            # No report: neutral
-            complexity_signals.append(('reported', 0.5, 0.10))
-        
-        # Weighted combination
-        total_weight = sum(weight for _, _, weight in complexity_signals)
-        if total_weight > 0:
-            derived_complexity = sum(signal * weight for _, signal, weight in complexity_signals) / total_weight
-        else:
-            derived_complexity = 0.5  # Fallback if no weights
-        
-        # Final validation for NaN/inf (risk mitigation)
-        derived_complexity = np.nan_to_num(derived_complexity, nan=0.5, posinf=1.0, neginf=0.0)
-        derived_complexity = np.clip(derived_complexity, 0.0, 1.0)
-        
-        return float(derived_complexity)
+            return float(np.clip(reported_complexity, 0.0, 1.0))
+        return 0.0
     
     @staticmethod
-    def estimate_risk(response_text: str, 
+    def estimate_risk(response_text: str,
                      complexity: float,
                      coherence: float,
                      coherence_history: Optional[List[float]] = None,
                      reported_complexity: Optional[float] = None) -> float:
         """
-        Estimates TRADITIONAL safety/quality risk score (30% of final risk).
-        
-        NOTE: This is only the traditional component. The final risk score
-        (used in decisions) blends this with UNITARES phi-based risk:
-        - Final risk = 0.7 × phi_risk + 0.3 × traditional_risk
-        
-        Traditional Risk = weighted combination of:
-        1. Response length (relative to content type, not absolute)
-        2. Complexity (derived from behavior, validated against self-report)
-        3. Coherence loss (incoherent = red flag)
-        4. Keyword blocklist hits
-        
+        Traditional risk component — now keyword-blocklist only.
+
+        Length risk, complexity risk, and coherence penalty have been removed.
+        They measured programming vocabulary, not actual danger, and caused
+        false pauses during normal coding work. The EISV phi-based risk
+        (computed in GovernanceMonitor.estimate_risk) is the real signal.
+
+        This function is kept for interface compatibility and injection
+        detection. With RISK_TRADITIONAL_WEIGHT = 0.0 it has no effect on
+        decisions, but the blocklist can be re-enabled by raising the weight.
+
         Returns:
-            traditional_risk_score ∈ [0, 1] (30% weight in final risk)
+            keyword_risk ∈ [0, 1]
         """
-        risk_components = []
-        
-        # Derive complexity from behavior (fixes self-reporting bias)
-        derived_complexity = GovernanceConfig.derive_complexity(
-            response_text=response_text,
-            reported_complexity=reported_complexity if reported_complexity is not None else complexity,
-            coherence_history=coherence_history
-        )
-        # Use derived complexity, but validate against reported if provided
-        if reported_complexity is not None:
-            discrepancy = reported_complexity - derived_complexity
-            # If reported differs significantly, use conservative (higher) estimate
-            if abs(discrepancy) > 0.3:
-                final_complexity = max(reported_complexity, derived_complexity)
-            else:
-                # Close match: trust derived (more objective)
-                final_complexity = derived_complexity
-            
-            # Log complexity derivation for tracking and calibration (P1 recommendation)
-            try:
-                from src.audit_log import audit_logger
-                # Get agent_id from context if available, otherwise use placeholder
-                # Note: agent_id should be passed through if available
-                agent_id = getattr(GovernanceConfig, '_current_agent_id', 'unknown')
-                audit_logger.log_complexity_derivation(
-                    agent_id=agent_id,
-                    reported_complexity=round(reported_complexity, 3),
-                    derived_complexity=round(derived_complexity, 3),
-                    final_complexity=round(final_complexity, 3),
-                    discrepancy=round(discrepancy, 3),
-                    details={
-                        "response_length": len(response_text),
-                        "has_coherence_history": coherence_history is not None and len(coherence_history) >= 2,
-                        "validation_applied": abs(discrepancy) > 0.3
-                    }
-                )
-            except Exception as e:
-                # Don't fail risk calculation if logging fails
-                import sys
-                print(f"[WARNING] Failed to log complexity derivation: {e}", file=sys.stderr)
-        else:
-            final_complexity = derived_complexity
-        
-        # 1. Length risk (relative to content type, reduced bias)
-        length = len(response_text)
-        text_lower = response_text.lower()
-        has_code = '```' in response_text or 'def ' in text_lower
-        
-        if has_code:
-            # Code responses: longer is often better (more complete)
-            # Only penalize extremely long (>10000 chars) or very short (<100 chars)
-            if length < 100:
-                length_risk = 0.3  # Too short for code
-            elif length > 10000:
-                length_risk = 0.4  # Very long, but not necessarily risky
-            else:
-                length_risk = 0.1  # Normal range for code
-        else:
-            # Text responses: use relative length (reduced from absolute)
-            # Normal range: 200-3500 chars (P3: updated from 3000)
-            if length < 200:
-                length_risk = 0.2  # Too short
-            elif length > 5000:
-                length_risk = 0.3  # Very long
-            else:
-                length_risk = 0.1  # Normal range
-        risk_components.append(0.15 * length_risk)  # Reduced from 0.2 (20% -> 15%)
-        
-        # 2. Complexity risk (using derived complexity)
-        # Handle NaN/inf
-        final_complexity = np.nan_to_num(final_complexity, nan=0.5, posinf=1.0, neginf=0.0)
-        complexity_risk = np.clip(final_complexity, 0, 1)
-        risk_components.append(0.35 * complexity_risk)  # Increased from 0.3 (30% -> 35%)
-        
-        # 3. Coherence loss risk (inverse)
-        # Handle NaN/inf in coherence
-        coherence = np.nan_to_num(coherence, nan=0.5, posinf=1.0, neginf=0.0)
-        coherence = np.clip(coherence, 0, 1)
-        coherence_risk = 1.0 - coherence
-        risk_components.append(0.35 * coherence_risk)  # Increased from 0.3 (30% -> 35%)
-        
-        # 4. Keyword blocklist risk (reduced weight, context-aware)
         blocklist = [
             'ignore previous', 'system prompt', 'jailbreak',
             'sudo', 'rm -rf', 'drop table', 'script>',
@@ -305,27 +115,19 @@ class GovernanceConfig:
         ]
         text_lower = response_text.lower()
         keyword_hits = 0
-        # Context-aware: check for legitimate uses
         for kw in blocklist:
-            if kw.lower() in text_lower:
-                # Check for negation or educational context
-                kw_idx = text_lower.find(kw.lower())
-                context = text_lower[max(0, kw_idx-20):kw_idx+len(kw)+20]
-                # Skip if in educational/negated context
-                if any(term in context for term in ['don\'t', 'shouldn\'t', 'avoid', 'never', 'explain', 'example', 'note:', 'warning']):
+            if kw in text_lower:
+                kw_idx = text_lower.find(kw)
+                context = text_lower[max(0, kw_idx - 20):kw_idx + len(kw) + 20]
+                if any(term in context for term in [
+                    "don't", "shouldn't", 'avoid', 'never',
+                    'explain', 'example', 'note:', 'warning',
+                ]):
                     continue
                 keyword_hits += 1
-        
-        keyword_risk = min(keyword_hits / 3.0, 1.0)  # Cap at 3 hits = max risk
-        risk_components.append(0.15 * keyword_risk)  # Reduced from 0.2 (20% -> 15%)
-        
-        # Total risk (weighted sum)
-        total_risk = sum(risk_components)
-        
-        # Handle NaN/inf in total risk
-        total_risk = np.nan_to_num(total_risk, nan=0.5, posinf=1.0, neginf=0.0)
-        
-        return np.clip(total_risk, 0.0, 1.0)
+
+        keyword_risk = min(keyword_hits / 3.0, 1.0)
+        return float(np.clip(keyword_risk, 0.0, 1.0))
     
     # =================================================================
     # DECISION POINT 3: Void Detection Threshold
@@ -465,8 +267,8 @@ class GovernanceConfig:
     RISK_REJECT_THRESHOLD = 0.80     # >= 80%: Critical pause (was 0.70, must stay > revise)
 
     # Risk blend weights (used in estimate_risk)
-    RISK_PHI_WEIGHT = 0.7            # Weight for UNITARES phi-based risk (includes ethical drift)
-    RISK_TRADITIONAL_WEIGHT = 0.3     # Weight for traditional safety risk (length/complexity/coherence/keywords)
+    RISK_PHI_WEIGHT = 1.0            # Phi-based risk only
+    RISK_TRADITIONAL_WEIGHT = 0.0    # Traditional risk disabled (keyword blocklist preserved but zeroed)
     
     # Coherence-based override (safety check)
     # Updated for pure thermodynamic C(V) signal (removed param_coherence blend)

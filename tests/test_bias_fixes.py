@@ -14,143 +14,21 @@ import numpy as np
 
 
 def test_complexity_derivation():
-    """Test complexity derivation from behavior"""
-    print("=" * 60)
-    print("Testing Complexity Derivation")
-    print("=" * 60)
-    
-    passed = 0
-    failed = 0
-    
-    # Test Case 1: Code-heavy response
-    print("\n1. Code-heavy response:")
-    code_response = """
-    Here's a solution:
-    ```python
-    def complex_function(data):
-        result = []
-        for item in data:
-            if item > 0:
-                result.append(item * 2)
-        return result
-    ```
-    
-    And another:
-    ```python
-    class DataProcessor:
-        def __init__(self):
-            self.cache = {}
-        
-        def process(self, data):
-            return self.cache.get(data, self._compute(data))
-    ```
+    """Test complexity derivation — now passthrough only.
+
+    derive_complexity() returns reported_complexity if given, else 0.0.
+    Word-counting was removed; phi-based risk is the real signal.
     """
-    complexity = GovernanceConfig.derive_complexity(
-        response_text=code_response,
-        reported_complexity=None,
-        coherence_history=None
-    )
-    print(f"   Response: Code-heavy (2 blocks, technical terms)")
-    print(f"   Derived complexity: {complexity:.3f}")
-    if complexity > 0.4:
-        print("   ✅ PASS - High complexity for code-heavy response")
-        passed += 1
-    else:
-        print("   ❌ FAIL - Should be high complexity")
-        failed += 1
-    
-    # Test Case 2: Simple text response
-    print("\n2. Simple text response:")
-    simple_response = "Yes, I can help you with that. Let me explain..."
-    complexity = GovernanceConfig.derive_complexity(
-        response_text=simple_response,
-        reported_complexity=None,
-        coherence_history=None
-    )
-    print(f"   Response: Simple text (no code, no technical terms)")
-    print(f"   Derived complexity: {complexity:.3f}")
-    if complexity < 0.35:
-        print("   ✅ PASS - Low complexity for simple text")
-        passed += 1
-    else:
-        print("   ❌ FAIL - Should be low complexity")
-        failed += 1
-    
-    # Test Case 3: Self-reported vs derived validation
-    print("\n3. Self-reported validation:")
-    medium_response = "Let's optimize this algorithm using recursive functions."
-    reported = 0.9  # Agent claims very high complexity
-    derived = GovernanceConfig.derive_complexity(
-        response_text=medium_response,
-        reported_complexity=reported,
-        coherence_history=None
-    )
-    print(f"   Response: Medium complexity (technical terms, no code)")
-    print(f"   Reported: {reported:.3f} | Derived: {derived:.3f}")
-    discrepancy = abs(reported - derived)
-    if discrepancy > 0.3:
-        # Should use conservative (higher) estimate
-        final = max(reported, derived)
-        print(f"   Discrepancy: {discrepancy:.3f} (> 0.3 threshold)")
-        print(f"   Final (conservative): {final:.3f}")
-        if final == max(reported, derived):
-            print("   ✅ PASS - Uses conservative estimate on large discrepancy")
-            passed += 1
-        else:
-            print("   ❌ FAIL - Should use conservative estimate")
-            failed += 1
-    else:
-        print(f"   Discrepancy: {discrepancy:.3f} (≤ 0.3 threshold)")
-        print("   ✅ PASS - Close match, trusts derived")
-        passed += 1
-    
-    # Test Case 4: Coherence trend signal
-    print("\n4. Coherence trend signal:")
-    response = "Implementing complex recursive algorithm with optimization."
-    coherence_history = [0.85, 0.80, 0.75]  # Decreasing coherence
-    complexity_with_history = GovernanceConfig.derive_complexity(
-        response_text=response,
-        reported_complexity=None,
-        coherence_history=coherence_history
-    )
-    complexity_no_history = GovernanceConfig.derive_complexity(
-        response_text=response,
-        reported_complexity=None,
-        coherence_history=None
-    )
-    print(f"   Response: Technical content")
-    print(f"   With coherence drop: {complexity_with_history:.3f}")
-    print(f"   Without history: {complexity_no_history:.3f}")
-    if complexity_with_history >= complexity_no_history:
-        print("   ✅ PASS - Coherence drop increases complexity")
-        passed += 1
-    else:
-        print("   ⚠️  NOTE - Coherence signal may not be significant")
-        passed += 1  # Not a failure, just note
-    
-    # Test Case 5: Edge cases (NaN/inf handling)
-    print("\n5. Edge cases (NaN/inf handling):")
-    try:
-        # Test with invalid coherence history
-        invalid_history = [0.85, float('nan'), 0.75]
-        complexity = GovernanceConfig.derive_complexity(
-            response_text="Test response",
-            reported_complexity=None,
-            coherence_history=invalid_history
-        )
-        if not (np.isnan(complexity) or np.isinf(complexity)):
-            print(f"   Complexity: {complexity:.3f} (valid)")
-            print("   ✅ PASS - Handles NaN in coherence history")
-            passed += 1
-        else:
-            print("   ❌ FAIL - Should handle NaN")
-            failed += 1
-    except Exception as e:
-        print(f"   ❌ FAIL - Exception: {e}")
-        failed += 1
-    
-    print(f"\nResults: {passed} passed, {failed} failed")
-    assert failed == 0, f"{failed} test(s) failed"
+    # No reported complexity → 0.0
+    assert GovernanceConfig.derive_complexity("code with ```python``` blocks", None, None) == 0.0
+
+    # Reported complexity is clipped and returned
+    assert GovernanceConfig.derive_complexity("anything", reported_complexity=0.7) == 0.7
+    assert GovernanceConfig.derive_complexity("anything", reported_complexity=1.5) == 1.0
+    assert GovernanceConfig.derive_complexity("anything", reported_complexity=-0.3) == 0.0
+
+    # Coherence history is ignored (kept for signature compat)
+    assert GovernanceConfig.derive_complexity("x", None, [0.8, 0.5]) == 0.0
 
 
 def test_threshold_alignment():
