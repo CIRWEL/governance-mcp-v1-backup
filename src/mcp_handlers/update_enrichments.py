@@ -22,8 +22,9 @@ logger = get_logger(__name__)
 async def enrich_state_interpretation(ctx: UpdateContext) -> None:
     """Map raw EISV to semantic state (health / mode / basin)."""
     try:
-        mcp_server = ctx.mcp_server
-        monitor = mcp_server.monitors.get(ctx.agent_id)
+        monitor = ctx.monitor
+        if monitor is None:
+            return
         task_type = ctx.agent_state.get("task_type", "mixed")
         interpreted_state = monitor.state.interpret_state(
             risk_score=ctx.risk_score,
@@ -42,8 +43,7 @@ def enrich_actionable_feedback(ctx: UpdateContext) -> None:
     """Generate context-aware actionable feedback."""
     try:
         from .utils import generate_actionable_feedback
-        mcp_server = ctx.mcp_server
-        monitor = mcp_server.monitors.get(ctx.agent_id)
+        monitor = ctx.monitor
 
         previous_coherence = None
         try:
@@ -182,7 +182,6 @@ def enrich_metric_standardization(ctx: UpdateContext) -> None:
 def enrich_health_status_toplevel(ctx: UpdateContext) -> None:
     """Ensure health_status is at top level for easy access."""
     try:
-        mcp_server = ctx.mcp_server
         if 'metrics' in ctx.response_data:
             metrics = ctx.response_data['metrics']
             if 'health_status' in metrics:
@@ -211,7 +210,9 @@ def enrich_health_status_toplevel(ctx: UpdateContext) -> None:
             # Ensure risk metrics consistent with get_governance_metrics
             if 'current_risk' not in metrics or 'mean_risk' not in metrics:
                 try:
-                    monitor = mcp_server.get_or_create_monitor(ctx.agent_id)
+                    monitor = ctx.monitor
+                    if monitor is None:
+                        raise ValueError("no monitor")
                     monitor_metrics = monitor.get_metrics()
                     if 'current_risk' not in metrics:
                         metrics['current_risk'] = monitor_metrics.get('current_risk')
@@ -564,8 +565,7 @@ async def enrich_trajectory_identity(ctx: UpdateContext) -> None:
     # Compute behavioral trajectory for non-embodied agents (no anima sensors)
     if not trajectory_signature or not isinstance(trajectory_signature, dict):
         try:
-            _mcp = ctx.mcp_server
-            monitor = _mcp.monitors.get(ctx.agent_uuid)
+            monitor = ctx.monitor
             if monitor and getattr(monitor.state, 'update_count', 0) >= 10:
                 # Track task_type counts on the monitor
                 monitor._task_type_counts = getattr(monitor, '_task_type_counts', {})
@@ -689,8 +689,9 @@ def enrich_saturation_diagnostics(ctx: UpdateContext) -> None:
         from governance_core import compute_saturation_diagnostics
         from governance_core.parameters import DEFAULT_THETA
 
-        mcp_server = ctx.mcp_server
-        monitor = mcp_server.monitors.get(ctx.agent_id)
+        monitor = ctx.monitor
+        if monitor is None:
+            return
         unitares_state = monitor.state.unitaires_state
         theta = getattr(monitor.state, 'unitaires_theta', None) or DEFAULT_THETA
 
@@ -770,7 +771,6 @@ def enrich_eisv_validation(ctx: UpdateContext) -> None:
 async def enrich_learning_context(ctx: UpdateContext) -> None:
     """Surface agent's own history for in-context learning."""
     try:
-        mcp_server = ctx.mcp_server
         learning_context = {}
 
         # 1. Recent decisions from audit log
@@ -863,7 +863,9 @@ async def enrich_learning_context(ctx: UpdateContext) -> None:
 
         # 4. Pattern detection
         try:
-            monitor = mcp_server.get_or_create_monitor(ctx.agent_id)
+            monitor = ctx.monitor
+            if monitor is None:
+                raise ValueError("no monitor")
             state = monitor.state
 
             patterns = []
