@@ -235,6 +235,34 @@ def _isolate_identity_state():
         pass
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _cleanup_ghost_agent_state_files():
+    """
+    Remove agent state files created during the test session.
+
+    Tests that call dispatch_tool("process_agent_update") or create
+    UNITARESMonitor instances with load_state=True auto-save state to
+    data/agents/{agent_id}_state.json. These accumulate across runs.
+
+    This fixture snapshots existing files before the session, then
+    removes any new files created during tests.
+    """
+    from pathlib import Path
+    agents_dir = Path(__file__).parent.parent / "data" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    pre_existing = set(agents_dir.iterdir())
+
+    yield
+
+    # Remove files created during this test session
+    for f in agents_dir.iterdir():
+        if f not in pre_existing:
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+
 @pytest.fixture
 def temp_db(tmp_path):
     """Provide a temporary database path for tests."""
