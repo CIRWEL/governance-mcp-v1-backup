@@ -1,0 +1,140 @@
+"""Audit operations mixin for PostgresBackend."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from ..base import AuditEvent
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
+
+
+class AuditMixin:
+    """Audit event operations."""
+
+    async def append_audit_event(self, event: AuditEvent) -> bool:
+        async with self.acquire() as conn:
+            try:
+                event_id_uuid: uuid.UUID
+                if event.event_id:
+                    try:
+                        event_id_uuid = uuid.UUID(event.event_id)
+                    except (ValueError, AttributeError):
+                        event_id_uuid = uuid.uuid4()
+                else:
+                    event_id_uuid = uuid.uuid4()
+
+                await conn.execute(
+                    """
+                    INSERT INTO audit.events (ts, event_id, agent_id, session_id, event_type, confidence, payload, raw_hash)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    event.ts or datetime.now(timezone.utc),
+                    event_id_uuid,
+                    event.agent_id,
+                    event.session_id,
+                    event.event_type,
+                    event.confidence,
+                    json.dumps(event.payload),
+                    event.raw_hash,
+                )
+                return True
+            except Exception as e:
+                logger.error(f"append_audit_event failed for agent={event.agent_id} type={event.event_type}: {e}")
+                return False
+
+    async def query_audit_events(
+        self,
+        agent_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        limit: int = 1000,
+        order: str = "asc",
+    ) -> List[AuditEvent]:
+        conditions = []
+        params = []
+        param_idx = 1
+
+        if agent_id:
+            conditions.append(f"agent_id = ${param_idx}")
+            params.append(agent_id)
+            param_idx += 1
+        if event_type:
+            conditions.append(f"event_type = ${param_idx}")
+            params.append(event_type)
+            param_idx += 1
+        if start_time:
+            conditions.append(f"ts >= ${param_idx}")
+            params.append(start_time)
+            param_idx += 1
+        if end_time:
+            conditions.append(f"ts <= ${param_idx}")
+            params.append(end_time)
+            param_idx += 1
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        order_clause = "ASC" if order.lower() == "asc" else "DESC"
+
+        params.append(limit)
+
+        async with self.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT ts, event_id, agent_id, session_id, event_type, confidence, payload, raw_hash
+                FROM audit.events
+                {where_clause}
+                ORDER BY ts {order_clause}
+                LIMIT ${param_idx}
+                """,
+                *params,
+            )
+            return [self._row_to_audit_event(r) for r in rows]
+
+    async def search_audit_events(
+        self,
+        query: str,
+        agent_id: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[AuditEvent]:
+        async with self.acquire() as conn:
+            if agent_id:
+                rows = await conn.fetch(
+                    """
+                    SELECT ts, event_id, agent_id, session_id, event_type, confidence, payload, raw_hash
+                    FROM audit.events
+                    WHERE payload::text ILIKE '%' || $1 || '%' AND agent_id = $2
+                    ORDER BY ts DESC
+                    LIMIT $3
+                    """,
+                    query, agent_id, limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT ts, event_id, agent_id, session_id, event_type, confidence, payload, raw_hash
+                    FROM audit.events
+                    WHERE payload::text ILIKE '%' || $1 || '%'
+                    ORDER BY ts DESC
+                    LIMIT $2
+                    """,
+                    query, limit,
+                )
+            return [self._row_to_audit_event(r) for r in rows]
+
+    def _row_to_audit_event(self, row) -> AuditEvent:
+        return AuditEvent(
+            ts=row["ts"],
+            event_id=str(row["event_id"]),
+            event_type=row["event_type"],
+            agent_id=row["agent_id"],
+            session_id=row["session_id"],
+            confidence=row["confidence"],
+            payload=json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"],
+            raw_hash=row["raw_hash"],
+        )
