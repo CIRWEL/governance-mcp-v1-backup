@@ -962,11 +962,12 @@ def _build_onboard_response(
     elif is_new:
         welcome = f"Welcome! Your session ID is `{stable_session_id}`. Pass this as `client_session_id` in all calls."
         welcome_message = "This system monitors your work like a health monitor tracks your heart. It helps you stay on track, avoid getting stuck, and work more effectively. Your identity is created—use the templates below to get started."
+    elif _was_archived:
+        welcome = f"Reactivated '{friendly_name}'. Session: `{stable_session_id}`."
+        welcome_message = f"Your agent was archived and has been reactivated with the same identity. Pass `client_session_id: \"{stable_session_id}\"` in all tool calls for attribution."
     else:
         welcome = f"New instance. Continuing trajectory '{friendly_name}'. Session: `{stable_session_id}`."
         welcome_message = f"An existing trajectory was found. You are a new instance, not a continuation of a previous conversation. Pass `client_session_id: \"{stable_session_id}\"` in all tool calls for attribution."
-        if _was_archived:
-            welcome_message += " (Note: your agent was archived and has been reactivated.)"
 
     result = {
         "success": True,
