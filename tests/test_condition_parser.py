@@ -12,7 +12,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.mcp_handlers.condition_parser import (
+from src.mcp_handlers.support.condition_parser import (
     ParsedCondition,
     parse_condition,
     _normalize_target,

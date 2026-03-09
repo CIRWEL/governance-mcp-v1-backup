@@ -22,7 +22,7 @@ class TestGenerateAgentId:
 
     def test_model_type_formats_correctly(self):
         """Model type should be capitalized and joined with underscores."""
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
@@ -33,7 +33,7 @@ class TestGenerateAgentId:
 
     def test_model_type_with_version(self):
         """Model type with version should preserve components."""
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
@@ -51,7 +51,7 @@ class TestGenerateAgentId:
 
     def test_model_type_with_dots(self):
         """Dots in model type should be replaced with underscores."""
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
@@ -60,7 +60,7 @@ class TestGenerateAgentId:
 
     def test_client_hint_fallback(self):
         """Without model_type, should use client_hint."""
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
@@ -73,7 +73,7 @@ class TestGenerateAgentId:
 
     def test_mcp_fallback(self):
         """Without model_type or client_hint, should use 'mcp' prefix."""
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
@@ -90,7 +90,7 @@ class TestGenerateAgentId:
 
     def test_model_type_takes_precedence(self):
         """Model type should take precedence over client_hint."""
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
@@ -105,14 +105,14 @@ class TestResolveSessionIdentityAgentId:
     @pytest.mark.asyncio
     async def test_new_agent_gets_model_based_id(self):
         """PATH 3: New agent should get model-based agent_id."""
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         today = datetime.now().strftime("%Y%m%d")
 
         # Mock Redis and DB to force PATH 3 (new agent)
-        with patch('src.mcp_handlers.identity_resolution._get_redis') as mock_redis, \
-             patch('src.mcp_handlers.identity_resolution.get_db') as mock_db, \
-             patch('src.mcp_handlers.identity_resolution._cache_session', new_callable=AsyncMock):
+        with patch('src.mcp_handlers.identity.resolution._get_redis') as mock_redis, \
+             patch('src.mcp_handlers.identity.resolution.get_db') as mock_db, \
+             patch('src.mcp_handlers.identity.resolution._cache_session', new_callable=AsyncMock):
 
             # Redis returns no cached session
             mock_redis.return_value = None
@@ -135,13 +135,13 @@ class TestResolveSessionIdentityAgentId:
     @pytest.mark.asyncio
     async def test_new_agent_without_model_uses_mcp(self):
         """New agent without model_type should get mcp_ prefix."""
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         today = datetime.now().strftime("%Y%m%d")
 
-        with patch('src.mcp_handlers.identity_resolution._get_redis') as mock_redis, \
-             patch('src.mcp_handlers.identity_resolution.get_db') as mock_db, \
-             patch('src.mcp_handlers.identity_resolution._cache_session', new_callable=AsyncMock):
+        with patch('src.mcp_handlers.identity.resolution._get_redis') as mock_redis, \
+             patch('src.mcp_handlers.identity.resolution.get_db') as mock_db, \
+             patch('src.mcp_handlers.identity.resolution._cache_session', new_callable=AsyncMock):
 
             mock_redis.return_value = None
             mock_db_instance = MagicMock()
@@ -167,7 +167,7 @@ class TestOnboardAgentIdResponse:
         # This tests the fix at identity_v2.py:1446-1460
         # where structured_id now uses agent_id from resolve_session_identity
 
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
@@ -185,7 +185,7 @@ class TestEdgeCases:
 
     def test_whitespace_handling(self):
         """Whitespace in model type should be handled."""
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
@@ -195,7 +195,7 @@ class TestEdgeCases:
 
     def test_special_characters(self):
         """Various separators should all work."""
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
@@ -209,7 +209,7 @@ class TestEdgeCases:
 
     def test_empty_model_type(self):
         """Empty string model_type should fallback."""
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 

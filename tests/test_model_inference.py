@@ -24,7 +24,7 @@ sys.path.insert(0, str(project_root))
 
 # Ensure OpenAI attribute exists on the module for patching even when
 # the openai package is not installed (CI environment).
-import src.mcp_handlers.model_inference as _mi
+import src.mcp_handlers.support.model_inference as _mi
 if not hasattr(_mi, 'OpenAI'):
     _mi.OpenAI = None
 
@@ -72,8 +72,8 @@ class TestOpenAIUnavailable:
     @pytest.mark.asyncio
     async def test_returns_error_when_openai_not_available(self):
         """handle_call_model returns error when OPENAI_AVAILABLE is False."""
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", False):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", False):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({"prompt": "test"})
 
         parsed = _parse_text_content(result)
@@ -92,8 +92,8 @@ class TestMissingPrompt:
     @pytest.mark.asyncio
     async def test_returns_error_when_prompt_missing(self):
         """handle_call_model returns error when prompt is not provided."""
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({})
 
         parsed = _parse_text_content(result)
@@ -119,9 +119,9 @@ class TestOllamaRouting:
             content="ollama response", model="llama3:70b"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "privacy": "local",
@@ -140,9 +140,9 @@ class TestOllamaRouting:
             content="default ollama", model="llama3:70b"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
             })
@@ -159,9 +159,9 @@ class TestOllamaRouting:
             content="ollama direct", model="llama3:70b"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance) as mock_openai:
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance) as mock_openai:
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "ollama",
@@ -186,9 +186,9 @@ class TestOllamaRouting:
             model="llama3:70b"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "ollama",
@@ -207,9 +207,9 @@ class TestOllamaRouting:
             model="my-custom-model"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "privacy": "local",
@@ -234,9 +234,9 @@ class TestHuggingFaceRouting:
     @pytest.mark.asyncio
     async def test_hf_provider_requires_token(self):
         """HF provider returns error when no token is set."""
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
              patch.dict("os.environ", {}, clear=True):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "hf",
@@ -257,10 +257,10 @@ class TestHuggingFaceRouting:
         )
 
         env = {"HF_TOKEN": "hf_test_token_123"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance) as mock_openai, \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance) as mock_openai, \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "hf",
@@ -283,10 +283,10 @@ class TestHuggingFaceRouting:
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
         env = {"HF_TOKEN": "hf_test_token"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "hf",
@@ -305,10 +305,10 @@ class TestHuggingFaceRouting:
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
         env = {"HF_TOKEN": "hf_test_token"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "hf",
@@ -326,10 +326,10 @@ class TestHuggingFaceRouting:
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
         env = {"HF_TOKEN": "hf_test_token"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "auto",
@@ -348,10 +348,10 @@ class TestHuggingFaceRouting:
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
         env = {"HF_TOKEN": "hf_test_token"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "hf",
@@ -376,9 +376,9 @@ class TestGeminiRouting:
     @pytest.mark.asyncio
     async def test_gemini_provider_requires_api_key(self):
         """Gemini provider returns error when no API key is set."""
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
              patch.dict("os.environ", {}, clear=True):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "gemini",
@@ -398,10 +398,10 @@ class TestGeminiRouting:
         )
 
         env = {"GOOGLE_AI_API_KEY": "test_google_key"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance) as mock_openai, \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance) as mock_openai, \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "gemini",
@@ -425,10 +425,10 @@ class TestGeminiRouting:
         )
 
         env = {"GOOGLE_AI_API_KEY": "test_google_key"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "auto",
@@ -446,10 +446,10 @@ class TestGeminiRouting:
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
         env = {"GOOGLE_AI_API_KEY": "test_key"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "gemini",
@@ -484,10 +484,10 @@ class TestAutoProviderSelection:
         mock_socket = MagicMock()
         mock_socket.connect_ex.return_value = 0  # Connected successfully
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch("socket.socket", return_value=mock_socket):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "auto",
@@ -511,11 +511,11 @@ class TestAutoProviderSelection:
         mock_socket.connect_ex.return_value = 1  # Connection refused
 
         env = {"GOOGLE_AI_API_KEY": "test_key"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch("socket.socket", return_value=mock_socket), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "auto",
@@ -540,11 +540,11 @@ class TestAutoProviderSelection:
 
         # Only set HF_TOKEN, ensure Google keys are absent
         env = {"HF_TOKEN": "hf_test_token"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch("socket.socket", return_value=mock_socket), \
              patch.dict("os.environ", env, clear=True):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "auto",
@@ -562,10 +562,10 @@ class TestAutoProviderSelection:
         mock_socket = MagicMock()
         mock_socket.connect_ex.return_value = 1  # No Ollama
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
              patch("socket.socket", return_value=mock_socket), \
              patch.dict("os.environ", {}, clear=True):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "auto",
@@ -592,9 +592,9 @@ class TestDefaultProvider:
     @pytest.mark.asyncio
     async def test_default_provider_requires_api_key(self):
         """Default provider returns error when no API key set."""
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
              patch.dict("os.environ", {}, clear=True):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "openai",
@@ -614,10 +614,10 @@ class TestDefaultProvider:
         )
 
         env = {"OPENAI_API_KEY": "sk-test-key"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "openai",
@@ -636,10 +636,10 @@ class TestDefaultProvider:
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
         env = {"OPENAI_API_KEY": "sk-test-key"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Hello",
                 "provider": "openai",
@@ -666,9 +666,9 @@ class TestResponseContent:
             content="The answer is 42", tokens=100, model="gemini-flash"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "What is the meaning of life?",
                 "provider": "ollama",
@@ -692,9 +692,9 @@ class TestResponseContent:
             model="gemini-flash"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -712,9 +712,9 @@ class TestResponseContent:
             model="llama3:70b"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -732,9 +732,9 @@ class TestResponseContent:
             model="gemini-pro"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -752,9 +752,9 @@ class TestResponseContent:
             model="custom-model"
         )
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -773,9 +773,9 @@ class TestResponseContent:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.return_value = mock_response
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -799,9 +799,9 @@ class TestParameterHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -818,9 +818,9 @@ class TestParameterHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -838,9 +838,9 @@ class TestParameterHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -856,9 +856,9 @@ class TestParameterHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "Analyze this code for bugs",
                 "provider": "ollama",
@@ -881,9 +881,9 @@ class TestErrorHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.side_effect = Exception("Request timeout exceeded")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -899,9 +899,9 @@ class TestErrorHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.side_effect = Exception("Rate limit exceeded")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -917,9 +917,9 @@ class TestErrorHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.side_effect = Exception("Model not found: bad-model")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -936,9 +936,9 @@ class TestErrorHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.side_effect = Exception("invalid model specified")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -954,9 +954,9 @@ class TestErrorHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.side_effect = Exception("Something went wrong")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -972,9 +972,9 @@ class TestErrorHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.side_effect = Exception("Something broke")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -990,9 +990,9 @@ class TestErrorHandling:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.side_effect = Exception("Something broke")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -1018,9 +1018,9 @@ class TestRoutingViaDetection:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -1036,10 +1036,10 @@ class TestRoutingViaDetection:
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
         env = {"HF_TOKEN": "test"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "hf",
@@ -1056,10 +1056,10 @@ class TestRoutingViaDetection:
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
         env = {"GOOGLE_AI_API_KEY": "test"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "gemini",
@@ -1076,10 +1076,10 @@ class TestRoutingViaDetection:
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
         env = {"OPENAI_API_KEY": "sk-test"}
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch.dict("os.environ", env, clear=False):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "openai",
@@ -1107,10 +1107,10 @@ class TestEnergyTracking:
         mock_mcp_server = MagicMock()
         mock_mcp_server.get_or_create_monitor.return_value = mock_monitor
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -1129,10 +1129,10 @@ class TestEnergyTracking:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
              patch("src.mcp_handlers.shared.get_mcp_server", side_effect=Exception("server not ready")):
-            from src.mcp_handlers.model_inference import handle_call_model
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -1149,9 +1149,9 @@ class TestEnergyTracking:
         mock_client_instance = MagicMock()
         mock_client_instance.chat.completions.create.return_value = _make_mock_response()
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", return_value=mock_client_instance):
-            from src.mcp_handlers.model_inference import handle_call_model
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",

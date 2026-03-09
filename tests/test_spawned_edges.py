@@ -65,8 +65,8 @@ class TestSpawnedEdgeBgTask:
         mock_db = MagicMock()
         mock_db.graph_query = AsyncMock(return_value=[])
 
-        with patch("src.mcp_handlers.identity_v2.get_db", return_value=mock_db):
-            from src.mcp_handlers.identity_v2 import _create_spawned_edge_bg
+        with patch("src.mcp_handlers.identity.handlers.get_db", return_value=mock_db):
+            from src.mcp_handlers.identity.handlers import _create_spawned_edge_bg
             await _create_spawned_edge_bg("child-1", "parent-1", "test_reason")
 
         assert mock_db.graph_query.call_count == 3
@@ -77,8 +77,8 @@ class TestSpawnedEdgeBgTask:
         mock_db = MagicMock()
         mock_db.graph_query = AsyncMock(side_effect=Exception("DB unavailable"))
 
-        with patch("src.mcp_handlers.identity_v2.get_db", return_value=mock_db):
-            from src.mcp_handlers.identity_v2 import _create_spawned_edge_bg
+        with patch("src.mcp_handlers.identity.handlers.get_db", return_value=mock_db):
+            from src.mcp_handlers.identity.handlers import _create_spawned_edge_bg
             # Should not raise
             await _create_spawned_edge_bg("child-1", "parent-1", None)
 
@@ -88,8 +88,8 @@ class TestSpawnedEdgeBgTask:
         mock_db = MagicMock()
         mock_db.graph_query = AsyncMock(return_value=[])
 
-        with patch("src.mcp_handlers.identity_v2.get_db", return_value=mock_db):
-            from src.mcp_handlers.identity_v2 import _create_spawned_edge_bg
+        with patch("src.mcp_handlers.identity.handlers.get_db", return_value=mock_db):
+            from src.mcp_handlers.identity.handlers import _create_spawned_edge_bg
             await _create_spawned_edge_bg("child-1", "parent-1", None)
 
         # Still creates 2 nodes + 1 edge

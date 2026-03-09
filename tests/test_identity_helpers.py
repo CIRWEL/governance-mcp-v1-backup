@@ -13,7 +13,7 @@ from unittest.mock import patch
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.mcp_handlers.identity_v2 import (
+from src.mcp_handlers.identity.handlers import (
     _generate_agent_id,
     _get_date_context,
     derive_session_key,

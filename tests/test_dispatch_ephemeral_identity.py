@@ -40,8 +40,8 @@ def _identity_patches(identity_result, mock_db):
     """
     return [
         patch("src.mcp_handlers.context.get_session_signals", return_value=None),
-        patch("src.mcp_handlers.identity_v2.derive_session_key", new_callable=AsyncMock, return_value="test-session"),
-        patch("src.mcp_handlers.identity_v2.resolve_session_identity", new_callable=AsyncMock, return_value=identity_result),
+        patch("src.mcp_handlers.identity.handlers.derive_session_key", new_callable=AsyncMock, return_value="test-session"),
+        patch("src.mcp_handlers.identity.handlers.resolve_session_identity", new_callable=AsyncMock, return_value=identity_result),
         patch("src.mcp_handlers.context.set_session_context", return_value=MagicMock()),
         patch("src.db.get_db", return_value=mock_db),
     ]

@@ -12,7 +12,7 @@ from unittest.mock import patch
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.mcp_handlers.naming_helpers import (
+from src.mcp_handlers.support.naming_helpers import (
     detect_interface_context,
     generate_name_suggestions,
     generate_structured_id,

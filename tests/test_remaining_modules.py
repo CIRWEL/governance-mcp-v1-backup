@@ -20,7 +20,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # 1. condition_parser  (68 % -> higher)
 # ---------------------------------------------------------------------------
-from src.mcp_handlers.condition_parser import (
+from src.mcp_handlers.support.condition_parser import (
     ParsedCondition,
     parse_condition,
     _normalize_target,
@@ -408,39 +408,39 @@ class TestMakeJsonSerializable:
 
 class TestErrorResponse:
     def test_basic_error(self):
-        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.support.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Something went wrong")
         data = json.loads(tc.text)
         assert data["success"] is False
         assert "Something went wrong" in data["error"]
 
     def test_with_error_code(self):
-        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.support.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Not found", error_code="NOT_FOUND", error_category="validation_error")
         data = json.loads(tc.text)
         assert data["error_code"] == "NOT_FOUND"
         assert data["error_category"] == "validation_error"
 
     def test_auto_inferred_code(self):
-        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.support.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Agent not found")
         data = json.loads(tc.text)
         assert data.get("error_code") == "NOT_FOUND"
 
     def test_with_recovery(self):
-        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.support.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Bad", recovery={"action": "retry"})
         data = json.loads(tc.text)
         assert data["recovery"]["action"] == "retry"
 
     def test_with_details(self):
-        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.support.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Bad", details={"agent_id": "a1"})
         data = json.loads(tc.text)
         assert data["agent_id"] == "a1"
 
     def test_with_context(self):
-        with patch("src.mcp_handlers.agent_auth.compute_agent_signature", return_value={"uuid": None}):
+        with patch("src.mcp_handlers.support.agent_auth.compute_agent_signature", return_value={"uuid": None}):
             tc = error_response("Bad", context={"tool": "test"})
         data = json.loads(tc.text)
         assert data["context"]["tool"] == "test"
@@ -556,7 +556,7 @@ class TestGenerateActionableFeedback:
 # ---------------------------------------------------------------------------
 # 5. llm_delegation  (12 % -> higher)
 # ---------------------------------------------------------------------------
-from src.mcp_handlers.llm_delegation import (
+from src.mcp_handlers.support.llm_delegation import (
     _get_default_model,
     call_local_llm,
     synthesize_results,
@@ -582,14 +582,14 @@ class TestGetDefaultModel:
 class TestCallLocalLLM:
     @pytest.mark.asyncio
     async def test_returns_none_when_openai_unavailable(self):
-        with patch("src.mcp_handlers.llm_delegation.OPENAI_AVAILABLE", False):
+        with patch("src.mcp_handlers.support.llm_delegation.OPENAI_AVAILABLE", False):
             result = await call_local_llm("test prompt")
             assert result is None
 
     @pytest.mark.asyncio
     async def test_returns_none_when_client_unavailable(self):
-        with patch("src.mcp_handlers.llm_delegation.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.llm_delegation._get_ollama_client", return_value=None):
+        with patch("src.mcp_handlers.support.llm_delegation.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.llm_delegation._get_ollama_client", return_value=None):
             result = await call_local_llm("test prompt")
             assert result is None
 
@@ -600,8 +600,8 @@ class TestCallLocalLLM:
         mock_response.choices = [MagicMock(message=MagicMock(content="test response"))]
         mock_client.chat.completions.create.return_value = mock_response
 
-        with patch("src.mcp_handlers.llm_delegation.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.llm_delegation._get_ollama_client", return_value=mock_client):
+        with patch("src.mcp_handlers.support.llm_delegation.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.llm_delegation._get_ollama_client", return_value=mock_client):
             result = await call_local_llm("test prompt", model="test-model")
             assert result == "test response"
 
@@ -614,8 +614,8 @@ class TestCallLocalLLM:
 
         mock_client.chat.completions.create.side_effect = slow_call
 
-        with patch("src.mcp_handlers.llm_delegation.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.llm_delegation._get_ollama_client", return_value=mock_client):
+        with patch("src.mcp_handlers.support.llm_delegation.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.llm_delegation._get_ollama_client", return_value=mock_client):
             result = await call_local_llm("test", timeout=0.01)
             assert result is None
 
@@ -624,8 +624,8 @@ class TestCallLocalLLM:
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = RuntimeError("boom")
 
-        with patch("src.mcp_handlers.llm_delegation.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.llm_delegation._get_ollama_client", return_value=mock_client):
+        with patch("src.mcp_handlers.support.llm_delegation.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.llm_delegation._get_ollama_client", return_value=mock_client):
             result = await call_local_llm("test")
             assert result is None
 
@@ -642,7 +642,7 @@ class TestSynthesizeResults:
             {"summary": "Found error pattern A", "type": "insight"},
             {"summary": "Found error pattern B", "type": "anomaly"},
         ]
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="Key insight: patterns A and B are related"):
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="Key insight: patterns A and B are related"):
             result = await synthesize_results(discoveries, query="errors")
             assert result is not None
             assert result["text"] == "Key insight: patterns A and B are related"
@@ -651,7 +651,7 @@ class TestSynthesizeResults:
 
     @pytest.mark.asyncio
     async def test_llm_unavailable_returns_none(self):
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=None):
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=None):
             result = await synthesize_results([{"summary": "test", "type": "t"}])
             assert result is None
 
@@ -659,13 +659,13 @@ class TestSynthesizeResults:
 class TestExplainAnomaly:
     @pytest.mark.asyncio
     async def test_successful_explanation(self):
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="Root cause: X"):
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="Root cause: X"):
             result = await explain_anomaly("agent-1", "risk_spike", "Risk spiked to 0.9")
             assert result == "Root cause: X"
 
     @pytest.mark.asyncio
     async def test_with_metrics(self):
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="ok") as mock_call:
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="ok") as mock_call:
             await explain_anomaly("agent-1", "risk_spike", "desc", metrics={"E": 0.8})
             prompt = mock_call.call_args[1]["prompt"]
             assert "E" in prompt
@@ -674,14 +674,14 @@ class TestExplainAnomaly:
 class TestGenerateRecoveryCoaching:
     @pytest.mark.asyncio
     async def test_basic_coaching(self):
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="Focus on X"):
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="Focus on X"):
             result = await generate_recovery_coaching("agent-1", ["blocker A", "blocker B"])
             assert result == "Focus on X"
 
     @pytest.mark.asyncio
     async def test_with_state(self):
         state = {"eisv": {"E": 0.8, "I": 0.7, "S": 0.1, "V": 0.0}}
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="ok") as mock_call:
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="ok") as mock_call:
             await generate_recovery_coaching("agent-1", ["b1"], current_state=state)
             prompt = mock_call.call_args[1]["prompt"]
             assert "EISV" in prompt
@@ -700,7 +700,7 @@ class TestGenerateAntithesis:
             "proposed_conditions": ["Reduce complexity to 0.3"],
             "reasoning": "I believe..."
         }
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=llm_response):
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=llm_response):
             result = await generate_antithesis(thesis)
             assert result is not None
             assert result["source"] == "llm_synthetic_reviewer"
@@ -710,13 +710,13 @@ class TestGenerateAntithesis:
 
     @pytest.mark.asyncio
     async def test_llm_unavailable(self):
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=None):
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=None):
             result = await generate_antithesis({"root_cause": "x"})
             assert result is None
 
     @pytest.mark.asyncio
     async def test_with_agent_state(self):
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="CONCERNS: none") as mock_call:
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value="CONCERNS: none") as mock_call:
             await generate_antithesis(
                 {"root_cause": "x", "proposed_conditions": [], "reasoning": "r"},
                 agent_state={"risk_score": 0.8, "coherence": 0.3}
@@ -736,7 +736,7 @@ class TestGenerateSynthesis:
         )
         thesis = {"root_cause": "x", "proposed_conditions": ["c1"], "reasoning": "r"}
         antithesis = {"concerns": "c", "counter_reasoning": "cr", "suggested_conditions": "sc"}
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=llm_response):
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=llm_response):
             result = await generate_synthesis(thesis, antithesis, synthesis_round=1)
             assert result is not None
             assert result["recommendation"] == "RESUME"
@@ -745,14 +745,14 @@ class TestGenerateSynthesis:
     @pytest.mark.asyncio
     async def test_cooldown_recommendation(self):
         llm_response = "RECOMMENDATION: COOLDOWN\nREASONING: needs time"
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=llm_response):
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=llm_response):
             result = await generate_synthesis({}, {})
             assert result["recommendation"] == "COOLDOWN"
 
     @pytest.mark.asyncio
     async def test_escalate_recommendation(self):
         llm_response = "RECOMMENDATION: ESCALATE\nREASONING: needs human"
-        with patch("src.mcp_handlers.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=llm_response):
+        with patch("src.mcp_handlers.support.llm_delegation.call_local_llm", new_callable=AsyncMock, return_value=llm_response):
             result = await generate_synthesis({}, {})
             assert result["recommendation"] == "ESCALATE"
 
@@ -762,23 +762,23 @@ class TestRunFullDialectic:
     async def test_successful_full_dialectic(self):
         antithesis = {"concerns": "x", "source": "llm_synthetic_reviewer"}
         synthesis = {"recommendation": "RESUME", "source": "llm_synthesis"}
-        with patch("src.mcp_handlers.llm_delegation.generate_antithesis", new_callable=AsyncMock, return_value=antithesis), \
-             patch("src.mcp_handlers.llm_delegation.generate_synthesis", new_callable=AsyncMock, return_value=synthesis):
+        with patch("src.mcp_handlers.support.llm_delegation.generate_antithesis", new_callable=AsyncMock, return_value=antithesis), \
+             patch("src.mcp_handlers.support.llm_delegation.generate_synthesis", new_callable=AsyncMock, return_value=synthesis):
             result = await run_full_dialectic({"root_cause": "x", "proposed_conditions": ["c"]})
             assert result["success"] is True
             assert result["recommendation"] == "RESUME"
 
     @pytest.mark.asyncio
     async def test_antithesis_fails(self):
-        with patch("src.mcp_handlers.llm_delegation.generate_antithesis", new_callable=AsyncMock, return_value=None):
+        with patch("src.mcp_handlers.support.llm_delegation.generate_antithesis", new_callable=AsyncMock, return_value=None):
             result = await run_full_dialectic({"root_cause": "x"})
             assert result["success"] is False
             assert "antithesis" in result["error"]
 
     @pytest.mark.asyncio
     async def test_synthesis_fails(self):
-        with patch("src.mcp_handlers.llm_delegation.generate_antithesis", new_callable=AsyncMock, return_value={"concerns": "x"}), \
-             patch("src.mcp_handlers.llm_delegation.generate_synthesis", new_callable=AsyncMock, return_value=None):
+        with patch("src.mcp_handlers.support.llm_delegation.generate_antithesis", new_callable=AsyncMock, return_value={"concerns": "x"}), \
+             patch("src.mcp_handlers.support.llm_delegation.generate_synthesis", new_callable=AsyncMock, return_value=None):
             result = await run_full_dialectic({"root_cause": "x"})
             assert result["success"] is False
             assert "synthesis" in result["error"]
@@ -787,42 +787,42 @@ class TestRunFullDialectic:
 class TestIsLLMAvailable:
     @pytest.mark.asyncio
     async def test_not_available_no_sdk(self):
-        with patch("src.mcp_handlers.llm_delegation.OPENAI_AVAILABLE", False):
+        with patch("src.mcp_handlers.support.llm_delegation.OPENAI_AVAILABLE", False):
             assert await is_llm_available() is False
 
     @pytest.mark.asyncio
     async def test_not_available_no_client(self):
-        with patch("src.mcp_handlers.llm_delegation.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.llm_delegation._get_ollama_client", return_value=None):
+        with patch("src.mcp_handlers.support.llm_delegation.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.llm_delegation._get_ollama_client", return_value=None):
             assert await is_llm_available() is False
 
     @pytest.mark.asyncio
     async def test_available(self):
         mock_client = MagicMock()
         mock_client.models.list.return_value = []
-        with patch("src.mcp_handlers.llm_delegation.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.llm_delegation._get_ollama_client", return_value=mock_client):
+        with patch("src.mcp_handlers.support.llm_delegation.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.llm_delegation._get_ollama_client", return_value=mock_client):
             assert await is_llm_available() is True
 
     @pytest.mark.asyncio
     async def test_ping_fails(self):
         mock_client = MagicMock()
         mock_client.models.list.side_effect = RuntimeError("down")
-        with patch("src.mcp_handlers.llm_delegation.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.llm_delegation._get_ollama_client", return_value=mock_client):
+        with patch("src.mcp_handlers.support.llm_delegation.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.llm_delegation._get_ollama_client", return_value=mock_client):
             assert await is_llm_available() is False
 
 
 # ---------------------------------------------------------------------------
 # 6. model_inference  (8 % -> higher)
 # ---------------------------------------------------------------------------
-from src.mcp_handlers.model_inference import handle_call_model
+from src.mcp_handlers.support.model_inference import handle_call_model
 
 
 class TestHandleCallModel:
     @pytest.mark.asyncio
     async def test_missing_openai_sdk(self):
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", False):
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", False):
             result = await handle_call_model({"prompt": "test"})
             assert isinstance(result, list)
             data = json.loads(result[0].text)
@@ -831,7 +831,7 @@ class TestHandleCallModel:
 
     @pytest.mark.asyncio
     async def test_missing_prompt(self):
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True):
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True):
             result = await handle_call_model({})
             assert isinstance(result, list)
             data = json.loads(result[0].text)
@@ -848,8 +848,8 @@ class TestHandleCallModel:
         mock_client.chat.completions.create.return_value = mock_response
         mock_client_cls.return_value = mock_client
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", mock_client_cls, create=True):
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", mock_client_cls, create=True):
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -864,7 +864,7 @@ class TestHandleCallModel:
             k: v for k, v in os.environ.items()
             if k not in ("HF_TOKEN", "HUGGINGFACE_TOKEN")
         }
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
              patch.dict(os.environ, env_clean, clear=True):
             result = await handle_call_model({
                 "prompt": "test",
@@ -880,7 +880,7 @@ class TestHandleCallModel:
             k: v for k, v in os.environ.items()
             if k not in ("GOOGLE_AI_API_KEY", "NGROK_API_KEY")
         }
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
              patch.dict(os.environ, env_clean, clear=True):
             result = await handle_call_model({
                 "prompt": "test",
@@ -895,8 +895,8 @@ class TestHandleCallModel:
         mock_client_cls = MagicMock()
         mock_client_cls.return_value.chat.completions.create.side_effect = RuntimeError("timeout error")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", mock_client_cls, create=True):
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", mock_client_cls, create=True):
             result = await handle_call_model({
                 "prompt": "test",
                 "provider": "ollama",
@@ -910,8 +910,8 @@ class TestHandleCallModel:
         mock_client_cls = MagicMock()
         mock_client_cls.return_value.chat.completions.create.side_effect = RuntimeError("rate limit exceeded")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", mock_client_cls, create=True):
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", mock_client_cls, create=True):
             result = await handle_call_model({"prompt": "t", "provider": "ollama"})
             data = json.loads(result[0].text)
             assert data["error_code"] == "RATE_LIMIT_EXCEEDED"
@@ -921,8 +921,8 @@ class TestHandleCallModel:
         mock_client_cls = MagicMock()
         mock_client_cls.return_value.chat.completions.create.side_effect = RuntimeError("model not found")
 
-        with patch("src.mcp_handlers.model_inference.OPENAI_AVAILABLE", True), \
-             patch("src.mcp_handlers.model_inference.OpenAI", mock_client_cls, create=True):
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", mock_client_cls, create=True):
             result = await handle_call_model({"prompt": "t", "provider": "ollama"})
             data = json.loads(result[0].text)
             assert data["error_code"] == "MODEL_NOT_AVAILABLE"
@@ -931,7 +931,7 @@ class TestHandleCallModel:
 # ---------------------------------------------------------------------------
 # 7. dialectic_reviewer  (10 % -> higher)
 # ---------------------------------------------------------------------------
-from src.mcp_handlers.dialectic_reviewer import (
+from src.mcp_handlers.dialectic.reviewer import (
     _has_recently_reviewed,
     is_agent_in_active_session,
     select_reviewer,
@@ -941,21 +941,21 @@ from src.mcp_handlers.dialectic_reviewer import (
 class TestHasRecentlyReviewed:
     @pytest.mark.asyncio
     async def test_pg_returns_false(self):
-        with patch("src.mcp_handlers.dialectic_reviewer.pg_has_recently_reviewed",
+        with patch("src.mcp_handlers.dialectic.reviewer.pg_has_recently_reviewed",
                     new_callable=AsyncMock, return_value=False):
             assert await _has_recently_reviewed("r1", "p1") is False
 
     @pytest.mark.asyncio
     async def test_pg_returns_true(self):
-        with patch("src.mcp_handlers.dialectic_reviewer.pg_has_recently_reviewed",
+        with patch("src.mcp_handlers.dialectic.reviewer.pg_has_recently_reviewed",
                     new_callable=AsyncMock, return_value=True):
             assert await _has_recently_reviewed("r1", "p1") is True
 
     @pytest.mark.asyncio
     async def test_pg_fails_fallback_disk(self):
-        with patch("src.mcp_handlers.dialectic_reviewer.pg_has_recently_reviewed",
+        with patch("src.mcp_handlers.dialectic.reviewer.pg_has_recently_reviewed",
                     new_callable=AsyncMock, side_effect=RuntimeError("db down")), \
-             patch("src.mcp_handlers.dialectic_reviewer.SESSION_STORAGE_DIR",
+             patch("src.mcp_handlers.dialectic.reviewer.SESSION_STORAGE_DIR",
                     Path("/tmp/nonexistent_dir_test_xyz")):
             result = await _has_recently_reviewed("r1", "p1")
             assert result is False
@@ -964,20 +964,20 @@ class TestHasRecentlyReviewed:
 class TestIsAgentInActiveSession:
     @pytest.mark.asyncio
     async def test_pg_says_true(self):
-        with patch("src.mcp_handlers.dialectic_reviewer.pg_is_agent_in_active_session",
+        with patch("src.mcp_handlers.dialectic.reviewer.pg_is_agent_in_active_session",
                     new_callable=AsyncMock, return_value=True), \
-             patch("src.mcp_handlers.dialectic_auto_resolve.check_and_resolve_stuck_sessions",
+             patch("src.mcp_handlers.dialectic.auto_resolve.check_and_resolve_stuck_sessions",
                     new_callable=AsyncMock, return_value={"resolved_count": 0}):
             result = await is_agent_in_active_session("agent-1")
             assert result is True
 
     @pytest.mark.asyncio
     async def test_pg_says_false(self):
-        with patch("src.mcp_handlers.dialectic_reviewer.pg_is_agent_in_active_session",
+        with patch("src.mcp_handlers.dialectic.reviewer.pg_is_agent_in_active_session",
                     new_callable=AsyncMock, return_value=False), \
-             patch("src.mcp_handlers.dialectic_auto_resolve.check_and_resolve_stuck_sessions",
+             patch("src.mcp_handlers.dialectic.auto_resolve.check_and_resolve_stuck_sessions",
                     new_callable=AsyncMock, return_value={"resolved_count": 0}), \
-             patch("src.mcp_handlers.dialectic_reviewer.ACTIVE_SESSIONS", {}):
+             patch("src.mcp_handlers.dialectic.reviewer.ACTIVE_SESSIONS", {}):
             result = await is_agent_in_active_session("agent-1")
             assert result is False
 
@@ -999,9 +999,9 @@ class TestSelectReviewer:
             "agent-1": {"status": "active"},
             "agent-2": {"status": "active"},
         }
-        with patch("src.mcp_handlers.dialectic_reviewer.is_agent_in_active_session",
+        with patch("src.mcp_handlers.dialectic.reviewer.is_agent_in_active_session",
                     new_callable=AsyncMock, return_value=False), \
-             patch("src.mcp_handlers.dialectic_reviewer._has_recently_reviewed",
+             patch("src.mcp_handlers.dialectic.reviewer._has_recently_reviewed",
                     new_callable=AsyncMock, return_value=False):
             result = await select_reviewer("agent-1", metadata=metadata)
             assert result == "agent-2"
@@ -1013,9 +1013,9 @@ class TestSelectReviewer:
             "agent-2": {"status": "active"},
             "agent-3": {"status": "active"},
         }
-        with patch("src.mcp_handlers.dialectic_reviewer.is_agent_in_active_session",
+        with patch("src.mcp_handlers.dialectic.reviewer.is_agent_in_active_session",
                     new_callable=AsyncMock, return_value=False), \
-             patch("src.mcp_handlers.dialectic_reviewer._has_recently_reviewed",
+             patch("src.mcp_handlers.dialectic.reviewer._has_recently_reviewed",
                     new_callable=AsyncMock, return_value=False):
             result = await select_reviewer("agent-1", metadata=metadata,
                                            exclude_agent_ids=["agent-2"])
@@ -1027,9 +1027,9 @@ class TestSelectReviewer:
             "agent-1": {"status": "active"},
             "agent-2": {"status": "archived"},
         }
-        with patch("src.mcp_handlers.dialectic_reviewer.is_agent_in_active_session",
+        with patch("src.mcp_handlers.dialectic.reviewer.is_agent_in_active_session",
                     new_callable=AsyncMock, return_value=False), \
-             patch("src.mcp_handlers.dialectic_reviewer._has_recently_reviewed",
+             patch("src.mcp_handlers.dialectic.reviewer._has_recently_reviewed",
                     new_callable=AsyncMock, return_value=False):
             result = await select_reviewer("agent-1", metadata=metadata)
             assert result is None
@@ -1040,9 +1040,9 @@ class TestSelectReviewer:
             "agent-1": {"status": "active"},
             "agent-2": "invalid-string",
         }
-        with patch("src.mcp_handlers.dialectic_reviewer.is_agent_in_active_session",
+        with patch("src.mcp_handlers.dialectic.reviewer.is_agent_in_active_session",
                     new_callable=AsyncMock, return_value=False), \
-             patch("src.mcp_handlers.dialectic_reviewer._has_recently_reviewed",
+             patch("src.mcp_handlers.dialectic.reviewer._has_recently_reviewed",
                     new_callable=AsyncMock, return_value=False):
             result = await select_reviewer("agent-1", metadata=metadata)
             assert result is None
@@ -1053,9 +1053,9 @@ class TestSelectReviewer:
             "agent-1": {"status": "active"},
             "agent-2": {"status": "active"},
         }
-        with patch("src.mcp_handlers.dialectic_reviewer.is_agent_in_active_session",
+        with patch("src.mcp_handlers.dialectic.reviewer.is_agent_in_active_session",
                     new_callable=AsyncMock, return_value=True), \
-             patch("src.mcp_handlers.dialectic_reviewer._has_recently_reviewed",
+             patch("src.mcp_handlers.dialectic.reviewer._has_recently_reviewed",
                     new_callable=AsyncMock, return_value=False):
             result = await select_reviewer("agent-1", metadata=metadata)
             assert result is None
@@ -1064,7 +1064,7 @@ class TestSelectReviewer:
 # ---------------------------------------------------------------------------
 # 8. dialectic_calibration  (45 % -> higher)
 # ---------------------------------------------------------------------------
-from src.mcp_handlers.dialectic_calibration import (
+from src.mcp_handlers.dialectic.calibration import (
     update_calibration_from_dialectic,
     update_calibration_from_dialectic_disagreement,
     backfill_calibration_from_historical_sessions,
@@ -1108,9 +1108,9 @@ class TestUpdateCalibrationFromDialectic:
         mock_server = MagicMock()
         mock_checker = MagicMock()
 
-        with patch("src.mcp_handlers.dialectic_calibration.mcp_server", mock_server), \
-             patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit, \
-             patch("src.mcp_handlers.dialectic_calibration.calibration_checker", mock_checker):
+        with patch("src.mcp_handlers.dialectic.calibration.mcp_server", mock_server), \
+             patch("src.mcp_handlers.dialectic.calibration.audit_logger") as mock_audit, \
+             patch("src.mcp_handlers.dialectic.calibration.calibration_checker", mock_checker):
             mock_audit.query_audit_log.return_value = audit_entries
             result = await update_calibration_from_dialectic(session, resolution=resolution)
             assert result is True
@@ -1122,8 +1122,8 @@ class TestUpdateCalibrationFromDialectic:
         resolution = MagicMock(action="resume")
 
         mock_server = MagicMock()
-        with patch("src.mcp_handlers.dialectic_calibration.mcp_server", mock_server), \
-             patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit:
+        with patch("src.mcp_handlers.dialectic.calibration.mcp_server", mock_server), \
+             patch("src.mcp_handlers.dialectic.calibration.audit_logger") as mock_audit:
             mock_audit.query_audit_log.return_value = []
             result = await update_calibration_from_dialectic(session, resolution=resolution)
             assert result is False
@@ -1147,8 +1147,8 @@ class TestUpdateCalibrationFromDisagreement:
     async def test_no_confidence(self):
         session = _make_mock_session(dispute_type="verification", discovery_id="d1")
         mock_server = MagicMock()
-        with patch("src.mcp_handlers.dialectic_calibration.mcp_server", mock_server), \
-             patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit:
+        with patch("src.mcp_handlers.dialectic.calibration.mcp_server", mock_server), \
+             patch("src.mcp_handlers.dialectic.calibration.audit_logger") as mock_audit:
             mock_audit.query_audit_log.return_value = []
             assert await update_calibration_from_dialectic_disagreement(session) is False
 
@@ -1157,8 +1157,8 @@ class TestUpdateCalibrationFromDisagreement:
         session = _make_mock_session(dispute_type="verification", discovery_id="d1")
         entries = [{"discovery_id": "d1", "confidence": 0.9, "complexity_discrepancy": 0.2}]
         mock_server = MagicMock()
-        with patch("src.mcp_handlers.dialectic_calibration.mcp_server", mock_server), \
-             patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit:
+        with patch("src.mcp_handlers.dialectic.calibration.mcp_server", mock_server), \
+             patch("src.mcp_handlers.dialectic.calibration.audit_logger") as mock_audit:
             mock_audit.query_audit_log.return_value = entries
             result = await update_calibration_from_dialectic_disagreement(session)
             assert result is True
@@ -1170,8 +1170,8 @@ class TestUpdateCalibrationFromDisagreement:
         session.created_at = now
         entries = [{"timestamp": now.isoformat(), "confidence": 0.8, "complexity_discrepancy": 0.1}]
         mock_server = MagicMock()
-        with patch("src.mcp_handlers.dialectic_calibration.mcp_server", mock_server), \
-             patch("src.mcp_handlers.dialectic_calibration.audit_logger") as mock_audit:
+        with patch("src.mcp_handlers.dialectic.calibration.mcp_server", mock_server), \
+             patch("src.mcp_handlers.dialectic.calibration.audit_logger") as mock_audit:
             mock_audit.query_audit_log.return_value = entries
             result = await update_calibration_from_dialectic_disagreement(session)
             assert result is True
@@ -1187,7 +1187,7 @@ class TestUpdateCalibrationFromDisagreement:
 class TestBackfillCalibration:
     @pytest.mark.asyncio
     async def test_no_session_files(self):
-        with patch("src.mcp_handlers.dialectic_calibration.SESSION_STORAGE_DIR", Path("/tmp/empty_test_dir_xyz")):
+        with patch("src.mcp_handlers.dialectic.calibration.SESSION_STORAGE_DIR", Path("/tmp/empty_test_dir_xyz")):
             result = await backfill_calibration_from_historical_sessions()
             assert result["processed"] == 0
 
@@ -1201,9 +1201,9 @@ class TestBackfillCalibration:
         mock_session = _make_mock_session(dispute_type="verification", phase="resolved")
         mock_session.resolution = MagicMock(action="resume")
 
-        with patch("src.mcp_handlers.dialectic_calibration.SESSION_STORAGE_DIR", session_dir), \
-             patch("src.mcp_handlers.dialectic_calibration.load_session", new_callable=AsyncMock, return_value=mock_session), \
-             patch("src.mcp_handlers.dialectic_calibration.update_calibration_from_dialectic", new_callable=AsyncMock, return_value=True):
+        with patch("src.mcp_handlers.dialectic.calibration.SESSION_STORAGE_DIR", session_dir), \
+             patch("src.mcp_handlers.dialectic.calibration.load_session", new_callable=AsyncMock, return_value=mock_session), \
+             patch("src.mcp_handlers.dialectic.calibration.update_calibration_from_dialectic", new_callable=AsyncMock, return_value=True):
             result = await backfill_calibration_from_historical_sessions()
             assert result["processed"] >= 1
             assert result["updated"] >= 1
@@ -1212,7 +1212,7 @@ class TestBackfillCalibration:
 # ---------------------------------------------------------------------------
 # 9. dialectic_resolution  (12 % -> higher)
 # ---------------------------------------------------------------------------
-from src.mcp_handlers.dialectic_resolution import execute_resolution
+from src.mcp_handlers.dialectic.resolution import execute_resolution
 
 
 @dataclass
@@ -1249,9 +1249,9 @@ class TestExecuteResolution:
     @pytest.mark.asyncio
     async def test_successful_resolution(self):
         session, resolution, mock_server = self._make_session_and_resolution()
-        with patch("src.mcp_handlers.dialectic_resolution.mcp_server", mock_server), \
-             patch("src.mcp_handlers.dialectic_resolution.parse_condition") as mock_parse, \
-             patch("src.mcp_handlers.dialectic_resolution.apply_condition", new_callable=AsyncMock, return_value={"status": "applied"}), \
+        with patch("src.mcp_handlers.dialectic.resolution.mcp_server", mock_server), \
+             patch("src.mcp_handlers.dialectic.resolution.parse_condition") as mock_parse, \
+             patch("src.mcp_handlers.dialectic.resolution.apply_condition", new_callable=AsyncMock, return_value={"status": "applied"}), \
              patch("src.agent_storage.update_agent", new_callable=AsyncMock, return_value=None):
             mock_parse.return_value = ParsedCondition("set", "complexity", 0.3)
             result = await execute_resolution(session, resolution)
@@ -1262,14 +1262,14 @@ class TestExecuteResolution:
     async def test_agent_not_found(self):
         session, resolution, mock_server = self._make_session_and_resolution()
         mock_server.agent_metadata = {}
-        with patch("src.mcp_handlers.dialectic_resolution.mcp_server", mock_server):
+        with patch("src.mcp_handlers.dialectic.resolution.mcp_server", mock_server):
             with pytest.raises(ValueError, match="not found"):
                 await execute_resolution(session, resolution)
 
     @pytest.mark.asyncio
     async def test_agent_not_paused(self):
         session, resolution, mock_server = self._make_session_and_resolution(status="active")
-        with patch("src.mcp_handlers.dialectic_resolution.mcp_server", mock_server):
+        with patch("src.mcp_handlers.dialectic.resolution.mcp_server", mock_server):
             result = await execute_resolution(session, resolution)
             assert result["success"] is False
             assert "not 'paused'" in result["warning"]
@@ -1277,8 +1277,8 @@ class TestExecuteResolution:
     @pytest.mark.asyncio
     async def test_condition_apply_failure(self):
         session, resolution, mock_server = self._make_session_and_resolution()
-        with patch("src.mcp_handlers.dialectic_resolution.mcp_server", mock_server), \
-             patch("src.mcp_handlers.dialectic_resolution.parse_condition", side_effect=RuntimeError("parse error")), \
+        with patch("src.mcp_handlers.dialectic.resolution.mcp_server", mock_server), \
+             patch("src.mcp_handlers.dialectic.resolution.parse_condition", side_effect=RuntimeError("parse error")), \
              patch("src.agent_storage.update_agent", new_callable=AsyncMock, return_value=None):
             result = await execute_resolution(session, resolution)
             assert result["success"] is True

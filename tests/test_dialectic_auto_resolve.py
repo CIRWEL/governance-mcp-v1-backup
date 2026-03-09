@@ -22,9 +22,9 @@ sys.path.insert(0, str(project_root))
 @pytest.mark.asyncio
 async def test_no_active_sessions():
     """Should return 0 resolved when no active sessions."""
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=[]):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 0
@@ -39,9 +39,9 @@ async def test_no_stuck_sessions():
         {"session_id": "s1", "updated_at": recent_time, "paused_agent_id": "a1", "phase": "thesis"}
     ]
 
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=sessions):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 0
@@ -60,15 +60,15 @@ async def test_resolves_stuck_session():
     mock_add_msg = AsyncMock()
     mock_get_db = AsyncMock()
 
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=sessions), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.update_session_status_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.update_session_status_async",
                mock_update), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.add_message_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.add_message_async",
                mock_add_msg), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.get_dialectic_db",
+         patch("src.mcp_handlers.dialectic.auto_resolve.get_dialectic_db",
                mock_get_db):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 1
@@ -89,15 +89,15 @@ async def test_resolves_multiple_stuck_sessions():
     mock_add_msg = AsyncMock()
     mock_get_db = AsyncMock()
 
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=sessions), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.update_session_status_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.update_session_status_async",
                mock_update), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.add_message_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.add_message_async",
                mock_add_msg), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.get_dialectic_db",
+         patch("src.mcp_handlers.dialectic.auto_resolve.get_dialectic_db",
                mock_get_db):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 3
@@ -116,15 +116,15 @@ async def test_uses_created_at_fallback():
     mock_add_msg = AsyncMock()
     mock_get_db = AsyncMock()
 
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=sessions), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.update_session_status_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.update_session_status_async",
                mock_update), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.add_message_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.add_message_async",
                mock_add_msg), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.get_dialectic_db",
+         patch("src.mcp_handlers.dialectic.auto_resolve.get_dialectic_db",
                mock_get_db):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 1
@@ -142,15 +142,15 @@ async def test_handles_z_suffix_timestamps():
     mock_add_msg = AsyncMock()
     mock_get_db = AsyncMock()
 
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=sessions), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.update_session_status_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.update_session_status_async",
                mock_update), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.add_message_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.add_message_async",
                mock_add_msg), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.get_dialectic_db",
+         patch("src.mcp_handlers.dialectic.auto_resolve.get_dialectic_db",
                mock_get_db):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 1
@@ -168,15 +168,15 @@ async def test_handles_naive_datetime_timestamps():
     mock_add_msg = AsyncMock()
     mock_get_db = AsyncMock()
 
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=sessions), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.update_session_status_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.update_session_status_async",
                mock_update), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.add_message_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.add_message_async",
                mock_add_msg), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.get_dialectic_db",
+         patch("src.mcp_handlers.dialectic.auto_resolve.get_dialectic_db",
                mock_get_db):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 1
@@ -193,15 +193,15 @@ async def test_handles_session_without_id():
     mock_update = AsyncMock()
     mock_get_db = AsyncMock()
 
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=sessions), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.update_session_status_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.update_session_status_async",
                mock_update), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.add_message_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.add_message_async",
                AsyncMock()), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.get_dialectic_db",
+         patch("src.mcp_handlers.dialectic.auto_resolve.get_dialectic_db",
                mock_get_db):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 0
@@ -211,9 +211,9 @@ async def test_handles_session_without_id():
 @pytest.mark.asyncio
 async def test_handles_get_sessions_error():
     """Should handle errors from get_active_sessions_async gracefully."""
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, side_effect=Exception("DB error")):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 0
@@ -233,15 +233,15 @@ async def test_handles_update_error_gracefully():
     mock_update = AsyncMock(side_effect=[Exception("update failed"), None])
     mock_get_db = AsyncMock()
 
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=sessions), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.update_session_status_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.update_session_status_async",
                mock_update), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.add_message_async",
+         patch("src.mcp_handlers.dialectic.auto_resolve.add_message_async",
                AsyncMock()), \
-         patch("src.mcp_handlers.dialectic_auto_resolve.get_dialectic_db",
+         patch("src.mcp_handlers.dialectic.auto_resolve.get_dialectic_db",
                mock_get_db):
-        from src.mcp_handlers.dialectic_auto_resolve import auto_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import auto_resolve_stuck_sessions
         result = await auto_resolve_stuck_sessions()
 
     # Only second should succeed
@@ -254,9 +254,9 @@ async def test_handles_update_error_gracefully():
 @pytest.mark.asyncio
 async def test_check_and_resolve_delegates():
     """check_and_resolve_stuck_sessions should delegate to auto_resolve."""
-    with patch("src.mcp_handlers.dialectic_auto_resolve.get_active_sessions_async",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.get_active_sessions_async",
                new_callable=AsyncMock, return_value=[]):
-        from src.mcp_handlers.dialectic_auto_resolve import check_and_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import check_and_resolve_stuck_sessions
         result = await check_and_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 0
@@ -265,9 +265,9 @@ async def test_check_and_resolve_delegates():
 @pytest.mark.asyncio
 async def test_check_and_resolve_handles_error():
     """check_and_resolve should catch errors from auto_resolve."""
-    with patch("src.mcp_handlers.dialectic_auto_resolve.auto_resolve_stuck_sessions",
+    with patch("src.mcp_handlers.dialectic.auto_resolve.auto_resolve_stuck_sessions",
                new_callable=AsyncMock, side_effect=Exception("unexpected")):
-        from src.mcp_handlers.dialectic_auto_resolve import check_and_resolve_stuck_sessions
+        from src.mcp_handlers.dialectic.auto_resolve import check_and_resolve_stuck_sessions
         result = await check_and_resolve_stuck_sessions()
 
     assert result["resolved_count"] == 0
@@ -279,5 +279,5 @@ async def test_check_and_resolve_handles_error():
 
 def test_stuck_threshold_is_2_hours():
     """Threshold should match DialecticProtocol.MAX_ANTITHESIS_WAIT."""
-    from src.mcp_handlers.dialectic_auto_resolve import STUCK_SESSION_THRESHOLD
+    from src.mcp_handlers.dialectic.auto_resolve import STUCK_SESSION_THRESHOLD
     assert STUCK_SESSION_THRESHOLD == timedelta(hours=2)

@@ -14,7 +14,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from src.mcp_handlers.self_recovery import (
+from src.mcp_handlers.lifecycle.self_recovery import (
     validate_recovery_conditions,
     assess_recovery_safety,
     MAX_RISK_FOR_SELF_RECOVERY,
@@ -206,16 +206,16 @@ class TestHandleSelfRecovery:
 
     @pytest.mark.asyncio
     async def test_unknown_action_returns_error(self):
-        from src.mcp_handlers.self_recovery import handle_self_recovery
+        from src.mcp_handlers.lifecycle.self_recovery import handle_self_recovery
         result = await handle_self_recovery({"action": "invalid_action"})
         text = json.loads(result[0].text)
         assert "error" in text or "Unknown action" in text.get("message", "")
 
     @pytest.mark.asyncio
     async def test_check_dispatches(self):
-        from src.mcp_handlers.self_recovery import handle_self_recovery
+        from src.mcp_handlers.lifecycle.self_recovery import handle_self_recovery
         with patch(
-            "src.mcp_handlers.self_recovery.handle_check_recovery_options",
+            "src.mcp_handlers.lifecycle.self_recovery.handle_check_recovery_options",
             new_callable=AsyncMock,
         ) as mock_check:
             mock_check.return_value = [MagicMock(text='{"status":"ok"}')]
@@ -224,9 +224,9 @@ class TestHandleSelfRecovery:
 
     @pytest.mark.asyncio
     async def test_quick_dispatches(self):
-        from src.mcp_handlers.self_recovery import handle_self_recovery
+        from src.mcp_handlers.lifecycle.self_recovery import handle_self_recovery
         with patch(
-            "src.mcp_handlers.self_recovery.handle_quick_resume",
+            "src.mcp_handlers.lifecycle.self_recovery.handle_quick_resume",
             new_callable=AsyncMock,
         ) as mock_quick:
             mock_quick.return_value = [MagicMock(text='{"status":"ok"}')]
@@ -235,9 +235,9 @@ class TestHandleSelfRecovery:
 
     @pytest.mark.asyncio
     async def test_review_dispatches_to_lifecycle(self):
-        from src.mcp_handlers.self_recovery import handle_self_recovery
+        from src.mcp_handlers.lifecycle.self_recovery import handle_self_recovery
         with patch(
-            "src.mcp_handlers.lifecycle.handle_self_recovery_review",
+            "src.mcp_handlers.lifecycle.handlers.handle_self_recovery_review",
             new_callable=AsyncMock,
         ) as mock_review:
             mock_review.return_value = [MagicMock(text='{"status":"ok"}')]
@@ -246,9 +246,9 @@ class TestHandleSelfRecovery:
 
     @pytest.mark.asyncio
     async def test_default_action_is_check(self):
-        from src.mcp_handlers.self_recovery import handle_self_recovery
+        from src.mcp_handlers.lifecycle.self_recovery import handle_self_recovery
         with patch(
-            "src.mcp_handlers.self_recovery.handle_check_recovery_options",
+            "src.mcp_handlers.lifecycle.self_recovery.handle_check_recovery_options",
             new_callable=AsyncMock,
         ) as mock_check:
             mock_check.return_value = [MagicMock(text='{"status":"ok"}')]
@@ -274,14 +274,14 @@ class TestCheckRecoveryOptions:
 
     @pytest.mark.asyncio
     async def test_eligible_when_safe(self):
-        from src.mcp_handlers.self_recovery import handle_check_recovery_options
+        from src.mcp_handlers.lifecycle.self_recovery import handle_check_recovery_options
         mock_server = self._make_mock_server()
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("test-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ):
             result = await handle_check_recovery_options({"_agent_uuid": "test-uuid"})
@@ -292,14 +292,14 @@ class TestCheckRecoveryOptions:
 
     @pytest.mark.asyncio
     async def test_not_eligible_void_active(self):
-        from src.mcp_handlers.self_recovery import handle_check_recovery_options
+        from src.mcp_handlers.lifecycle.self_recovery import handle_check_recovery_options
         mock_server = self._make_mock_server(void_active=True, void_value=0.9)
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("test-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ):
             result = await handle_check_recovery_options({"_agent_uuid": "test-uuid"})
@@ -310,14 +310,14 @@ class TestCheckRecoveryOptions:
 
     @pytest.mark.asyncio
     async def test_not_eligible_high_risk(self):
-        from src.mcp_handlers.self_recovery import handle_check_recovery_options
+        from src.mcp_handlers.lifecycle.self_recovery import handle_check_recovery_options
         mock_server = self._make_mock_server(risk=0.85)
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("test-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ):
             result = await handle_check_recovery_options({"_agent_uuid": "test-uuid"})
@@ -328,12 +328,12 @@ class TestCheckRecoveryOptions:
 
     @pytest.mark.asyncio
     async def test_unregistered_agent_error(self):
-        from src.mcp_handlers.self_recovery import handle_check_recovery_options
+        from src.mcp_handlers.lifecycle.self_recovery import handle_check_recovery_options
         mock_error = MagicMock()
         mock_error.text = '{"error": "not registered"}'
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=(None, mock_error),
         ):
             result = await handle_check_recovery_options({})
@@ -367,20 +367,20 @@ class TestQuickResume:
 
     @pytest.mark.asyncio
     async def test_quick_resume_safe_state(self):
-        from src.mcp_handlers.self_recovery import handle_quick_resume
+        from src.mcp_handlers.lifecycle.self_recovery import handle_quick_resume
         mock_server = self._make_mock_server()
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("test-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.verify_agent_ownership",
+            "src.mcp_handlers.lifecycle.self_recovery.verify_agent_ownership",
             return_value=True,
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ), patch(
-            "src.mcp_handlers.self_recovery.store_discovery_internal",
+            "src.mcp_handlers.lifecycle.self_recovery.store_discovery_internal",
             new_callable=AsyncMock,
             create=True,
         ), patch(
@@ -394,17 +394,17 @@ class TestQuickResume:
 
     @pytest.mark.asyncio
     async def test_quick_resume_unsafe_state(self):
-        from src.mcp_handlers.self_recovery import handle_quick_resume
+        from src.mcp_handlers.lifecycle.self_recovery import handle_quick_resume
         mock_server = self._make_mock_server(coherence=0.4, risk=0.6)
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("test-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.verify_agent_ownership",
+            "src.mcp_handlers.lifecycle.self_recovery.verify_agent_ownership",
             return_value=True,
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ):
             result = await handle_quick_resume({"_agent_uuid": "test-uuid"})
@@ -414,13 +414,13 @@ class TestQuickResume:
 
     @pytest.mark.asyncio
     async def test_quick_resume_ownership_denied(self):
-        from src.mcp_handlers.self_recovery import handle_quick_resume
+        from src.mcp_handlers.lifecycle.self_recovery import handle_quick_resume
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("test-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.verify_agent_ownership",
+            "src.mcp_handlers.lifecycle.self_recovery.verify_agent_ownership",
             return_value=False,
         ):
             result = await handle_quick_resume({"_agent_uuid": "test-uuid"})
@@ -429,17 +429,17 @@ class TestQuickResume:
 
     @pytest.mark.asyncio
     async def test_quick_resume_invalid_status(self):
-        from src.mcp_handlers.self_recovery import handle_quick_resume
+        from src.mcp_handlers.lifecycle.self_recovery import handle_quick_resume
         mock_server = self._make_mock_server(status="deleted")
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("test-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.verify_agent_ownership",
+            "src.mcp_handlers.lifecycle.self_recovery.verify_agent_ownership",
             return_value=True,
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ):
             result = await handle_quick_resume({"_agent_uuid": "test-uuid"})
@@ -490,17 +490,17 @@ class TestOperatorResumeAgent:
 
     @pytest.mark.asyncio
     async def test_operator_can_resume(self):
-        from src.mcp_handlers.self_recovery import handle_operator_resume_agent
+        from src.mcp_handlers.lifecycle.self_recovery import handle_operator_resume_agent
         mock_server = self._make_mock_server()
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("caller-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ), patch(
-            "src.mcp_handlers.self_recovery.store_discovery_internal",
+            "src.mcp_handlers.lifecycle.self_recovery.store_discovery_internal",
             new_callable=AsyncMock,
             create=True,
         ), patch(
@@ -518,14 +518,14 @@ class TestOperatorResumeAgent:
 
     @pytest.mark.asyncio
     async def test_non_operator_rejected(self):
-        from src.mcp_handlers.self_recovery import handle_operator_resume_agent
+        from src.mcp_handlers.lifecycle.self_recovery import handle_operator_resume_agent
         mock_server = self._make_mock_server(caller_label="Regular Agent")
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("caller-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ):
             result = await handle_operator_resume_agent({
@@ -539,20 +539,20 @@ class TestOperatorResumeAgent:
     @pytest.mark.asyncio
     async def test_operator_tag_accepted(self):
         """Operator identified by tag instead of label."""
-        from src.mcp_handlers.self_recovery import handle_operator_resume_agent
+        from src.mcp_handlers.lifecycle.self_recovery import handle_operator_resume_agent
         mock_server = self._make_mock_server(
             caller_label="Central",
             caller_tags=["operator", "admin"],
         )
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("caller-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ), patch(
-            "src.mcp_handlers.self_recovery.store_discovery_internal",
+            "src.mcp_handlers.lifecycle.self_recovery.store_discovery_internal",
             new_callable=AsyncMock,
             create=True,
         ), patch(
@@ -570,17 +570,17 @@ class TestOperatorResumeAgent:
 
     @pytest.mark.asyncio
     async def test_hard_limit_void_active(self):
-        from src.mcp_handlers.self_recovery import handle_operator_resume_agent
+        from src.mcp_handlers.lifecycle.self_recovery import handle_operator_resume_agent
         mock_server = self._make_mock_server(
             target_void_active=True,
             target_void_value=0.9,
         )
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("caller-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ):
             result = await handle_operator_resume_agent({
@@ -593,14 +593,14 @@ class TestOperatorResumeAgent:
 
     @pytest.mark.asyncio
     async def test_hard_limit_extreme_risk(self):
-        from src.mcp_handlers.self_recovery import handle_operator_resume_agent
+        from src.mcp_handlers.lifecycle.self_recovery import handle_operator_resume_agent
         mock_server = self._make_mock_server(target_risk=0.85)
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("caller-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ):
             result = await handle_operator_resume_agent({
@@ -613,14 +613,14 @@ class TestOperatorResumeAgent:
 
     @pytest.mark.asyncio
     async def test_soft_limit_blocks_without_force(self):
-        from src.mcp_handlers.self_recovery import handle_operator_resume_agent
+        from src.mcp_handlers.lifecycle.self_recovery import handle_operator_resume_agent
         mock_server = self._make_mock_server(target_risk=0.65, target_coherence=0.35)
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("caller-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ):
             result = await handle_operator_resume_agent({
@@ -633,17 +633,17 @@ class TestOperatorResumeAgent:
 
     @pytest.mark.asyncio
     async def test_soft_limit_bypassed_with_force(self):
-        from src.mcp_handlers.self_recovery import handle_operator_resume_agent
+        from src.mcp_handlers.lifecycle.self_recovery import handle_operator_resume_agent
         mock_server = self._make_mock_server(target_risk=0.65, target_coherence=0.35)
 
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("caller-agent", None),
         ), patch(
-            "src.mcp_handlers.self_recovery.mcp_server",
+            "src.mcp_handlers.lifecycle.self_recovery.mcp_server",
             mock_server,
         ), patch(
-            "src.mcp_handlers.self_recovery.store_discovery_internal",
+            "src.mcp_handlers.lifecycle.self_recovery.store_discovery_internal",
             new_callable=AsyncMock,
             create=True,
         ), patch(
@@ -663,9 +663,9 @@ class TestOperatorResumeAgent:
 
     @pytest.mark.asyncio
     async def test_missing_target_agent_id(self):
-        from src.mcp_handlers.self_recovery import handle_operator_resume_agent
+        from src.mcp_handlers.lifecycle.self_recovery import handle_operator_resume_agent
         with patch(
-            "src.mcp_handlers.self_recovery.require_registered_agent",
+            "src.mcp_handlers.lifecycle.self_recovery.require_registered_agent",
             return_value=("caller-agent", None),
         ):
             result = await handle_operator_resume_agent({

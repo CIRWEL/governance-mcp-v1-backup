@@ -82,7 +82,7 @@ def _make_session(paused_id="agent-paused", reviewer_id="agent-reviewer",
 
 
 # Common patch targets (module-level references in dialectic.py)
-DIALECTIC = "src.mcp_handlers.dialectic"
+DIALECTIC = "src.mcp_handlers.dialectic.handlers"
 
 
 # ============================================================================
@@ -187,7 +187,7 @@ def mock_context_agent():
 @pytest.fixture(autouse=True)
 def clear_active_sessions():
     """Clear ACTIVE_SESSIONS between tests to prevent leakage."""
-    from src.mcp_handlers.dialectic_session import ACTIVE_SESSIONS
+    from src.mcp_handlers.dialectic.session import ACTIVE_SESSIONS
     ACTIVE_SESSIONS.clear()
     yield
     ACTIVE_SESSIONS.clear()
@@ -206,7 +206,7 @@ class TestHandleRequestDialecticReview:
         mock_pg_create, mock_is_in_session, mock_context_agent,
     ):
         """Self-review mode creates session with reviewer = paused agent."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
 
         with mock_require_registered("agent-paused"), mock_verify_ownership, \
              mock_pg_create as pg_create, mock_is_in_session, mock_context_agent:
@@ -232,7 +232,7 @@ class TestHandleRequestDialecticReview:
         mock_pg_create, mock_is_in_session, mock_context_agent,
     ):
         """Auto mode creates session with no reviewer assigned (awaiting assignment)."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
 
         with mock_require_registered("agent-paused"), mock_verify_ownership, \
              mock_pg_create, mock_is_in_session, mock_context_agent:
@@ -251,7 +251,7 @@ class TestHandleRequestDialecticReview:
     @pytest.mark.asyncio
     async def test_agent_not_registered(self, mock_server, mock_context_agent):
         """Returns error when agent is not registered."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
         from src.mcp_handlers.utils import error_response
 
         err = error_response("Agent not registered")
@@ -270,7 +270,7 @@ class TestHandleRequestDialecticReview:
         mock_context_agent,
     ):
         """Returns error when agent passes registration but not in metadata."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
 
         # Use an agent_id that is not in mock_server.agent_metadata
         with mock_require_registered("agent-nonexistent"), mock_verify_ownership, \
@@ -289,7 +289,7 @@ class TestHandleRequestDialecticReview:
         self, mock_server, mock_require_registered, mock_context_agent,
     ):
         """Returns auth error when ownership verification fails."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
 
         with mock_require_registered("agent-paused"), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False), \
@@ -309,7 +309,7 @@ class TestHandleRequestDialecticReview:
         mock_context_agent,
     ):
         """Agent in waiting_input status is skipped (not stuck)."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
 
         with mock_require_registered("agent-waiting"), mock_verify_ownership, \
              mock_context_agent:
@@ -329,7 +329,7 @@ class TestHandleRequestDialecticReview:
         mock_context_agent,
     ):
         """Returns error if agent already has an active session."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
 
         with mock_require_registered("agent-paused"), mock_verify_ownership, \
              patch(f"{DIALECTIC}.is_agent_in_active_session",
@@ -350,7 +350,7 @@ class TestHandleRequestDialecticReview:
         mock_is_in_session, mock_context_agent,
     ):
         """Returns error when PostgreSQL session create fails."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
 
         with mock_require_registered("agent-paused"), mock_verify_ownership, \
              mock_is_in_session, \
@@ -374,7 +374,7 @@ class TestHandleRequestDialecticReview:
         mock_is_in_session, mock_context_agent,
     ):
         """reviewer_mode='llm' delegates to handle_llm_assisted_dialectic."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
 
         mock_llm_handler = AsyncMock(return_value=[TextContent(
             type="text", text=json.dumps({"success": True, "message": "LLM dialectic done"})
@@ -400,7 +400,7 @@ class TestHandleRequestDialecticReview:
         mock_pg_create, mock_is_in_session, mock_context_agent,
     ):
         """Custom session_type, topic, and discovery_id are passed through."""
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
 
         with mock_require_registered("agent-paused"), mock_verify_ownership, \
              mock_pg_create as pg_create, mock_is_in_session, mock_context_agent:
@@ -436,7 +436,7 @@ class TestHandleSubmitThesis:
         mock_save_session, mock_context_agent,
     ):
         """Successful thesis submission advances phase to antithesis."""
-        from src.mcp_handlers.dialectic import handle_submit_thesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_thesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.THESIS)
         ACTIVE_SESSIONS[session.session_id] = session
@@ -460,7 +460,7 @@ class TestHandleSubmitThesis:
     @pytest.mark.asyncio
     async def test_missing_session_id(self, mock_context_agent):
         """Returns error when session_id is missing."""
-        from src.mcp_handlers.dialectic import handle_submit_thesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_thesis
 
         with mock_context_agent:
             result = await handle_submit_thesis({
@@ -474,10 +474,10 @@ class TestHandleSubmitThesis:
     @pytest.mark.asyncio
     async def test_missing_agent_id_no_bound(self, mock_context_agent):
         """Returns error when agent_id is missing and no bound identity."""
-        from src.mcp_handlers.dialectic import handle_submit_thesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_thesis
 
         with mock_context_agent, \
-             patch("src.mcp_handlers.identity_shared.get_bound_agent_id", return_value=None):
+             patch("src.mcp_handlers.identity.shared.get_bound_agent_id", return_value=None):
             result = await handle_submit_thesis({
                 "session_id": "some-session",
             })
@@ -488,7 +488,7 @@ class TestHandleSubmitThesis:
     @pytest.mark.asyncio
     async def test_session_not_found(self, mock_server, mock_load_session, mock_context_agent):
         """Returns error when session does not exist."""
-        from src.mcp_handlers.dialectic import handle_submit_thesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_thesis
 
         with mock_server, patch(f"{DIALECTIC}.load_session", new_callable=AsyncMock, return_value=None), \
              mock_context_agent:
@@ -507,7 +507,7 @@ class TestHandleSubmitThesis:
         mock_save_session, mock_context_agent,
     ):
         """Thesis from non-paused agent fails (DialecticSession rejects it)."""
-        from src.mcp_handlers.dialectic import handle_submit_thesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_thesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.THESIS)
         ACTIVE_SESSIONS[session.session_id] = session
@@ -531,7 +531,7 @@ class TestHandleSubmitThesis:
         mock_save_session, mock_context_agent,
     ):
         """Thesis in wrong phase fails."""
-        from src.mcp_handlers.dialectic import handle_submit_thesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_thesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
         ACTIVE_SESSIONS[session.session_id] = session
@@ -555,7 +555,7 @@ class TestHandleSubmitThesis:
         mock_save_session, mock_context_agent,
     ):
         """Session not in memory is loaded from disk."""
-        from src.mcp_handlers.dialectic import handle_submit_thesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_thesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.THESIS)
 
@@ -581,7 +581,7 @@ class TestHandleSubmitThesis:
         mock_context_agent,
     ):
         """pg_add_message failure is non-fatal (logged as warning)."""
-        from src.mcp_handlers.dialectic import handle_submit_thesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_thesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.THESIS)
         ACTIVE_SESSIONS[session.session_id] = session
@@ -615,7 +615,7 @@ class TestHandleSubmitAntithesis:
         mock_save_session, mock_context_agent,
     ):
         """Successful antithesis submission advances phase to synthesis."""
-        from src.mcp_handlers.dialectic import handle_submit_antithesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_antithesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
         ACTIVE_SESSIONS[session.session_id] = session
@@ -639,10 +639,10 @@ class TestHandleSubmitAntithesis:
     @pytest.mark.asyncio
     async def test_missing_required_args(self, mock_context_agent):
         """Returns error when session_id and agent_id both missing."""
-        from src.mcp_handlers.dialectic import handle_submit_antithesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_antithesis
 
         with mock_context_agent, \
-             patch("src.mcp_handlers.identity_shared.get_bound_agent_id", return_value=None):
+             patch("src.mcp_handlers.identity.shared.get_bound_agent_id", return_value=None):
             result = await handle_submit_antithesis({})
 
         data = _parse(result)
@@ -652,7 +652,7 @@ class TestHandleSubmitAntithesis:
     @pytest.mark.asyncio
     async def test_session_not_found(self, mock_server, mock_context_agent):
         """Returns error when session does not exist."""
-        from src.mcp_handlers.dialectic import handle_submit_antithesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_antithesis
 
         with mock_server, patch(f"{DIALECTIC}.load_session", new_callable=AsyncMock, return_value=None), \
              mock_context_agent:
@@ -671,7 +671,7 @@ class TestHandleSubmitAntithesis:
         mock_save_session, mock_context_agent,
     ):
         """Antithesis from non-reviewer agent fails."""
-        from src.mcp_handlers.dialectic import handle_submit_antithesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_antithesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
         ACTIVE_SESSIONS[session.session_id] = session
@@ -694,7 +694,7 @@ class TestHandleSubmitAntithesis:
         mock_save_session, mock_context_agent,
     ):
         """Antithesis in wrong phase fails."""
-        from src.mcp_handlers.dialectic import handle_submit_antithesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_antithesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.THESIS)
         ACTIVE_SESSIONS[session.session_id] = session
@@ -718,7 +718,7 @@ class TestHandleSubmitAntithesis:
         mock_save_session, mock_context_agent,
     ):
         """Session loaded from disk when not in memory."""
-        from src.mcp_handlers.dialectic import handle_submit_antithesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_antithesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
 
@@ -752,7 +752,7 @@ class TestHandleSubmitSynthesis:
         mock_save_session, mock_context_agent,
     ):
         """Synthesis submission without convergence returns next step."""
-        from src.mcp_handlers.dialectic import handle_submit_synthesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_synthesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.SYNTHESIS)
         session.synthesis_round = 1
@@ -780,10 +780,10 @@ class TestHandleSubmitSynthesis:
     @pytest.mark.asyncio
     async def test_missing_required_args(self, mock_context_agent):
         """Returns error when session_id and agent_id both missing."""
-        from src.mcp_handlers.dialectic import handle_submit_synthesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_synthesis
 
         with mock_context_agent, \
-             patch("src.mcp_handlers.identity_shared.get_bound_agent_id", return_value=None):
+             patch("src.mcp_handlers.identity.shared.get_bound_agent_id", return_value=None):
             result = await handle_submit_synthesis({})
 
         data = _parse(result)
@@ -793,7 +793,7 @@ class TestHandleSubmitSynthesis:
     @pytest.mark.asyncio
     async def test_session_not_found(self, mock_server, mock_context_agent):
         """Returns error when session not found anywhere."""
-        from src.mcp_handlers.dialectic import handle_submit_synthesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_synthesis
 
         with mock_server, patch(f"{DIALECTIC}.load_session", new_callable=AsyncMock, return_value=None), \
              mock_context_agent:
@@ -812,7 +812,7 @@ class TestHandleSubmitSynthesis:
         mock_save_session, mock_context_agent,
     ):
         """Synthesis in wrong phase fails."""
-        from src.mcp_handlers.dialectic import handle_submit_synthesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_synthesis
 
         session = _make_session(phase=DialecticPhase.THESIS)
 
@@ -836,7 +836,7 @@ class TestHandleSubmitSynthesis:
         mock_save_session, mock_context_agent,
     ):
         """Third-party mediator can submit synthesis (resolves if agrees=True)."""
-        from src.mcp_handlers.dialectic import handle_submit_synthesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_synthesis
 
         session = _make_session(phase=DialecticPhase.SYNTHESIS)
         session.synthesis_round = 1
@@ -862,7 +862,7 @@ class TestHandleSubmitSynthesis:
         mock_save_session, mock_context_agent,
     ):
         """Max synthesis rounds exceeded returns conservative default."""
-        from src.mcp_handlers.dialectic import handle_submit_synthesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_synthesis
 
         session = _make_session(phase=DialecticPhase.SYNTHESIS)
         session.synthesis_round = 6  # Over max of 5
@@ -889,7 +889,7 @@ class TestHandleSubmitSynthesis:
         mock_save_session, mock_pg_resolve_session, mock_context_agent,
     ):
         """When both agents agree, synthesis converges and resolution is created."""
-        from src.mcp_handlers.dialectic import handle_submit_synthesis, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_submit_synthesis, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.SYNTHESIS)
         session.synthesis_round = 1
@@ -936,7 +936,7 @@ class TestHandleSubmitSynthesis:
         mock_save_session, mock_pg_resolve_session, mock_context_agent,
     ):
         """Safety violation during convergence blocks resolution."""
-        from src.mcp_handlers.dialectic import handle_submit_synthesis
+        from src.mcp_handlers.dialectic.handlers import handle_submit_synthesis
 
         session = _make_session(phase=DialecticPhase.SYNTHESIS)
         session.synthesis_round = 1
@@ -974,7 +974,7 @@ class TestHandleListDialecticSessions:
     @pytest.mark.asyncio
     async def test_happy_path_with_results(self, mock_context_agent):
         """Returns sessions when found."""
-        from src.mcp_handlers.dialectic import handle_list_dialectic_sessions
+        from src.mcp_handlers.dialectic.handlers import handle_list_dialectic_sessions
 
         mock_sessions = [
             {"session_id": "s1", "phase": "resolved", "paused_agent_id": "a1"},
@@ -994,7 +994,7 @@ class TestHandleListDialecticSessions:
     @pytest.mark.asyncio
     async def test_empty_results(self, mock_context_agent):
         """Returns empty list with helpful tip when no sessions found."""
-        from src.mcp_handlers.dialectic import handle_list_dialectic_sessions
+        from src.mcp_handlers.dialectic.handlers import handle_list_dialectic_sessions
 
         with patch(f"{DIALECTIC}.list_all_sessions", new_callable=AsyncMock,
                    return_value=[]), \
@@ -1009,7 +1009,7 @@ class TestHandleListDialecticSessions:
     @pytest.mark.asyncio
     async def test_filters_passed_through(self, mock_context_agent):
         """Filters (agent_id, status, limit) are passed to list_all_sessions."""
-        from src.mcp_handlers.dialectic import handle_list_dialectic_sessions
+        from src.mcp_handlers.dialectic.handlers import handle_list_dialectic_sessions
 
         with patch(f"{DIALECTIC}.list_all_sessions", new_callable=AsyncMock,
                    return_value=[]) as mock_list, \
@@ -1031,7 +1031,7 @@ class TestHandleListDialecticSessions:
     @pytest.mark.asyncio
     async def test_limit_capped_at_200(self, mock_context_agent):
         """Limit is capped at 200 even if larger value provided."""
-        from src.mcp_handlers.dialectic import handle_list_dialectic_sessions
+        from src.mcp_handlers.dialectic.handlers import handle_list_dialectic_sessions
 
         with patch(f"{DIALECTIC}.list_all_sessions", new_callable=AsyncMock,
                    return_value=[]) as mock_list, \
@@ -1046,7 +1046,7 @@ class TestHandleListDialecticSessions:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, mock_context_agent):
         """Exception during listing returns error response."""
-        from src.mcp_handlers.dialectic import handle_list_dialectic_sessions
+        from src.mcp_handlers.dialectic.handlers import handle_list_dialectic_sessions
 
         with patch(f"{DIALECTIC}.list_all_sessions", new_callable=AsyncMock,
                    side_effect=Exception("DB error")), \
@@ -1060,7 +1060,7 @@ class TestHandleListDialecticSessions:
     @pytest.mark.asyncio
     async def test_default_limit_is_50(self, mock_context_agent):
         """Default limit is 50 when not specified."""
-        from src.mcp_handlers.dialectic import handle_list_dialectic_sessions
+        from src.mcp_handlers.dialectic.handlers import handle_list_dialectic_sessions
 
         with patch(f"{DIALECTIC}.list_all_sessions", new_callable=AsyncMock,
                    return_value=[]) as mock_list, \
@@ -1073,7 +1073,7 @@ class TestHandleListDialecticSessions:
     @pytest.mark.asyncio
     async def test_filters_in_response(self, mock_context_agent):
         """Response includes filters_applied for transparency."""
-        from src.mcp_handlers.dialectic import handle_list_dialectic_sessions
+        from src.mcp_handlers.dialectic.handlers import handle_list_dialectic_sessions
 
         with patch(f"{DIALECTIC}.list_all_sessions", new_callable=AsyncMock,
                    return_value=[{"session_id": "s1"}]), \
@@ -1098,7 +1098,7 @@ class TestHandleGetDialecticSession:
     @pytest.mark.asyncio
     async def test_happy_path_by_session_id_in_memory(self, mock_context_agent):
         """Returns session data when found in memory by session_id."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.RESOLVED)
         # Set created_at to recent time so check_timeout won't fire
@@ -1120,7 +1120,7 @@ class TestHandleGetDialecticSession:
     @pytest.mark.asyncio
     async def test_no_args_provided(self, mock_context_agent):
         """Returns error when neither session_id nor agent_id provided."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session
 
         with mock_context_agent:
             result = await handle_get_dialectic_session({})
@@ -1132,7 +1132,7 @@ class TestHandleGetDialecticSession:
     @pytest.mark.asyncio
     async def test_session_not_found_by_id(self, mock_context_agent):
         """Returns error when session_id not found."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session
 
         with patch(f"{DIALECTIC}.load_session", new_callable=AsyncMock,
                    return_value=None), \
@@ -1148,7 +1148,7 @@ class TestHandleGetDialecticSession:
     @pytest.mark.asyncio
     async def test_fast_path_no_timeout_check(self, mock_context_agent):
         """check_timeout=False uses fast path via load_session_as_dict."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session
 
         fast_dict = {
             "session_id": "fast-session",
@@ -1173,7 +1173,7 @@ class TestHandleGetDialecticSession:
         self, mock_pg_add_message, mock_pg_update_phase, mock_context_agent,
     ):
         """Session that has timed out returns failure with recovery guidance."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.THESIS)
         session.created_at = datetime.now()
@@ -1198,7 +1198,7 @@ class TestHandleGetDialecticSession:
         self, mock_pg_add_message, mock_pg_update_phase, mock_context_agent,
     ):
         """Reviewer stuck causes session to be marked as failed."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
         session.created_at = datetime.now()
@@ -1221,7 +1221,7 @@ class TestHandleGetDialecticSession:
     @pytest.mark.asyncio
     async def test_session_loaded_from_disk(self, mock_context_agent):
         """Session loaded from disk is restored to in-memory cache."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session, ACTIVE_SESSIONS
 
         session = _make_session(phase=DialecticPhase.RESOLVED)
         session.created_at = datetime.now()
@@ -1242,7 +1242,7 @@ class TestHandleGetDialecticSession:
     @pytest.mark.asyncio
     async def test_by_agent_id_found(self, mock_server, mock_context_agent):
         """Find sessions by agent_id."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session, ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session, ACTIVE_SESSIONS
 
         session = _make_session(
             paused_id="agent-active", reviewer_id="agent-reviewer",
@@ -1266,7 +1266,7 @@ class TestHandleGetDialecticSession:
     @pytest.mark.asyncio
     async def test_by_agent_id_not_registered(self, mock_server, mock_context_agent):
         """Returns error if agent_id is not in metadata."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session
 
         with mock_context_agent:
             result = await handle_get_dialectic_session({
@@ -1280,7 +1280,7 @@ class TestHandleGetDialecticSession:
     @pytest.mark.asyncio
     async def test_by_agent_id_no_sessions(self, mock_server, mock_context_agent):
         """Returns error when agent exists but has no sessions."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session
 
         # Mock disk session listing to return empty
         with mock_context_agent, \
@@ -1299,7 +1299,7 @@ class TestHandleGetDialecticSession:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, mock_context_agent):
         """General exceptions are caught and returned as errors."""
-        from src.mcp_handlers.dialectic import handle_get_dialectic_session
+        from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session
 
         with patch(f"{DIALECTIC}.ACTIVE_SESSIONS",
                    new_callable=lambda: MagicMock(get=MagicMock(side_effect=RuntimeError("boom")))), \
@@ -1322,7 +1322,7 @@ class TestCheckReviewerStuck:
     @pytest.mark.asyncio
     async def test_reviewer_not_found_is_stuck(self, mock_server):
         """Reviewer not in metadata is considered stuck (ANTITHESIS phase)."""
-        from src.mcp_handlers.dialectic import check_reviewer_stuck
+        from src.mcp_handlers.dialectic.handlers import check_reviewer_stuck
 
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
         session.reviewer_agent_id = "nonexistent-reviewer"
@@ -1333,7 +1333,7 @@ class TestCheckReviewerStuck:
     @pytest.mark.asyncio
     async def test_paused_reviewer_is_stuck(self, mock_server):
         """Paused reviewer is considered stuck (ANTITHESIS phase)."""
-        from src.mcp_handlers.dialectic import check_reviewer_stuck
+        from src.mcp_handlers.dialectic.handlers import check_reviewer_stuck
 
         mock_server.agent_metadata["agent-reviewer"] = _make_agent_meta(status="paused")
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
@@ -1344,7 +1344,7 @@ class TestCheckReviewerStuck:
     @pytest.mark.asyncio
     async def test_active_recent_reviewer_not_stuck(self, mock_server):
         """Active reviewer with recent thesis is not stuck."""
-        from src.mcp_handlers.dialectic import check_reviewer_stuck
+        from src.mcp_handlers.dialectic.handlers import check_reviewer_stuck
         from src.dialectic_protocol import DialecticMessage
 
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
@@ -1361,7 +1361,7 @@ class TestCheckReviewerStuck:
     @pytest.mark.asyncio
     async def test_active_old_session_is_stuck(self, mock_server):
         """Active reviewer but thesis submitted >2h ago is stuck."""
-        from src.mcp_handlers.dialectic import check_reviewer_stuck
+        from src.mcp_handlers.dialectic.handlers import check_reviewer_stuck
         from src.dialectic_protocol import DialecticMessage
 
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
@@ -1384,25 +1384,25 @@ class TestGetDialecticNextSteps:
     """Tests for _get_dialectic_next_steps helper."""
 
     def test_resume_steps(self):
-        from src.mcp_handlers.dialectic import _get_dialectic_next_steps
+        from src.mcp_handlers.dialectic.handlers import _get_dialectic_next_steps
         steps = _get_dialectic_next_steps("RESUME")
         assert len(steps) == 3
         assert any("resume" in s.lower() for s in steps)
 
     def test_cooldown_steps(self):
-        from src.mcp_handlers.dialectic import _get_dialectic_next_steps
+        from src.mcp_handlers.dialectic.handlers import _get_dialectic_next_steps
         steps = _get_dialectic_next_steps("COOLDOWN")
         assert len(steps) == 3
         assert any("pause" in s.lower() for s in steps)
 
     def test_escalate_steps(self):
-        from src.mcp_handlers.dialectic import _get_dialectic_next_steps
+        from src.mcp_handlers.dialectic.handlers import _get_dialectic_next_steps
         steps = _get_dialectic_next_steps("ESCALATE")
         assert len(steps) == 3
         assert any("human" in s.lower() for s in steps)
 
     def test_unknown_defaults_to_escalate(self):
-        from src.mcp_handlers.dialectic import _get_dialectic_next_steps
+        from src.mcp_handlers.dialectic.handlers import _get_dialectic_next_steps
         steps = _get_dialectic_next_steps("SOMETHING_ELSE")
         assert len(steps) == 3
         # Falls through to ESCALATE branch

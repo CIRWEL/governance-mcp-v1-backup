@@ -51,7 +51,7 @@ def clean_registry():
 @pytest.fixture
 def mock_identity():
     """Mock identity resolution to return a stable test agent."""
-    with patch("src.mcp_handlers.identity_v2.resolve_session_identity", new_callable=AsyncMock) as m:
+    with patch("src.mcp_handlers.identity.handlers.resolve_session_identity", new_callable=AsyncMock) as m:
         m.return_value = {
             "agent_uuid": "test-uuid-0000-1111-2222",
             "agent_name": "TestAgent",
@@ -64,7 +64,7 @@ def mock_identity():
 @pytest.fixture
 def mock_identity_new():
     """Mock identity resolution for newly created (ephemeral) agent."""
-    with patch("src.mcp_handlers.identity_v2.resolve_session_identity", new_callable=AsyncMock) as m:
+    with patch("src.mcp_handlers.identity.handlers.resolve_session_identity", new_callable=AsyncMock) as m:
         m.return_value = {
             "agent_uuid": "new-uuid-3333-4444-5555",
             "agent_name": None,
@@ -109,7 +109,7 @@ def mock_pattern_tracker():
 @pytest.fixture
 def mock_onboard_pin():
     """Mock onboard pin lookup to return None (no pin)."""
-    with patch("src.mcp_handlers.identity_v2.lookup_onboard_pin", new_callable=AsyncMock) as m:
+    with patch("src.mcp_handlers.identity.handlers.lookup_onboard_pin", new_callable=AsyncMock) as m:
         m.return_value = None
         yield m
 
@@ -117,7 +117,7 @@ def mock_onboard_pin():
 @pytest.fixture
 def mock_derive_session_key():
     """Mock session key derivation (async)."""
-    with patch("src.mcp_handlers.identity_v2.derive_session_key", new_callable=AsyncMock) as m:
+    with patch("src.mcp_handlers.identity.handlers.derive_session_key", new_callable=AsyncMock) as m:
         m.return_value = "test-session-key"
         yield m
 
@@ -463,7 +463,7 @@ class TestDispatchToolEphemeralIdentity:
 
         register_test_handler("test_ephemeral")
 
-        with patch("src.mcp_handlers.identity_v2.resolve_session_identity", new_callable=AsyncMock) as mock_id:
+        with patch("src.mcp_handlers.identity.handlers.resolve_session_identity", new_callable=AsyncMock) as mock_id:
             mock_id.return_value = {
                 "agent_uuid": "ephemeral-uuid",
                 "agent_name": None,
@@ -489,7 +489,7 @@ class TestDispatchToolEphemeralIdentity:
         mock_db_instance = AsyncMock()
         mock_db_instance.update_session_activity = AsyncMock(return_value=True)
 
-        with patch("src.mcp_handlers.identity_v2.resolve_session_identity", new_callable=AsyncMock) as mock_id, \
+        with patch("src.mcp_handlers.identity.handlers.resolve_session_identity", new_callable=AsyncMock) as mock_id, \
              patch("src.db.get_db") as mock_get_db:
             mock_id.return_value = {
                 "agent_uuid": "persisted-uuid",

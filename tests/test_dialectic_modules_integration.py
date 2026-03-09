@@ -27,7 +27,7 @@ async def test_session_module_imports():
     """Test that session module functions are accessible"""
     print("Testing session module imports...")
     
-    from src.mcp_handlers.dialectic import (
+    from src.mcp_handlers.dialectic.handlers import (
         save_session,
         load_session,
         load_all_sessions,
@@ -48,7 +48,7 @@ async def test_calibration_module_imports():
     """Test that calibration module functions are accessible"""
     print("Testing calibration module imports...")
     
-    from src.mcp_handlers.dialectic import (
+    from src.mcp_handlers.dialectic.handlers import (
         update_calibration_from_dialectic,
         update_calibration_from_dialectic_disagreement,
         backfill_calibration_from_historical_sessions
@@ -66,7 +66,7 @@ async def test_resolution_module_imports():
     """Test that resolution module functions are accessible"""
     print("Testing resolution module imports...")
     
-    from src.mcp_handlers.dialectic import execute_resolution
+    from src.mcp_handlers.dialectic.handlers import execute_resolution
     
     assert callable(execute_resolution), "execute_resolution should be callable"
     
@@ -78,7 +78,7 @@ async def test_reviewer_module_imports():
     """Test that reviewer module functions are accessible"""
     print("Testing reviewer module imports...")
     
-    from src.mcp_handlers.dialectic import (
+    from src.mcp_handlers.dialectic.handlers import (
         select_reviewer,
         is_agent_in_active_session
     )
@@ -96,7 +96,7 @@ async def test_module_source_verification():
     
     import inspect
     
-    from src.mcp_handlers.dialectic import (
+    from src.mcp_handlers.dialectic.handlers import (
         save_session,
         update_calibration_from_dialectic,
         execute_resolution,
@@ -109,10 +109,10 @@ async def test_module_source_verification():
     res_mod = inspect.getmodule(execute_resolution)
     reviewer_mod = inspect.getmodule(select_reviewer)
     
-    assert 'dialectic_session' in save_mod.__name__, f"save_session should be from dialectic_session, got {save_mod.__name__}"
-    assert 'dialectic_calibration' in cal_mod.__name__, f"update_calibration_from_dialectic should be from dialectic_calibration, got {cal_mod.__name__}"
-    assert 'dialectic_resolution' in res_mod.__name__, f"execute_resolution should be from dialectic_resolution, got {res_mod.__name__}"
-    assert 'dialectic_reviewer' in reviewer_mod.__name__, f"select_reviewer should be from dialectic_reviewer, got {reviewer_mod.__name__}"
+    assert 'dialectic' in save_mod.__name__ and 'session' in save_mod.__name__, f"save_session should be from dialectic.session, got {save_mod.__name__}"
+    assert 'dialectic' in cal_mod.__name__ and 'calibration' in cal_mod.__name__, f"update_calibration_from_dialectic should be from dialectic.calibration, got {cal_mod.__name__}"
+    assert 'dialectic' in res_mod.__name__ and 'resolution' in res_mod.__name__, f"execute_resolution should be from dialectic.resolution, got {res_mod.__name__}"
+    assert 'dialectic' in reviewer_mod.__name__ and 'reviewer' in reviewer_mod.__name__, f"select_reviewer should be from dialectic.reviewer, got {reviewer_mod.__name__}"
     
     print("✅ All functions are from correct modules")
 
@@ -122,7 +122,7 @@ async def test_session_persistence():
     """Test that session persistence works correctly"""
     print("Testing session persistence...")
     
-    from src.mcp_handlers.dialectic_session import save_session, load_session
+    from src.mcp_handlers.dialectic.session import save_session, load_session
     from src.dialectic_protocol import DialecticSession
     
     # Create a test session using the correct constructor signature

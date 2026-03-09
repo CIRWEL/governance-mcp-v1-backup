@@ -735,9 +735,9 @@ class TestTrackPatterns:
         mcp_utils.get_bound_agent_id = mock_get_bound
         try:
             with patch("src.pattern_tracker.get_pattern_tracker", return_value=mock_tracker):
-                with patch("src.mcp_handlers.pattern_helpers.record_hypothesis_if_needed"):
-                    with patch("src.mcp_handlers.pattern_helpers.check_untested_hypotheses", return_value=None):
-                        with patch("src.mcp_handlers.pattern_helpers.mark_hypothesis_tested"):
+                with patch("src.mcp_handlers.support.pattern_helpers.record_hypothesis_if_needed"):
+                    with patch("src.mcp_handlers.support.pattern_helpers.check_untested_hypotheses", return_value=None):
+                        with patch("src.mcp_handlers.support.pattern_helpers.mark_hypothesis_tested"):
                             result = await track_patterns("process_agent_update", {"agent_id": "test-agent"}, ctx)
         finally:
             if hasattr(mcp_utils, 'get_bound_agent_id'):

@@ -20,7 +20,7 @@ from src.dialectic_protocol import (
     DialecticPhase,
     ResolutionAction,
 )
-from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
 
 # ============================================================================

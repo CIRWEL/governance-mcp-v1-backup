@@ -113,9 +113,9 @@ def patch_common(mock_mcp_server, mock_graph):
     """Patch all common dependencies for knowledge graph handlers."""
     with patch("src.mcp_handlers.context.get_context_agent_id", return_value=None), \
          patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-         patch("src.mcp_handlers.knowledge_graph.mcp_server", mock_mcp_server), \
-         patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph", new_callable=AsyncMock, return_value=mock_graph), \
-         patch("src.mcp_handlers.knowledge_graph.record_ms"):
+         patch("src.mcp_handlers.knowledge.handlers.mcp_server", mock_mcp_server), \
+         patch("src.mcp_handlers.knowledge.handlers.get_knowledge_graph", new_callable=AsyncMock, return_value=mock_graph), \
+         patch("src.mcp_handlers.knowledge.handlers.record_ms"):
         yield mock_mcp_server, mock_graph
 
 
@@ -153,7 +153,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_happy_path(self, patch_common, registered_agent):
         """Store a single discovery successfully."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -173,7 +173,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_missing_summary(self, patch_common, registered_agent):
         """Store fails when summary is missing."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -188,7 +188,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_defaults_to_note_type(self, patch_common, registered_agent):
         """Discovery type defaults to 'note' when not specified."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -206,7 +206,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_truncates_long_summary(self, patch_common, registered_agent):
         """Long summaries are truncated to 1000 chars."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         long_summary = "A" * 1100  # Exceeds 1000 char limit
         result = await handle_store_knowledge_graph({
@@ -223,7 +223,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_truncates_long_details(self, patch_common, registered_agent):
         """Long details are truncated to 5000 chars."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         long_details = "B" * 5500  # Exceeds 5000 char limit
         result = await handle_store_knowledge_graph({
@@ -241,7 +241,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_with_related_discoveries(self, patch_common, registered_agent):
         """Similar discoveries are linked when auto_link_related is True."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         similar = make_discovery(id="related-1", summary="Related item")
         mock_graph.find_similar = AsyncMock(return_value=[similar])
@@ -261,7 +261,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_graph_exception(self, patch_common, registered_agent):
         """Exception from graph backend returns error response."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         mock_graph.add_discovery = AsyncMock(side_effect=Exception("Database connection lost"))
 
@@ -278,7 +278,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_rate_limit_error(self, patch_common, registered_agent):
         """ValueError with 'rate limit' triggers rate limit error response."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         mock_graph.add_discovery = AsyncMock(side_effect=ValueError("Rate limit exceeded: max 10 per minute"))
 
@@ -296,7 +296,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_invalid_discovery_type(self, patch_common, registered_agent):
         """Invalid discovery_type returns validation error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -311,7 +311,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_with_param_aliases(self, patch_common, registered_agent):
         """Parameter aliases (e.g. 'insight' -> 'summary') work correctly."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -325,7 +325,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_no_agent_id_auto_generates(self, patch_common):
         """When no agent_id and no session binding, one is auto-generated."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "summary": "Note without agent",
@@ -338,7 +338,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_high_severity_requires_registered_agent(self, patch_common):
         """High severity discoveries require registered agent."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         # No agent registered - high severity should require registration
         result = await handle_store_knowledge_graph({
@@ -355,7 +355,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_with_response_to(self, patch_common, registered_agent):
         """Store with response_to linking to parent discovery."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -373,7 +373,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_batch_happy_path(self, patch_common, registered_agent):
         """Batch store multiple discoveries successfully."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -392,7 +392,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_batch_empty_list(self, patch_common, registered_agent):
         """Batch store with empty list returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -407,7 +407,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_batch_too_many(self, patch_common, registered_agent):
         """Batch store with >10 items returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         discoveries = [{"discovery_type": "note", "summary": f"Note {i}"} for i in range(11)]
         result = await handle_store_knowledge_graph({
@@ -423,7 +423,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_batch_partial_failure(self, patch_common, registered_agent):
         """Batch store with some invalid items stores valid ones and reports errors."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -443,7 +443,7 @@ class TestStoreKnowledgeGraph:
     async def test_store_batch_not_a_list(self, patch_common, registered_agent):
         """Batch store with non-list value returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -460,7 +460,7 @@ class TestStoreKnowledgeGraph:
         mock_mcp_server.agent_metadata[registered_agent].status = "paused"
         mock_mcp_server.agent_metadata[registered_agent].paused_at = "2026-01-01T00:00:00"
 
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -482,7 +482,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_no_filters(self, patch_common):
         """Search with no filters returns indexed filter results."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [make_discovery(id=f"d-{i}", summary=f"Item {i}") for i in range(3)]
         mock_graph.query = AsyncMock(return_value=discoveries)
@@ -498,7 +498,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_with_query_text_fts(self, patch_common):
         """Search with query text uses FTS when available."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         # Make graph have full_text_search but no semantic_search
         mock_graph.full_text_search = AsyncMock(return_value=[
@@ -521,7 +521,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_with_filters(self, patch_common):
         """Search with metadata filters."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [make_discovery(id="d-1", type="bug_found", severity="high")]
         mock_graph.query = AsyncMock(return_value=discoveries)
@@ -538,7 +538,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_empty_results(self, patch_common):
         """Search returning no results includes helpful hints."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         mock_graph.query = AsyncMock(return_value=[])
 
@@ -555,7 +555,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_with_include_details(self, patch_common):
         """Search with include_details=True returns full content."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [make_discovery(id="d-1", details="Full details here")]
         mock_graph.query = AsyncMock(return_value=discoveries)
@@ -573,7 +573,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_exception_handling(self, patch_common):
         """Exception from graph backend returns error response."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         mock_graph.query = AsyncMock(side_effect=Exception("DB down"))
 
@@ -587,7 +587,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_substring_scan_fallback(self, patch_common):
         """When no FTS/semantic available, falls back to substring scan."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         # Remove both search methods to trigger substring scan
         mock_graph_spec = AsyncMock()
@@ -598,7 +598,7 @@ class TestSearchKnowledgeGraph:
         del mock_graph_spec.semantic_search
         del mock_graph_spec.full_text_search
 
-        with patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph", new_callable=AsyncMock, return_value=mock_graph_spec):
+        with patch("src.mcp_handlers.knowledge.handlers.get_knowledge_graph", new_callable=AsyncMock, return_value=mock_graph_spec):
             result = await handle_search_knowledge_graph({
                 "query": "keyword",
             })
@@ -611,7 +611,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_with_agent_id_filter(self, patch_common):
         """Search filtered by agent_id."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [make_discovery(id="d-1", agent_id="specific-agent")]
         mock_graph.query = AsyncMock(return_value=discoveries)
@@ -627,7 +627,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_with_tags(self, patch_common):
         """Search filtered by tags."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [make_discovery(id="d-1", tags=["python", "bug"])]
         mock_graph.query = AsyncMock(return_value=discoveries)
@@ -643,7 +643,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_param_aliases(self, patch_common):
         """Parameter aliases work (e.g. 'search' -> 'query')."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         # "search" is an alias for "query" in PARAM_ALIASES
         mock_graph.query = AsyncMock(return_value=[])
@@ -664,7 +664,7 @@ class TestSearchKnowledgeGraph:
     async def test_search_with_provenance(self, patch_common):
         """Search with include_provenance=True returns provenance data."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc = make_discovery(
             id="d-1",
@@ -694,7 +694,7 @@ class TestGetKnowledgeGraph:
     async def test_get_happy_path(self, patch_common, registered_agent):
         """Get discoveries for a registered agent."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_get_knowledge_graph
 
         discoveries = [
             make_discovery(id="d-1", agent_id=registered_agent, summary="First"),
@@ -714,7 +714,7 @@ class TestGetKnowledgeGraph:
     async def test_get_unregistered_agent(self, patch_common):
         """Get for unregistered agent returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_get_knowledge_graph
 
         result = await handle_get_knowledge_graph({
             "agent_id": "nonexistent-agent",
@@ -727,7 +727,7 @@ class TestGetKnowledgeGraph:
     async def test_get_empty_results(self, patch_common, registered_agent):
         """Get returns empty list when no discoveries found."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_get_knowledge_graph
 
         mock_graph.get_agent_discoveries = AsyncMock(return_value=[])
 
@@ -744,7 +744,7 @@ class TestGetKnowledgeGraph:
     async def test_get_with_limit(self, patch_common, registered_agent):
         """Get respects limit parameter."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_get_knowledge_graph
 
         mock_graph.get_agent_discoveries = AsyncMock(return_value=[])
 
@@ -760,7 +760,7 @@ class TestGetKnowledgeGraph:
     async def test_get_exception_handling(self, patch_common, registered_agent):
         """Exception from graph backend returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_get_knowledge_graph
 
         mock_graph.get_agent_discoveries = AsyncMock(side_effect=Exception("DB error"))
 
@@ -776,7 +776,7 @@ class TestGetKnowledgeGraph:
     async def test_get_with_include_details(self, patch_common, registered_agent):
         """Get with include_details=True includes details in output."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_get_knowledge_graph
 
         disc = make_discovery(id="d-1", agent_id=registered_agent, details="Full details content")
         mock_graph.get_agent_discoveries = AsyncMock(return_value=[disc])
@@ -802,7 +802,7 @@ class TestListKnowledgeGraph:
     async def test_list_happy_path(self, patch_common):
         """List returns graph statistics."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_list_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_list_knowledge_graph
 
         mock_graph.get_stats = AsyncMock(return_value={
             "total_discoveries": 42,
@@ -822,7 +822,7 @@ class TestListKnowledgeGraph:
     async def test_list_empty_graph(self, patch_common):
         """List returns zero counts for empty graph."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_list_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_list_knowledge_graph
 
         mock_graph.get_stats = AsyncMock(return_value={
             "total_discoveries": 0,
@@ -839,7 +839,7 @@ class TestListKnowledgeGraph:
     async def test_list_exception_handling(self, patch_common):
         """Exception from graph backend returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_list_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_list_knowledge_graph
 
         mock_graph.get_stats = AsyncMock(side_effect=Exception("Stats error"))
 
@@ -860,7 +860,7 @@ class TestUpdateDiscoveryStatusGraph:
     async def test_update_happy_path(self, patch_common, registered_agent):
         """Update discovery status successfully."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         disc = make_discovery(id="2026-01-01T00:00:00.000000", severity="low", agent_id=registered_agent)
         mock_graph.get_discovery = AsyncMock(return_value=disc)
@@ -880,7 +880,7 @@ class TestUpdateDiscoveryStatusGraph:
     async def test_update_missing_discovery_id(self, patch_common, registered_agent):
         """Update fails when discovery_id is missing."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         result = await handle_update_discovery_status_graph({
             "agent_id": registered_agent,
@@ -894,7 +894,7 @@ class TestUpdateDiscoveryStatusGraph:
     async def test_update_missing_status(self, patch_common, registered_agent):
         """Update fails when status is missing."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         result = await handle_update_discovery_status_graph({
             "agent_id": registered_agent,
@@ -908,7 +908,7 @@ class TestUpdateDiscoveryStatusGraph:
     async def test_update_discovery_not_found(self, patch_common, registered_agent):
         """Update fails when discovery doesn't exist."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         mock_graph.get_discovery = AsyncMock(return_value=None)
         # Mock _get_db for the _discovery_not_found helper
@@ -930,7 +930,7 @@ class TestUpdateDiscoveryStatusGraph:
     async def test_update_unregistered_agent(self, patch_common):
         """Update fails for unregistered agent."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         result = await handle_update_discovery_status_graph({
             "agent_id": "unregistered",
@@ -945,7 +945,7 @@ class TestUpdateDiscoveryStatusGraph:
     async def test_update_invalid_status(self, patch_common, registered_agent):
         """Update fails with invalid status value."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         result = await handle_update_discovery_status_graph({
             "agent_id": registered_agent,
@@ -960,7 +960,7 @@ class TestUpdateDiscoveryStatusGraph:
     async def test_update_exception_handling(self, patch_common, registered_agent):
         """Exception from graph backend returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         mock_graph.get_discovery = AsyncMock(side_effect=Exception("Connection error"))
 
@@ -978,7 +978,7 @@ class TestUpdateDiscoveryStatusGraph:
     async def test_update_resolved_sets_timestamp(self, patch_common, registered_agent):
         """Updating to 'resolved' sets resolved_at timestamp."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         disc = make_discovery(id="2026-01-01T00:00:00.000000", severity="low", agent_id=registered_agent)
         mock_graph.get_discovery = AsyncMock(return_value=disc)
@@ -1007,7 +1007,7 @@ class TestGetDiscoveryDetails:
     async def test_get_details_happy_path(self, patch_common):
         """Get full details for a discovery."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         disc = make_discovery(id="2026-01-01T00:00:00.000000", details="Full details content here")
         mock_graph.get_discovery = AsyncMock(return_value=disc)
@@ -1025,7 +1025,7 @@ class TestGetDiscoveryDetails:
     async def test_get_details_missing_id(self, patch_common):
         """Get details fails when discovery_id is missing."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         result = await handle_get_discovery_details({})
 
@@ -1036,7 +1036,7 @@ class TestGetDiscoveryDetails:
     async def test_get_details_not_found(self, patch_common):
         """Get details for nonexistent discovery returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         mock_graph.get_discovery = AsyncMock(return_value=None)
         # Mock _get_db for the _discovery_not_found helper
@@ -1056,7 +1056,7 @@ class TestGetDiscoveryDetails:
     async def test_get_details_with_pagination(self, patch_common):
         """Get details with pagination (offset/length)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         long_details = "A" * 5000
         disc = make_discovery(id="2026-01-01T00:00:00.000000", details=long_details)
@@ -1079,7 +1079,7 @@ class TestGetDiscoveryDetails:
     async def test_get_details_short_content_no_pagination(self, patch_common):
         """Short details don't trigger pagination."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         disc = make_discovery(id="2026-01-01T00:00:00.000000", details="Short content")
         mock_graph.get_discovery = AsyncMock(return_value=disc)
@@ -1096,7 +1096,7 @@ class TestGetDiscoveryDetails:
     async def test_get_details_with_response_chain(self, patch_common):
         """Get details with response chain traversal."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         disc = make_discovery(id="2026-01-01T00:00:00.000000", details="Details")
         chain_disc = make_discovery(id="2026-01-02T00:00:00.000000", summary="Response")
@@ -1117,7 +1117,7 @@ class TestGetDiscoveryDetails:
     async def test_get_details_response_chain_not_supported(self, patch_common):
         """Response chain gracefully handles unsupported backend."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         disc = make_discovery(id="2026-01-01T00:00:00.000000", details="Details")
         mock_graph.get_discovery = AsyncMock(return_value=disc)
@@ -1138,7 +1138,7 @@ class TestGetDiscoveryDetails:
     async def test_get_details_exception_handling(self, patch_common):
         """Exception from graph backend returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         mock_graph.get_discovery = AsyncMock(side_effect=Exception("Timeout"))
 
@@ -1161,7 +1161,7 @@ class TestLeaveNote:
     async def test_leave_note_happy_path(self, patch_common, registered_agent):
         """Leave a note successfully."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         result = await handle_leave_note({
             "agent_id": registered_agent,
@@ -1179,7 +1179,7 @@ class TestLeaveNote:
     async def test_leave_note_missing_text(self, patch_common, registered_agent):
         """Leave note fails without content."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         result = await handle_leave_note({
             "agent_id": registered_agent,
@@ -1192,7 +1192,7 @@ class TestLeaveNote:
     async def test_leave_note_param_aliases(self, patch_common, registered_agent):
         """Note content can use aliases (text, note, content, etc.)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         # "text" is an alias for "summary"
         result = await handle_leave_note({
@@ -1207,7 +1207,7 @@ class TestLeaveNote:
     async def test_leave_note_truncation(self, patch_common, registered_agent):
         """Long notes are truncated to 1000 chars (MAX_SUMMARY_LEN)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         long_text = "X" * 1200
         result = await handle_leave_note({
@@ -1226,7 +1226,7 @@ class TestLeaveNote:
     async def test_leave_note_auto_links_with_tags(self, patch_common, registered_agent):
         """Notes with tags auto-link to similar discoveries."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         similar = make_discovery(id="similar-1")
         mock_graph.find_similar = AsyncMock(return_value=[similar])
@@ -1245,7 +1245,7 @@ class TestLeaveNote:
     async def test_leave_note_unregistered_agent(self, patch_common):
         """Leave note fails for unregistered agent."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         result = await handle_leave_note({
             "agent_id": "nonexistent-agent",
@@ -1261,7 +1261,7 @@ class TestLeaveNote:
         mock_mcp_server.agent_metadata[registered_agent].status = "paused"
         mock_mcp_server.agent_metadata[registered_agent].paused_at = "2026-01-01T00:00:00"
 
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         result = await handle_leave_note({
             "agent_id": registered_agent,
@@ -1276,7 +1276,7 @@ class TestLeaveNote:
     async def test_leave_note_with_response_to(self, patch_common, registered_agent):
         """Leave note with response_to for threading."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         result = await handle_leave_note({
             "agent_id": registered_agent,
@@ -1294,7 +1294,7 @@ class TestLeaveNote:
     async def test_leave_note_exception_handling(self, patch_common, registered_agent):
         """Exception from graph backend returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         mock_graph.add_discovery = AsyncMock(side_effect=Exception("Write error"))
 
@@ -1323,7 +1323,7 @@ class TestCleanupKnowledgeGraph:
         # The import is local: from src.knowledge_graph_lifecycle import run_kg_lifecycle_cleanup
         import src.knowledge_graph_lifecycle as lifecycle_mod
         with patch.object(lifecycle_mod, "run_kg_lifecycle_cleanup", mock_cleanup):
-            from src.mcp_handlers.knowledge_graph import handle_cleanup_knowledge_graph
+            from src.mcp_handlers.knowledge.handlers import handle_cleanup_knowledge_graph
             result = await handle_cleanup_knowledge_graph({"dry_run": True})
 
         data = parse_result(result)
@@ -1338,7 +1338,7 @@ class TestCleanupKnowledgeGraph:
         mock_cleanup = AsyncMock(return_value={"archived": 5, "total_processed": 20})
         import src.knowledge_graph_lifecycle as lifecycle_mod
         with patch.object(lifecycle_mod, "run_kg_lifecycle_cleanup", mock_cleanup):
-            from src.mcp_handlers.knowledge_graph import handle_cleanup_knowledge_graph
+            from src.mcp_handlers.knowledge.handlers import handle_cleanup_knowledge_graph
             result = await handle_cleanup_knowledge_graph({"dry_run": False})
 
         data = parse_result(result)
@@ -1353,7 +1353,7 @@ class TestCleanupKnowledgeGraph:
         mock_cleanup = AsyncMock(return_value={"archived": 0})
         import src.knowledge_graph_lifecycle as lifecycle_mod
         with patch.object(lifecycle_mod, "run_kg_lifecycle_cleanup", mock_cleanup):
-            from src.mcp_handlers.knowledge_graph import handle_cleanup_knowledge_graph
+            from src.mcp_handlers.knowledge.handlers import handle_cleanup_knowledge_graph
             result = await handle_cleanup_knowledge_graph({})
 
         mock_cleanup.assert_awaited_once_with(dry_run=True)
@@ -1366,7 +1366,7 @@ class TestCleanupKnowledgeGraph:
         mock_cleanup = AsyncMock(side_effect=Exception("Cleanup failed"))
         import src.knowledge_graph_lifecycle as lifecycle_mod
         with patch.object(lifecycle_mod, "run_kg_lifecycle_cleanup", mock_cleanup):
-            from src.mcp_handlers.knowledge_graph import handle_cleanup_knowledge_graph
+            from src.mcp_handlers.knowledge.handlers import handle_cleanup_knowledge_graph
             result = await handle_cleanup_knowledge_graph({})
 
         data = parse_result(result)
@@ -1392,7 +1392,7 @@ class TestGetLifecycleStats:
         import src.knowledge_graph_lifecycle as lifecycle_mod
         with patch.object(lifecycle_mod, "get_kg_lifecycle_stats",
                           AsyncMock(return_value=stats_data)):
-            from src.mcp_handlers.knowledge_graph import handle_get_lifecycle_stats
+            from src.mcp_handlers.knowledge.handlers import handle_get_lifecycle_stats
             result = await handle_get_lifecycle_stats({})
 
         data = parse_result(result)
@@ -1408,7 +1408,7 @@ class TestGetLifecycleStats:
         import src.knowledge_graph_lifecycle as lifecycle_mod
         with patch.object(lifecycle_mod, "get_kg_lifecycle_stats",
                           AsyncMock(side_effect=Exception("Stats unavailable"))):
-            from src.mcp_handlers.knowledge_graph import handle_get_lifecycle_stats
+            from src.mcp_handlers.knowledge.handlers import handle_get_lifecycle_stats
             result = await handle_get_lifecycle_stats({})
 
         data = parse_result(result)
@@ -1426,7 +1426,7 @@ class TestAnswerQuestion:
     async def test_answer_question_happy_path(self, patch_common, registered_agent):
         """Answer a matching question successfully."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         question_disc = make_discovery(
             id="q-1",
@@ -1452,7 +1452,7 @@ class TestAnswerQuestion:
     async def test_answer_question_missing_question(self, patch_common, registered_agent):
         """Answer fails without question text."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         result = await handle_answer_question({
             "agent_id": registered_agent,
@@ -1466,7 +1466,7 @@ class TestAnswerQuestion:
     async def test_answer_question_missing_answer(self, patch_common, registered_agent):
         """Answer fails without answer text."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         result = await handle_answer_question({
             "agent_id": registered_agent,
@@ -1480,7 +1480,7 @@ class TestAnswerQuestion:
     async def test_answer_question_no_match(self, patch_common, registered_agent):
         """Answer fails when no matching question found."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         mock_graph.query = AsyncMock(return_value=[])
 
@@ -1498,7 +1498,7 @@ class TestAnswerQuestion:
     async def test_answer_question_with_resolve(self, patch_common, registered_agent):
         """Answer resolves question when resolve_question=True."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         question_disc = make_discovery(
             id="q-1",
@@ -1524,7 +1524,7 @@ class TestAnswerQuestion:
     async def test_answer_question_unregistered_agent(self, patch_common):
         """Answer fails for unregistered agent."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         result = await handle_answer_question({
             "agent_id": "nonexistent-agent",
@@ -1539,7 +1539,7 @@ class TestAnswerQuestion:
     async def test_answer_question_exception_handling(self, patch_common, registered_agent):
         """Exception from graph backend returns error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         mock_graph.query = AsyncMock(side_effect=Exception("Query error"))
 
@@ -1557,7 +1557,7 @@ class TestAnswerQuestion:
     async def test_answer_question_truncates_long_answer(self, patch_common, registered_agent):
         """Long answers are truncated to 2000 chars."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         question_disc = make_discovery(
             id="q-1",
@@ -1591,7 +1591,7 @@ class TestDiscoveryNotFound:
     async def test_not_found_no_suggestions(self, patch_common):
         """Returns plain not-found error when no prefix matches."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import _discovery_not_found
+        from src.mcp_handlers.knowledge.handlers import _discovery_not_found
 
         mock_db = AsyncMock()
         mock_db.graph_query = AsyncMock(return_value=[])
@@ -1608,7 +1608,7 @@ class TestDiscoveryNotFound:
     async def test_not_found_with_suggestions(self, patch_common):
         """Returns suggestions when prefix matches exist."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import _discovery_not_found
+        from src.mcp_handlers.knowledge.handlers import _discovery_not_found
 
         mock_db = AsyncMock()
         mock_db.graph_query = AsyncMock(return_value=[
@@ -1629,7 +1629,7 @@ class TestDiscoveryNotFound:
     async def test_not_found_db_error_graceful(self, patch_common):
         """Falls back to plain error when DB query fails."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import _discovery_not_found
+        from src.mcp_handlers.knowledge.handlers import _discovery_not_found
 
         mock_graph._get_db = AsyncMock(side_effect=Exception("DB unavailable"))
 
@@ -1648,7 +1648,7 @@ class TestCheckDisplayNameRequired:
 
     def test_has_real_display_name(self, patch_common, registered_agent, mock_mcp_server):
         """Returns (None, None) when agent has a meaningful display_name."""
-        from src.mcp_handlers.knowledge_graph import _check_display_name_required
+        from src.mcp_handlers.knowledge.handlers import _check_display_name_required
 
         error, warning = _check_display_name_required(registered_agent, {})
 
@@ -1665,9 +1665,9 @@ class TestCheckDisplayNameRequired:
         meta.label = agent_id
         mock_mcp_server.agent_metadata[agent_id] = meta
 
-        from src.mcp_handlers.knowledge_graph import _check_display_name_required
+        from src.mcp_handlers.knowledge.handlers import _check_display_name_required
 
-        with patch("src.mcp_handlers.knowledge_graph._check_display_name_required.__module__"):
+        with patch("src.mcp_handlers.knowledge.handlers._check_display_name_required.__module__"):
             error, warning = _check_display_name_required(agent_id, {})
 
         assert error is None
@@ -1677,7 +1677,7 @@ class TestCheckDisplayNameRequired:
 
     def test_no_metadata_graceful(self, patch_common):
         """Gracefully handles agents not in metadata."""
-        from src.mcp_handlers.knowledge_graph import _check_display_name_required
+        from src.mcp_handlers.knowledge.handlers import _check_display_name_required
 
         error, warning = _check_display_name_required("unknown-agent", {})
 
@@ -1693,7 +1693,7 @@ class TestResolveAgentDisplay:
 
     def test_resolve_known_agent(self, patch_common, registered_agent, mock_mcp_server):
         """Resolves agent display info from metadata."""
-        from src.mcp_handlers.knowledge_graph import _resolve_agent_display
+        from src.mcp_handlers.knowledge.handlers import _resolve_agent_display
 
         result = _resolve_agent_display(registered_agent)
 
@@ -1703,7 +1703,7 @@ class TestResolveAgentDisplay:
 
     def test_resolve_unknown_agent(self, patch_common):
         """Returns agent_id as fallback for unknown agents."""
-        from src.mcp_handlers.knowledge_graph import _resolve_agent_display
+        from src.mcp_handlers.knowledge.handlers import _resolve_agent_display
 
         result = _resolve_agent_display("unknown-agent-xyz")
 
@@ -1718,7 +1718,7 @@ class TestResolveAgentDisplay:
         meta.label = "Opus Agent"
         mock_mcp_server.agent_metadata["uuid-123"] = meta
 
-        from src.mcp_handlers.knowledge_graph import _resolve_agent_display
+        from src.mcp_handlers.knowledge.handlers import _resolve_agent_display
 
         result = _resolve_agent_display("opus_agent_20260101")
 
@@ -1735,7 +1735,7 @@ class TestEdgeCases:
     async def test_store_with_invalid_severity(self, patch_common, registered_agent):
         """Invalid severity returns validation error."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -1750,7 +1750,7 @@ class TestEdgeCases:
     async def test_store_with_empty_summary(self, patch_common, registered_agent):
         """Empty string summary is treated as missing."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -1764,7 +1764,7 @@ class TestEdgeCases:
     async def test_search_limit_respected(self, patch_common):
         """Custom limit parameter is respected in search."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         mock_graph.query = AsyncMock(return_value=[])
 
@@ -1780,7 +1780,7 @@ class TestEdgeCases:
     async def test_leave_note_sets_type_to_note(self, patch_common, registered_agent):
         """Leave note always creates discoveries with type='note'."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         result = await handle_leave_note({
             "agent_id": registered_agent,
@@ -1798,7 +1798,7 @@ class TestEdgeCases:
     async def test_store_no_auto_link(self, patch_common, registered_agent):
         """Store with auto_link_related=False skips similarity search."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -1815,7 +1815,7 @@ class TestEdgeCases:
     async def test_get_details_response_chain_error(self, patch_common):
         """Response chain traversal error is non-fatal."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         disc = make_discovery(id="2026-01-01T00:00:00.000000", details="Details")
         mock_graph.get_discovery = AsyncMock(return_value=disc)
@@ -1842,7 +1842,7 @@ class TestDiscoveryNotFoundAdditional:
     async def test_not_found_with_string_rows(self, patch_common):
         """Returns suggestions from string-typed rows (lines 52-53)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import _discovery_not_found
+        from src.mcp_handlers.knowledge.handlers import _discovery_not_found
 
         mock_db = AsyncMock()
         mock_db.graph_query = AsyncMock(return_value=[
@@ -1875,7 +1875,7 @@ class TestCheckDisplayNameAdditional:
         meta.label = "auto_20260101_abc"
         mock_mcp_server.agent_metadata[agent_id] = meta
 
-        from src.mcp_handlers.knowledge_graph import _check_display_name_required
+        from src.mcp_handlers.knowledge.handlers import _check_display_name_required
 
         error, warning = _check_display_name_required(agent_id, {})
 
@@ -1893,7 +1893,7 @@ class TestCheckDisplayNameAdditional:
         meta.label = "Agent_abc123"
         mock_mcp_server.agent_metadata[agent_id] = meta
 
-        from src.mcp_handlers.knowledge_graph import _check_display_name_required
+        from src.mcp_handlers.knowledge.handlers import _check_display_name_required
 
         error, warning = _check_display_name_required(agent_id, {})
 
@@ -1903,7 +1903,7 @@ class TestCheckDisplayNameAdditional:
 
     def test_check_display_name_exception_graceful(self):
         """Exception in check is suppressed (lines 139-141)."""
-        from src.mcp_handlers.knowledge_graph import _check_display_name_required
+        from src.mcp_handlers.knowledge.handlers import _check_display_name_required
 
         # Patch get_mcp_server at the import source to raise
         with patch("src.mcp_handlers.shared.get_mcp_server", side_effect=RuntimeError("broken")):
@@ -1921,7 +1921,7 @@ class TestResolveAgentDisplayAdditional:
 
     def test_resolve_exception_graceful(self, patch_common):
         """Exception in resolve returns fallback (lines 176-177)."""
-        from src.mcp_handlers.knowledge_graph import _resolve_agent_display
+        from src.mcp_handlers.knowledge.handlers import _resolve_agent_display
 
         with patch("src.mcp_handlers.shared.get_mcp_server", side_effect=RuntimeError("broken")):
             result = _resolve_agent_display("any-agent")
@@ -1942,7 +1942,7 @@ class TestStoreKnowledgeGraphAdditional:
         mock_mcp_server.agent_metadata[registered_agent].display_name = None
         mock_mcp_server.agent_metadata[registered_agent].label = None
 
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -1967,7 +1967,7 @@ class TestStoreKnowledgeGraphAdditional:
     async def test_store_high_severity_requires_auth(self, patch_common, registered_agent):
         """High severity store requires auth ownership (lines 393-395)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         with patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
             result = await handle_store_knowledge_graph({
@@ -1984,7 +1984,7 @@ class TestStoreKnowledgeGraphAdditional:
     async def test_store_high_severity_human_review_flag(self, patch_common, registered_agent):
         """High severity discoveries get human_review_required flag (lines 434-435)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         with patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
             result = await handle_store_knowledge_graph({
@@ -2001,7 +2001,7 @@ class TestStoreKnowledgeGraphAdditional:
     async def test_store_value_error_non_rate_limit(self, patch_common, registered_agent):
         """ValueError without rate limit in message returns generic error (line 454)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         mock_graph.add_discovery = AsyncMock(side_effect=ValueError("Invalid data format"))
 
@@ -2031,9 +2031,9 @@ class TestStoreKnowledgeGraphAdditional:
         mock_monitor.state = mock_state
         mock_mcp_server.monitors = {registered_agent: mock_monitor}
 
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
-        with patch("src.mcp_handlers.identity_shared._get_lineage", return_value=[registered_agent]):
+        with patch("src.mcp_handlers.identity.shared._get_lineage", return_value=[registered_agent]):
             result = await handle_store_knowledge_graph({
                 "agent_id": registered_agent,
                 "summary": "Provenance test",
@@ -2061,9 +2061,9 @@ class TestStoreKnowledgeGraphAdditional:
         current_meta = mock_mcp_server.agent_metadata[registered_agent]
         current_meta.parent_agent_id = "parent-id"
 
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
-        with patch("src.mcp_handlers.identity_shared._get_lineage",
+        with patch("src.mcp_handlers.identity.shared._get_lineage",
                     return_value=["parent-id", registered_agent]):
             result = await handle_store_knowledge_graph({
                 "agent_id": registered_agent,
@@ -2084,7 +2084,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_semantic_mode(self, patch_common):
         """Search with semantic=True uses semantic search (lines 513-521)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc = make_discovery(id="sem-1", summary="Semantic result")
         mock_graph.semantic_search = AsyncMock(return_value=[(disc, 0.85)])
@@ -2103,7 +2103,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_semantic_with_filters(self, patch_common):
         """Search semantic with metadata filters (lines 544-557)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc1 = make_discovery(id="sem-1", summary="Match", type="bug_found", severity="high", tags=["python"])
         disc2 = make_discovery(id="sem-2", summary="Wrong type", type="note")
@@ -2128,7 +2128,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_semantic_fallback_to_fts(self, patch_common):
         """Search semantic returning 0 results falls back to FTS (lines 602-632)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc = make_discovery(id="fts-1", summary="FTS fallback result")
         mock_graph.semantic_search = AsyncMock(return_value=[])
@@ -2148,7 +2148,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_fts_fallback_individual_terms(self, patch_common):
         """Search FTS returning 0 results falls back to individual terms (lines 647-674)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc = make_discovery(id="fts-term-1", summary="Individual term match")
         # Remove semantic_search to force FTS path
@@ -2173,7 +2173,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_semantic_lower_threshold_fallback(self, patch_common):
         """Search semantic falls back to lower threshold (lines 678-714)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc = make_discovery(id="low-thresh-1", summary="Low threshold match")
         # First call: normal threshold returns empty
@@ -2207,7 +2207,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_fts_with_agent_filter(self, patch_common):
         """Search FTS with agent_id filter (line 547)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc1 = make_discovery(id="fts-1", summary="Match", agent_id="agent-a")
         disc2 = make_discovery(id="fts-2", summary="Other", agent_id="agent-b")
@@ -2227,7 +2227,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_empty_with_long_query_hints(self, patch_common):
         """Empty results with long query show specific hints (lines 787-788)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         del mock_graph.semantic_search
         del mock_graph.full_text_search
@@ -2246,7 +2246,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_empty_with_single_word_hints(self, patch_common):
         """Empty results with single word query shows tag suggestion (lines 795-796)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         del mock_graph.semantic_search
         del mock_graph.full_text_search
@@ -2265,7 +2265,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_empty_with_filter_hints(self, patch_common):
         """Empty results with active filters show filter-specific hints (lines 803-809)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         mock_graph.query = AsyncMock(return_value=[])
 
@@ -2286,7 +2286,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_limit_cap_hint(self, patch_common):
         """Results at limit show _more_available hint (lines 829)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [make_discovery(id=f"d-{i}", summary=f"Item {i}") for i in range(5)]
         mock_graph.query = AsyncMock(return_value=discoveries)
@@ -2304,7 +2304,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_semantic_threshold_explanation(self, patch_common):
         """Semantic search includes threshold explanation (lines 833-837)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc = make_discovery(id="sem-1", summary="Result")
         mock_graph.semantic_search = AsyncMock(return_value=[(disc, 0.5)])
@@ -2323,7 +2323,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_similarity_scores_included(self, patch_common):
         """Semantic search includes similarity scores (lines 856-862)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc1 = make_discovery(id="sem-1", summary="Close match")
         disc2 = make_discovery(id="sem-2", summary="Another match")
@@ -2345,12 +2345,12 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_synthesize_with_enough_results(self, patch_common):
         """Search with synthesize=True when enough results triggers synthesis (lines 877-890)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [make_discovery(id=f"d-{i}", summary=f"Item {i}") for i in range(5)]
         mock_graph.query = AsyncMock(return_value=discoveries)
 
-        with patch("src.mcp_handlers.knowledge_graph.synthesize_results",
+        with patch("src.mcp_handlers.knowledge.handlers.synthesize_results",
                     new_callable=AsyncMock,
                     return_value={"summary": "Synthesized results"}):
             result = await handle_search_knowledge_graph({
@@ -2366,7 +2366,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_synthesize_below_threshold(self, patch_common):
         """Search with synthesize=True but too few results skips synthesis (line 892)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [make_discovery(id="d-1", summary="Single")]
         mock_graph.query = AsyncMock(return_value=discoveries)
@@ -2384,7 +2384,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_indexed_status_filter(self, patch_common):
         """Search with status filter in indexed mode (line 593)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [make_discovery(id="d-1", status="resolved")]
         mock_graph.query = AsyncMock(return_value=discoveries)
@@ -2401,7 +2401,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_substring_scan_empty(self, patch_common):
         """Substring scan with no matches shows search_hint (line 823)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         # Remove both search methods to trigger substring scan
         mock_graph_spec = AsyncMock()
@@ -2409,8 +2409,8 @@ class TestSearchKnowledgeGraphAdditional:
         del mock_graph_spec.semantic_search
         del mock_graph_spec.full_text_search
 
-        with patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph", new_callable=AsyncMock, return_value=mock_graph_spec), \
-             patch("src.mcp_handlers.knowledge_graph.record_ms"):
+        with patch("src.mcp_handlers.knowledge.handlers.get_knowledge_graph", new_callable=AsyncMock, return_value=mock_graph_spec), \
+             patch("src.mcp_handlers.knowledge.handlers.record_ms"):
             result = await handle_search_knowledge_graph({
                 "query": "nonexistent",
             })
@@ -2425,7 +2425,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_fts_multi_term_operator_note(self, patch_common):
         """FTS multi-term queries show operator_note (line 823)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         disc = make_discovery(id="fts-1", summary="Match found")
         del mock_graph.semantic_search
@@ -2444,7 +2444,7 @@ class TestSearchKnowledgeGraphAdditional:
     async def test_search_no_details_tip(self, patch_common):
         """Search without include_details shows tip when >3 results (auto-detail for ≤3)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         # >3 results avoids auto-detail promotion
         discoveries = [make_discovery(id=f"d-{i}") for i in range(5)]
@@ -2468,7 +2468,7 @@ class TestGetKnowledgeGraphAdditional:
     async def test_get_limit_reached_hint(self, patch_common, registered_agent):
         """Get with results at limit shows _more_available hint (line 950)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_get_knowledge_graph
 
         discoveries = [make_discovery(id=f"d-{i}", agent_id=registered_agent) for i in range(3)]
         mock_graph.get_agent_discoveries = AsyncMock(return_value=discoveries)
@@ -2493,7 +2493,7 @@ class TestUpdateDiscoveryStatusAdditional:
     async def test_update_high_severity_requires_auth(self, patch_common, registered_agent):
         """High severity update requires auth (lines 1018-1033)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         disc = make_discovery(
             id="2026-01-01T00:00:00.000000",
@@ -2517,7 +2517,7 @@ class TestUpdateDiscoveryStatusAdditional:
     async def test_update_high_severity_non_owner_reopen_denied(self, patch_common, registered_agent):
         """Non-owner cannot reopen high severity discovery (lines 1032-1033)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         disc = make_discovery(
             id="2026-01-01T00:00:00.000000",
@@ -2541,7 +2541,7 @@ class TestUpdateDiscoveryStatusAdditional:
     async def test_update_success_returns_false(self, patch_common, registered_agent):
         """Update returning False triggers not found error (line 1049)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_update_discovery_status_graph
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
 
         disc = make_discovery(id="2026-01-01T00:00:00.000000", severity="low", agent_id=registered_agent)
         mock_graph.get_discovery = AsyncMock(return_value=disc)
@@ -2568,7 +2568,7 @@ class TestGetDiscoveryDetailsAdditional:
     async def test_get_details_validate_discovery_id_error(self, patch_common):
         """Invalid discovery_id format returns error (line 1084)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_get_discovery_details
+        from src.mcp_handlers.knowledge.handlers import handle_get_discovery_details
 
         # Pass an invalid discovery_id format (depends on validator)
         result = await handle_get_discovery_details({
@@ -2589,7 +2589,7 @@ class TestAnswerQuestionAdditional:
     async def test_answer_question_no_match_with_recent_questions(self, patch_common, registered_agent):
         """No matching question lists recent questions (lines 1366-1370)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         # First call (question search): returns non-matching questions
         question1 = make_discovery(id="q-1", type="question", summary="Unrelated question about X")
@@ -2614,7 +2614,7 @@ class TestAnswerQuestionAdditional:
     async def test_answer_question_truncates_long_answer(self, patch_common, registered_agent):
         """Long answers are truncated (lines 1382-1383)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_answer_question
+        from src.mcp_handlers.knowledge.handlers import handle_answer_question
 
         question_disc = make_discovery(
             id="q-1", type="question", summary="Tell me everything about this"
@@ -2642,7 +2642,7 @@ class TestLeaveNoteAdditional:
     async def test_leave_note_response_to_invalid_id(self, patch_common, registered_agent):
         """Leave note with invalid response_to discovery_id returns error (line 1474)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         result = await handle_leave_note({
             "agent_id": registered_agent,
@@ -2660,7 +2660,7 @@ class TestLeaveNoteAdditional:
     async def test_leave_note_response_to_invalid_type(self, patch_common, registered_agent):
         """Leave note with invalid response_type returns error (line 1479)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_leave_note
+        from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         result = await handle_leave_note({
             "agent_id": registered_agent,
@@ -2685,7 +2685,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_truncation(self, patch_common, registered_agent):
         """Batch store truncates long content (lines 1213-1219)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -2708,7 +2708,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_invalid_severity_uses_default(self, patch_common, registered_agent):
         """Batch store with invalid severity falls back to None (lines 1245-1247)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -2729,7 +2729,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_rate_limit_error(self, patch_common, registered_agent):
         """Batch store with rate limit ValueError (lines 1284-1292)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         # First add succeeds, second raises rate limit
         call_count = 0
@@ -2761,7 +2761,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_general_exception(self, patch_common, registered_agent):
         """Batch store with general exception per item (line 1292)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         mock_graph.add_discovery = AsyncMock(side_effect=RuntimeError("disk full"))
 
@@ -2780,9 +2780,9 @@ class TestBatchStoreAdditional:
     async def test_batch_store_overall_exception(self, patch_common, registered_agent):
         """Batch store overall exception (line 1313-1314)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
-        with patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph",
+        with patch("src.mcp_handlers.knowledge.handlers.get_knowledge_graph",
                     new_callable=AsyncMock, side_effect=RuntimeError("KG unavailable")):
             result = await handle_store_knowledge_graph({
                 "agent_id": registered_agent,
@@ -2798,7 +2798,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_high_severity_auth_check(self, patch_common, registered_agent):
         """Batch store high severity checks auth (lines 1268-1271)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         with patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
             result = await handle_store_knowledge_graph({
@@ -2816,7 +2816,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_with_truncation_tip(self, patch_common, registered_agent):
         """Batch store with truncation shows tip (line 1309)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -2837,7 +2837,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_missing_discovery_type(self, patch_common, registered_agent):
         """Batch store with missing discovery_type (lines 1194-1195)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -2854,7 +2854,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_invalid_discovery_type(self, patch_common, registered_agent):
         """Batch store with invalid discovery_type (lines 1199-1200)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -2871,7 +2871,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_missing_summary(self, patch_common, registered_agent):
         """Batch store with missing summary (lines 1203-1205)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -2888,7 +2888,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_with_response_to(self, patch_common, registered_agent):
         """Batch store with response_to (lines 1227-1237)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -2912,7 +2912,7 @@ class TestBatchStoreAdditional:
     async def test_batch_store_auto_link_disabled(self, patch_common, registered_agent):
         """Batch store with auto_link_related=False (line 1281)."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_store_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
         result = await handle_store_knowledge_graph({
             "agent_id": registered_agent,
@@ -2942,7 +2942,7 @@ class TestSearchArchivedFiltering:
     async def test_search_excludes_archived_by_default(self, patch_common):
         """Archived entries should be excluded from search results by default."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [
             make_discovery(id="d-open", status="open"),
@@ -2971,7 +2971,7 @@ class TestSearchArchivedFiltering:
     async def test_search_includes_archived_when_requested(self, patch_common):
         """Archived entries should be included when include_archived=True."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [
             make_discovery(id="d-open", status="open"),
@@ -2991,7 +2991,7 @@ class TestSearchArchivedFiltering:
     async def test_search_includes_archived_when_status_filter_set(self, patch_common):
         """When status filter is explicitly set, don't apply archived exclusion."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [
             make_discovery(id="d-archived", status="archived"),
@@ -3009,7 +3009,7 @@ class TestSearchArchivedFiltering:
     async def test_search_fts_excludes_archived_by_default(self, patch_common):
         """FTS search should also exclude archived entries by default."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_search_knowledge_graph
+        from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
         discoveries = [
             make_discovery(id="d-open", summary="matching text", status="open"),
@@ -3039,7 +3039,7 @@ class TestSupersedeHandler:
     async def test_supersede_success(self, patch_common):
         """Should create SUPERSEDES edge via handler."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_supersede_discovery
+        from src.mcp_handlers.knowledge.handlers import handle_supersede_discovery
 
         mock_graph.supersede_discovery = AsyncMock(return_value={
             "success": True,
@@ -3059,7 +3059,7 @@ class TestSupersedeHandler:
     async def test_supersede_missing_params(self, patch_common):
         """Should fail when required params are missing."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_supersede_discovery
+        from src.mcp_handlers.knowledge.handlers import handle_supersede_discovery
 
         result = await handle_supersede_discovery({"discovery_id": "new-1"})
         data = parse_result(result)
@@ -3069,7 +3069,7 @@ class TestSupersedeHandler:
     async def test_supersede_no_age_backend(self, patch_common):
         """Should fail gracefully when AGE backend not available."""
         mock_mcp_server, mock_graph = patch_common
-        from src.mcp_handlers.knowledge_graph import handle_supersede_discovery
+        from src.mcp_handlers.knowledge.handlers import handle_supersede_discovery
 
         # Remove supersede_discovery to simulate non-AGE backend
         if hasattr(mock_graph, 'supersede_discovery'):

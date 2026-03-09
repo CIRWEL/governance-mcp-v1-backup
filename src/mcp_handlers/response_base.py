@@ -91,7 +91,7 @@ def success_response(data: Dict[str, Any], agent_id: str = None, arguments: Dict
     Returns Sequence[TextContent] containing SuccessResponseDict.
     """
     from . import serialization as _ser
-    from . import agent_auth as _auth
+    from .support import agent_auth as _auth
 
     response = {
         "success": True,

@@ -153,7 +153,7 @@ def _isolate_identity_state():
 
     # --- identity_shared module-level caches ---
     try:
-        from src.mcp_handlers.identity_shared import (
+        from src.mcp_handlers.identity.shared import (
             _session_identities, _uuid_prefix_index,
         )
         _session_identities.clear()
@@ -200,7 +200,7 @@ def _isolate_identity_state():
 
     # --- dialectic session in-memory state ---
     try:
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             ACTIVE_SESSIONS, _SESSION_METADATA_CACHE,
         )
         ACTIVE_SESSIONS.clear()

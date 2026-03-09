@@ -34,10 +34,10 @@ class TestResetMonitor:
         mock_mcp_server.monitors = {"agent-1": MagicMock()}
         mock_mcp_server.agent_metadata = {"agent-1": MagicMock(status="active")}
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.admin.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.admin import handle_reset_monitor
+            from src.mcp_handlers.admin.handlers import handle_reset_monitor
             result = await handle_reset_monitor({"agent_id": "agent-1"})
 
             data = json.loads(result[0].text)
@@ -48,10 +48,10 @@ class TestResetMonitor:
     async def test_reset_nonexistent_monitor(self, mock_mcp_server):
         mock_mcp_server.monitors = {}
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.admin.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.admin import handle_reset_monitor
+            from src.mcp_handlers.admin.handlers import handle_reset_monitor
             result = await handle_reset_monitor({"agent_id": "agent-1"})
 
             data = json.loads(result[0].text)
@@ -62,10 +62,10 @@ class TestResetMonitor:
         from mcp.types import TextContent
         error = TextContent(type="text", text='{"error": "not registered"}')
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.admin.require_registered_agent", return_value=(None, error)):
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.require_registered_agent", return_value=(None, error)):
 
-            from src.mcp_handlers.admin import handle_reset_monitor
+            from src.mcp_handlers.admin.handlers import handle_reset_monitor
             result = await handle_reset_monitor({})
 
             assert "not registered" in result[0].text
@@ -85,7 +85,7 @@ class TestCleanupStaleLocks:
         }
         # cleanup_stale_state_locks is imported inside the handler via `from src.lock_cleanup import ...`
         with patch("src.lock_cleanup.cleanup_stale_state_locks", return_value=mock_result):
-            from src.mcp_handlers.admin import handle_cleanup_stale_locks
+            from src.mcp_handlers.admin.handlers import handle_cleanup_stale_locks
             result = await handle_cleanup_stale_locks({})
 
             data = json.loads(result[0].text)
@@ -99,7 +99,7 @@ class TestCleanupStaleLocks:
             "cleaned_locks": [], "kept_locks": ["a", "b", "c"],
         }
         with patch("src.lock_cleanup.cleanup_stale_state_locks", return_value=mock_result):
-            from src.mcp_handlers.admin import handle_cleanup_stale_locks
+            from src.mcp_handlers.admin.handlers import handle_cleanup_stale_locks
             result = await handle_cleanup_stale_locks({"dry_run": True})
 
             data = json.loads(result[0].text)
@@ -112,7 +112,7 @@ class TestCleanupStaleLocks:
             "cleaned_locks": [], "kept_locks": [],
         }
         with patch("src.lock_cleanup.cleanup_stale_state_locks", return_value=mock_result) as mock_fn:
-            from src.mcp_handlers.admin import handle_cleanup_stale_locks
+            from src.mcp_handlers.admin.handlers import handle_cleanup_stale_locks
             await handle_cleanup_stale_locks({"max_age_seconds": 600.0})
 
             # Verify max_age was passed through
@@ -128,10 +128,10 @@ class TestValidateFilePath:
 
     @pytest.mark.asyncio
     async def test_validate_normal_path(self):
-        with patch("src.mcp_handlers.admin.validate_file_path_policy") as mock_validator:
+        with patch("src.mcp_handlers.admin.handlers.validate_file_path_policy") as mock_validator:
             mock_validator.return_value = (True, None, [])
 
-            from src.mcp_handlers.admin import handle_validate_file_path
+            from src.mcp_handlers.admin.handlers import handle_validate_file_path
             result = await handle_validate_file_path({"file_path": "src/main.py"})
 
             data = json.loads(result[0].text)
@@ -139,10 +139,10 @@ class TestValidateFilePath:
 
     @pytest.mark.asyncio
     async def test_validate_blocked_path(self):
-        with patch("src.mcp_handlers.admin.validate_file_path_policy") as mock_validator:
+        with patch("src.mcp_handlers.admin.handlers.validate_file_path_policy") as mock_validator:
             mock_validator.return_value = (False, "File creation blocked by policy", ["anti-proliferation"])
 
-            from src.mcp_handlers.admin import handle_validate_file_path
+            from src.mcp_handlers.admin.handlers import handle_validate_file_path
             result = await handle_validate_file_path({"file_path": "/tmp/junk.py"})
 
             text = result[0].text
@@ -167,8 +167,8 @@ class TestGetServerInfo:
 
     @pytest.mark.asyncio
     async def test_server_info_without_psutil(self, mock_mcp_server):
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.admin import handle_get_server_info
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.admin.handlers import handle_get_server_info
             # Patch TOOL_HANDLERS for tool count
             with patch("src.mcp_handlers.TOOL_HANDLERS", {"tool1": None, "tool2": None}):
                 result = await handle_get_server_info({})
@@ -197,7 +197,7 @@ class TestGetToolUsageStats:
         }
 
         with patch("src.tool_usage_tracker.get_tool_usage_tracker", return_value=mock_tracker):
-            from src.mcp_handlers.admin import handle_get_tool_usage_stats
+            from src.mcp_handlers.admin.handlers import handle_get_tool_usage_stats
             result = await handle_get_tool_usage_stats({})
 
             data = json.loads(result[0].text)
@@ -212,7 +212,7 @@ class TestGetToolUsageStats:
         }
 
         with patch("src.tool_usage_tracker.get_tool_usage_tracker", return_value=mock_tracker):
-            from src.mcp_handlers.admin import handle_get_tool_usage_stats
+            from src.mcp_handlers.admin.handlers import handle_get_tool_usage_stats
             result = await handle_get_tool_usage_stats({
                 "tool_name": "ping_agent",
                 "agent_id": "agent-1",
@@ -246,7 +246,7 @@ class TestHealthCheck:
         mock_db = AsyncMock()
         mock_db.health_check = AsyncMock(return_value={"status": "healthy"})
 
-        with patch("src.mcp_handlers.admin.mcp_server") as mock_server, \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server") as mock_server, \
              patch("src.calibration.calibration_checker", mock_calibration), \
              patch("src.telemetry.telemetry_collector", mock_telemetry), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -255,7 +255,7 @@ class TestHealthCheck:
 
             mock_server.project_root = str(project_root)
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = json.loads(result[0].text)

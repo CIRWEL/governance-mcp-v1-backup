@@ -10,7 +10,7 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from src.mcp_handlers.cirs_protocol import (
+from src.mcp_handlers.cirs.protocol import (
     maybe_emit_resonance_signal,
     maybe_apply_neighbor_pressure,
     _resonance_alert_buffer,
@@ -329,7 +329,7 @@ class TestCirsDampeningAdvisory:
         return ctx
 
     def test_advisory_emitted_on_resonance(self):
-        from src.mcp_handlers.update_enrichments import enrich_cirs_dampening_advisory
+        from src.mcp_handlers.updates.enrichments import enrich_cirs_dampening_advisory
         ctx = self._make_ctx({'resonant': True, 'oi': 4.2, 'flips': 5, 'response_tier': 'hard_block'})
         enrich_cirs_dampening_advisory(ctx)
         advisories = ctx.response_data.get('advisories', [])
@@ -339,7 +339,7 @@ class TestCirsDampeningAdvisory:
         assert 'OI=4.20' in advisories[0]['message']
 
     def test_advisory_moderate_on_soft_dampen(self):
-        from src.mcp_handlers.update_enrichments import enrich_cirs_dampening_advisory
+        from src.mcp_handlers.updates.enrichments import enrich_cirs_dampening_advisory
         ctx = self._make_ctx({'resonant': True, 'oi': 2.0, 'flips': 3, 'response_tier': 'soft_dampen'})
         enrich_cirs_dampening_advisory(ctx)
         advisories = ctx.response_data.get('advisories', [])
@@ -347,13 +347,13 @@ class TestCirsDampeningAdvisory:
         assert advisories[0]['severity'] == 'moderate'
 
     def test_no_advisory_when_not_resonant(self):
-        from src.mcp_handlers.update_enrichments import enrich_cirs_dampening_advisory
+        from src.mcp_handlers.updates.enrichments import enrich_cirs_dampening_advisory
         ctx = self._make_ctx({'resonant': False, 'oi': 0.5, 'flips': 0})
         enrich_cirs_dampening_advisory(ctx)
         assert 'advisories' not in ctx.response_data
 
     def test_no_advisory_when_no_cirs_data(self):
-        from src.mcp_handlers.update_enrichments import enrich_cirs_dampening_advisory
+        from src.mcp_handlers.updates.enrichments import enrich_cirs_dampening_advisory
         ctx = MagicMock()
         ctx.response_data = {}
         enrich_cirs_dampening_advisory(ctx)
@@ -486,7 +486,7 @@ class TestPatternEnrichment:
     """Pattern tracker detections should surface as advisories."""
 
     def test_loop_pattern_surfaces_as_advisory(self):
-        from src.mcp_handlers.update_enrichments import enrich_detected_patterns
+        from src.mcp_handlers.updates.enrichments import enrich_detected_patterns
         from src.pattern_tracker import get_pattern_tracker
 
         tracker = get_pattern_tracker()
@@ -508,7 +508,7 @@ class TestPatternEnrichment:
         assert loop_advisories[0]['severity'] == 'high'
 
     def test_no_advisory_when_no_patterns(self):
-        from src.mcp_handlers.update_enrichments import enrich_detected_patterns
+        from src.mcp_handlers.updates.enrichments import enrich_detected_patterns
 
         ctx = MagicMock()
         ctx.agent_id = "fresh-agent-no-patterns"
@@ -518,7 +518,7 @@ class TestPatternEnrichment:
         assert 'advisories' not in ctx.response_data
 
     def test_no_advisory_when_no_agent_id(self):
-        from src.mcp_handlers.update_enrichments import enrich_detected_patterns
+        from src.mcp_handlers.updates.enrichments import enrich_detected_patterns
 
         ctx = MagicMock()
         ctx.agent_id = None

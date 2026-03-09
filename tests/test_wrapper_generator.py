@@ -14,7 +14,7 @@ from typing import Optional, Union
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.mcp_handlers.wrapper_generator import (
+from src.mcp_handlers.support.wrapper_generator import (
     _json_type_to_python,
     create_typed_wrapper,
     _create_simple_wrapper,

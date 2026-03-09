@@ -1,0 +1,1238 @@
+"""
+Identity V2 - Simplified Session-to-UUID Resolution
+
+Re-export facade — functions have moved to focused modules.
+Existing imports continue to work unchanged.
+
+Modules:
+  identity_session      — session key derivation, fingerprinting, pin operations
+  identity_persistence  — agent persistence, caching, label management
+  identity_resolution   — core identity resolution, agent ID generation
+"""
+
+from typing import Optional, Dict, Any, Sequence
+from datetime import datetime, timedelta
+import os
+
+from mcp.types import TextContent
+
+from src.logging_utils import get_logger
+from src.db import get_db
+from ..utils import success_response, error_response
+from ..decorators import mcp_tool
+
+# Import GovernanceConfig with fallback defaults
+try:
+    from config.governance_config import GovernanceConfig
+except ImportError:
+    class GovernanceConfig:
+        SESSION_TTL_SECONDS = 86400  # 24 hours
+        SESSION_TTL_HOURS = 24
+
+logger = get_logger(__name__)
+
+# --- identity_session (leaf) ---
+from .session import (
+    derive_session_key,
+    _extract_base_fingerprint,
+    ua_hash_from_header,
+    _PIN_TTL,
+    lookup_onboard_pin,
+    set_onboard_pin,
+)
+
+# --- identity_persistence ---
+from .persistence import (
+    _redis_cache,
+    _get_redis,
+    _cache_session,
+    _agent_exists_in_postgres,
+    _get_agent_label,
+    _get_agent_id_from_metadata,
+    _find_agent_by_label,
+    ensure_agent_persisted,
+    set_agent_label,
+)
+
+# --- identity_resolution ---
+from .resolution import (
+    _generate_agent_id,
+    _generate_auto_label,
+    _normalize_model_type,
+    resolve_session_identity,
+    resolve_by_name_claim,
+)
+from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
+# =============================================================================
+# DATE CONTEXT HELPER (only used by onboard handler)
+# =============================================================================
+
+def _get_date_context() -> dict:
+    """Generate date context for onboard response (replaces separate date-context MCP)."""
+    now = datetime.now()
+    from datetime import timezone
+    utc_now = datetime.now(timezone.utc)
+    return {
+        "full": now.strftime('%B %d, %Y'),
+        "short": now.strftime('%Y-%m-%d'),
+        "compact": now.strftime('%Y%m%d'),
+        "iso": now.isoformat(),
+        "iso_utc": utc_now.isoformat().replace('+00:00', 'Z'),
+        "year": now.strftime('%Y'),
+        "month": now.strftime('%B'),
+        "weekday": now.strftime('%A'),
+    }
+
+# =============================================================================
+# TOOL HANDLER (replaces identity() tool)
+# =============================================================================
+
+async def handle_identity_v2(
+    arguments: Dict[str, Any],
+    session_key: str,
+    model_type: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    identity() tool handler - simplified.
+
+    Usage:
+        identity()              -> Returns your UUID and label (lazy, not persisted)
+        identity(name="X")      -> Sets your label to X, returns UUID (persists agent)
+
+    This tool does NOT look up other agents. Use get_agent_metadata for that.
+    """
+    # Resolve session to identity (lazy - doesn't persist yet)
+    # Try name-based resolution first (PATH 2.5)
+    name = arguments.get("name")
+    if name:
+        name_result = await resolve_by_name_claim(name, session_key)
+        if name_result:
+            agent_uuid = name_result["agent_uuid"]
+            agent_id = name_result["agent_id"]
+            display_name = name_result.get("label")
+            from .shared import make_client_session_id
+            stable_session_id = make_client_session_id(agent_uuid)
+            return {
+                "success": True,
+                "agent_id": agent_id,
+                "agent_uuid": agent_uuid,
+                "display_name": display_name,
+                "label": display_name,
+                "bound": True,
+                "persisted": True,
+                "source": "name_claim",
+                "created": False,
+                "resumed_by_name": True,
+                "client_session_id": stable_session_id,
+                "message": f"Resumed identity: {display_name or agent_id}",
+                "session_continuity": {
+                    "client_session_id": stable_session_id,
+                    "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
+                },
+            }
+
+    # Pass model_type to generate proper agent_id (model+date format)
+    identity = await resolve_session_identity(
+        session_key,
+        persist=False,
+        model_type=model_type or arguments.get("model_type")
+    )
+    agent_id = identity.get("agent_id", identity["agent_uuid"])
+    agent_uuid = identity["agent_uuid"]
+    persisted = identity.get("persisted", False)
+
+    # Set label if requested (this will persist the agent)
+    if name:
+        success = await set_agent_label(agent_uuid, name, session_key=session_key)
+        if success:
+            identity["label"] = name
+            identity["label_set"] = True
+            persisted = True  # set_agent_label calls ensure_agent_persisted
+
+    display_name = identity.get("label")  # label is stored internally, exposed as display_name
+    return {
+        "success": True,
+        "agent_id": agent_id,  # model+date format (e.g., "Claude_Opus_20251227")
+        "agent_uuid": agent_uuid,  # internal UUID
+        "display_name": display_name,  # user-chosen name (three-tier identity)
+        "label": display_name,  # DEPRECATED alias for display_name (backward compat)
+        "bound": True,
+        "persisted": persisted,
+        "source": identity.get("source"),
+        "created": identity.get("created", False),
+        "message": f"Identity: {display_name or agent_id}",
+    }
+
+# =============================================================================
+# DECORATOR-COMPATIBLE ADAPTER
+# =============================================================================
+
+@mcp_tool("identity", timeout=10.0)
+async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    IDENTITY - Who am I? Auto-creates identity if first call.
+
+    Simplified v2 implementation with 3 paths:
+    - Redis cache (fast)
+    - PostgreSQL lookup
+    - Create new agent
+
+    Optional: Pass name='...' to set your display name.
+    Optional: Pass model_type='...' to create distinct identity per model.
+    Optional: Pass resume=true to explicitly resume existing identity (after prompt).
+    Optional: Pass force_new=true to create new identity even if one exists.
+    """
+    arguments = arguments or {}
+    force_new = arguments.get("force_new", False)
+    resume = arguments.get("resume", False)
+    model_type = arguments.get("model_type")
+
+    # Derive base session key (unified)
+    from ..context import get_session_signals
+    signals = get_session_signals()
+    base_session_key = await derive_session_key(signals, arguments)
+    normalized_model = None
+
+    # PATH 2.5: Name-based identity claim (before any session resolution)
+    # If the caller provides name= and isn't forcing new, try to reconnect to existing identity
+    name = arguments.get("name")
+    if name and not force_new:
+        name_result = await resolve_by_name_claim(name, base_session_key)
+        if name_result:
+            agent_uuid = name_result["agent_uuid"]
+            agent_id = name_result["agent_id"]
+            label = name_result.get("label")
+            logger.info(f"[IDENTITY] Resolved '{name}' via name claim -> {agent_uuid[:8]}...")
+
+            # Update request context so signature matches
+            try:
+                from ..context import update_context_agent_id
+                update_context_agent_id(agent_uuid)
+            except Exception:
+                pass
+
+            return success_response({
+                "uuid": agent_uuid,
+                "agent_id": agent_id,
+                "display_name": label,
+                "resumed": True,
+                "resumed_by_name": True,
+                "message": f"Welcome back! Resumed identity '{label or agent_id}'",
+                "hint": "Use force_new=true to create a new identity instead"
+            })
+
+    # STEP 1: Check for existing identity under BASE key first (unless force_new)
+    # This prevents identity bifurcation when model_type is passed inconsistently
+    # FIX (Feb 2026): Match onboard() pattern - check base key first, then model-suffixed
+    existing_identity = None
+    session_key = base_session_key
+
+    if not force_new:
+        existing_identity = await resolve_session_identity(base_session_key, persist=False)
+        if not existing_identity.get("created"):
+            # EXISTING AGENT FOUND under base key - use it regardless of model_type
+            agent_uuid = existing_identity.get("agent_uuid")
+            agent_id = existing_identity.get("agent_id", agent_uuid)
+            label = existing_identity.get("label")
+
+            # FIX: Don't silently resume archived agents — warn the caller
+            if existing_identity.get("archived"):
+                logger.info(f"[IDENTITY] Found archived agent {agent_uuid[:8]}... — returning warning instead of silent resume")
+                return success_response({
+                    "uuid": agent_uuid,
+                    "agent_id": agent_id,
+                    "display_name": label,
+                    "archived": True,
+                    "resumed": False,
+                    "message": f"Session maps to archived agent '{label or agent_id}'. Use onboard() to reactivate or force_new=true for a fresh identity.",
+                    "hint": "onboard() will auto-reactivate this agent. force_new=true creates a new one.",
+                    "options": {
+                        "reactivate": "Call onboard() to resume this archived agent",
+                        "fresh": "Call identity(force_new=true) or onboard(force_new=true) for a new identity"
+                    }
+                })
+
+            logger.info(f"[IDENTITY] Auto-resuming existing agent {agent_uuid[:8]}... (found under base key)")
+
+            # Update label if requested
+            if arguments.get("name") and arguments.get("name") != label:
+                success = await set_agent_label(agent_uuid, arguments.get("name"), session_key=session_key)
+                if success:
+                    label = arguments.get("name")
+
+            return success_response({
+                "uuid": agent_uuid,
+                "agent_id": agent_id,
+                "display_name": label,
+                "resumed": True,
+                "message": f"Welcome back! Resumed identity '{label or agent_id}'",
+                "hint": "Use force_new=true to create a new identity instead"
+            })
+
+    # STEP 2: No existing identity under base key - use model differentiation if provided
+    # This only affects NEW identity creation, not resumption
+    if model_type:
+        normalized_model = _normalize_model_type(model_type)
+        session_key = f"{base_session_key}:{normalized_model}"
+        logger.info(f"[IDENTITY] Creating NEW identity with model-specific session_key: {session_key}")
+
+    # STEP 3: Check for existing identity under model-suffixed key (for force_new=false case)
+    # This handles the case where identity was created with model_type previously
+    if not force_new and model_type and session_key != base_session_key:
+        existing_identity = await resolve_session_identity(session_key, persist=False)
+        if not existing_identity.get("created"):
+            agent_uuid = existing_identity.get("agent_uuid")
+            agent_id = existing_identity.get("agent_id", agent_uuid)
+            label = existing_identity.get("label")
+
+            # FIX: Don't silently resume archived agents
+            if existing_identity.get("archived"):
+                logger.info(f"[IDENTITY] Found archived agent {agent_uuid[:8]}... (model-suffixed key) — returning warning")
+                return success_response({
+                    "uuid": agent_uuid,
+                    "agent_id": agent_id,
+                    "display_name": label,
+                    "archived": True,
+                    "resumed": False,
+                    "message": f"Session maps to archived agent '{label or agent_id}'. Use onboard() to reactivate or force_new=true for a fresh identity.",
+                    "hint": "onboard() will auto-reactivate this agent. force_new=true creates a new one.",
+                    "options": {
+                        "reactivate": "Call onboard() to resume this archived agent",
+                        "fresh": "Call identity(force_new=true) or onboard(force_new=true) for a new identity"
+                    }
+                })
+
+            logger.info(f"[IDENTITY] Auto-resuming existing agent {agent_uuid[:8]}...")
+
+            # Update label if requested
+            if arguments.get("name") and arguments.get("name") != label:
+                success = await set_agent_label(agent_uuid, arguments.get("name"), session_key=session_key)
+                if success:
+                    label = arguments.get("name")
+
+            return success_response({
+                "uuid": agent_uuid,
+                "agent_id": agent_id,
+                "display_name": label,
+                "resumed": True,
+                "message": f"Welcome back! Resumed identity '{label or agent_id}'",
+                "hint": "Use force_new=true to create a new identity instead"
+            })
+
+    # Call simplified handler with model_type for agent_id generation
+    result = await handle_identity_v2(arguments, session_key, model_type=model_type)
+    agent_id = result.get("agent_id", result["agent_uuid"])
+    agent_uuid = result["agent_uuid"]
+
+    # CRITICAL: Update request context so signature in response matches resolved identity
+    try:
+        from ..context import update_context_agent_id
+        update_context_agent_id(agent_uuid)
+    except Exception as e:
+        logger.debug(f"Could not update context in identity: {e}")
+
+    # Get structured_id from metadata (three-tier identity model v2.5.0+)
+    structured_id = None
+    try:
+        if agent_uuid in mcp_server.agent_metadata:
+            meta = mcp_server.agent_metadata[agent_uuid]
+            structured_id = getattr(meta, 'structured_id', None)
+
+            # If model_type provided and structured_id doesn't include it, regenerate
+            if model_type and structured_id and normalized_model and normalized_model not in structured_id:
+                from ..support.naming_helpers import detect_interface_context, generate_structured_id
+                from ..context import get_context_client_hint
+                context = detect_interface_context()
+                existing_ids = [
+                    getattr(m, 'structured_id', None)
+                    for m in mcp_server.agent_metadata.values()
+                    if getattr(m, 'structured_id', None)
+                ]
+                meta.structured_id = generate_structured_id(
+                    context=context,
+                    existing_ids=existing_ids,
+                    client_hint=get_context_client_hint(),
+                    model_type=model_type
+                )
+                structured_id = meta.structured_id
+                logger.info(f"[IDENTITY] Regenerated structured_id with model: {structured_id}")
+    except Exception as e:
+        logger.debug(f"Could not get/update structured_id: {e}")
+
+    # Format response - four-tier identity (v2.5.2)
+    final_agent_id = agent_id or structured_id or agent_uuid
+    user_name = result.get("label")
+
+    # Derive client_session_id for session continuity
+    client_session_id = base_session_key
+
+    response_data = {
+        "uuid": agent_uuid,
+        "agent_id": final_agent_id,
+        "display_name": user_name,
+        "label": user_name,
+    }
+    if model_type:
+        response_data["model_type"] = model_type
+
+    # UX ENHANCEMENT: Comprehensive identity summary (all fields in one place)
+    response_data["identity_summary"] = {
+        "uuid": {
+            "value": agent_uuid,
+            "description": "Immutable technical identifier (primary key, never changes)",
+            "usage": "Internal lookup and persistence - don't expose in user-facing content"
+        },
+        "agent_id": {
+            "value": final_agent_id,
+            "description": "Structured auto-generated ID (model+date format, e.g., 'Claude_Opus_20251227')",
+            "usage": "Display in knowledge graph entries, logs, reports"
+        },
+        "display_name": {
+            "value": user_name,
+            "description": "User-chosen display name (set via identity(name='...'))",
+            "usage": "Human-readable attribution in knowledge graph and reports",
+            "set_via": "identity(name='YourName')"
+        },
+        "client_session_id": {
+            "value": client_session_id,
+            "description": "Session continuity token - include in ALL future tool calls",
+            "usage": "Echo this value back in all tool calls to maintain identity across sessions",
+            "critical": True
+        }
+    }
+
+    # Add quick reference for common use cases
+    response_data["quick_reference"] = {
+        "for_knowledge_graph": user_name or final_agent_id,
+        "for_session_continuity": client_session_id,
+        "for_internal_lookup": agent_uuid,
+        "to_set_display_name": "identity(name='YourName')"
+    }
+
+    # Session continuity guidance (if not already set)
+    if not result.get("session_continuity"):
+        response_data["session_continuity"] = {
+            "client_session_id": client_session_id,
+            "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
+        }
+
+    # Use lite_response to skip redundant agent_signature (identity already contains all that info)
+    if arguments is None:
+        arguments = {}
+    arguments["lite_response"] = True
+    return success_response(response_data, agent_id=final_agent_id, arguments=arguments)
+
+
+@mcp_tool("bind_session", timeout=5.0)
+async def handle_bind_session(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    Bind current MCP session to an existing agent identity.
+
+    Bridges the identity gap between REST hooks (which onboard via curl)
+    and MCP Streamable HTTP (which uses a different session key).
+
+    Call this once at session start with the client_session_id from your
+    startup hook context.
+    """
+    arguments = arguments or {}
+    client_session_id = arguments.get("client_session_id")
+    if not client_session_id:
+        return error_response("client_session_id is required")
+
+    # Get the current MCP session key (the one we want to rebind)
+    from ..context import get_session_signals
+    signals = get_session_signals()
+    mcp_session_key = await derive_session_key(signals)
+
+    # Resolve the agent from the provided client_session_id
+    target_identity = await resolve_session_identity(client_session_id, persist=False)
+    if not target_identity or target_identity.get("created"):
+        return error_response(
+            f"No existing agent found for client_session_id '{client_session_id[:20]}...'. "
+            "Ensure the session-start hook onboarded successfully."
+        )
+
+    target_uuid = target_identity["agent_uuid"]
+    target_label = target_identity.get("label")
+    target_agent_id = target_identity.get("agent_id", target_uuid)
+
+    # Rebind: cache the MCP session key → target agent UUID
+    if mcp_session_key and mcp_session_key != client_session_id:
+        await _cache_session(mcp_session_key, target_uuid, display_agent_id=target_agent_id)
+
+        # Also create a PostgreSQL session binding for the MCP key
+        try:
+            db = get_db()
+            if hasattr(db, "init"):
+                await db.init()
+            identity_record = await db.get_identity(target_uuid)
+            if identity_record:
+                await db.create_session(
+                    session_id=mcp_session_key,
+                    identity_id=identity_record.identity_id,
+                    expires_at=datetime.now() + timedelta(hours=GovernanceConfig.SESSION_TTL_HOURS),
+                    client_type="mcp",
+                    client_info={"agent_uuid": target_uuid, "bound_via": "bind_session"}
+                )
+        except Exception as e:
+            logger.debug(f"[BIND_SESSION] PostgreSQL session binding failed (non-fatal): {e}")
+
+        logger.info(
+            f"[BIND_SESSION] Bound MCP session {mcp_session_key[:20]}... -> "
+            f"agent {target_label or target_agent_id} ({target_uuid[:8]}...)"
+        )
+
+    # Update request context so subsequent calls in this request use the correct agent
+    try:
+        from ..context import update_context_agent_id
+        update_context_agent_id(target_uuid)
+    except Exception:
+        pass
+
+    return success_response({
+        "bound": True,
+        "agent_uuid": target_uuid,
+        "agent_id": target_agent_id,
+        "display_name": target_label,
+        "mcp_session_key": mcp_session_key[:20] + "..." if mcp_session_key else None,
+        "message": f"MCP session bound to agent '{target_label or target_agent_id}'",
+    })
+
+
+@mcp_tool("onboard", timeout=15.0)
+async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    ONBOARD - Single entry point for new agents.
+
+    This is THE portal tool. Call it first, get back everything you need:
+    - Your identity (auto-created)
+    - Ready-to-use templates for next calls
+    - Client-specific guidance
+
+    Returns a "toolcard" payload with next_calls array.
+    """
+    from ..shared import get_mcp_server
+
+    # DEBUG: Log entry
+    logger.debug(f"[SESSION_DEBUG] onboard() entry: args_keys={list(arguments.keys()) if arguments else []}")
+
+    # === KWARGS STRING UNWRAPPING ===
+    if arguments and "kwargs" in arguments and isinstance(arguments["kwargs"], str):
+        try:
+            import json
+            kwargs_parsed = json.loads(arguments["kwargs"])
+            if isinstance(kwargs_parsed, dict):
+                del arguments["kwargs"]
+                arguments.update(kwargs_parsed)
+                logger.info(f"[KWARGS] Unwrapped: {list(kwargs_parsed.keys())}")
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"[KWARGS] Failed to parse: {e}")
+
+    arguments = arguments or {}
+
+    # Extract optional parameters
+    name = arguments.get("name")  # Optional: set display name
+    force_new = arguments.get("force_new", False)  # Force new identity creation
+    model_type = arguments.get("model_type")
+
+    # Thread identity parameters (honest forking)
+    _parent_agent_id = arguments.get("parent_agent_id")  # UUID of predecessor
+    _spawn_reason = arguments.get("spawn_reason")  # compaction|subagent|new_session|explicit
+    _thread_id_hint = arguments.get("thread_id")  # Explicit thread to join
+
+    # Auto-detect client_hint from transport if not provided
+    client_hint = arguments.get("client_hint")
+    if not client_hint or client_hint == "unknown":
+        from ..context import get_context_client_hint
+        client_hint = get_context_client_hint() or "unknown"
+
+    # Derive base session key (unified — pin lookup integrated in derive_session_key)
+    from ..context import get_session_signals
+    signals = get_session_signals()
+    base_session_key = await derive_session_key(signals, arguments)
+    normalized_model = None
+
+    # Extract resume flag early (before checking existing identity)
+    resume = arguments.get("resume", False)
+
+    # STEP 1: Check if an identity already exists for this session (base key)
+    # This prevents forking when model_type is passed for an existing agent
+    # Skip this check if force_new is requested
+    # Auto-resume existing identity by default (no prompt needed)
+    existing_identity = None
+    created_fresh_identity = False  # Track if we got a fresh identity to persist
+    _was_archived = False  # Track if agent was auto-unarchived
+    if not force_new:
+        # Name-based reconnection ONLY if resume=True is explicitly passed
+        # This prevents accidental identity collision when multiple sessions use same name
+        if name and resume:
+            existing_by_name = await resolve_by_name_claim(name, base_session_key)
+            if existing_by_name:
+                existing_identity = existing_by_name
+                agent_uuid = existing_by_name["agent_uuid"]
+                agent_id = existing_by_name["agent_id"]
+                label = existing_by_name.get("label")
+                logger.info(f"[ONBOARD] Resumed '{name}' via name claim -> {agent_uuid[:8]}...")
+            else:
+                existing_identity = await resolve_session_identity(base_session_key, persist=False)
+        else:
+            existing_identity = await resolve_session_identity(base_session_key, persist=False)
+        if not existing_identity.get("created"):
+            if existing_identity.get("archived"):
+                # ARCHIVED AGENT — auto-unarchive with same UUID
+                agent_uuid = existing_identity.get("agent_uuid")
+                agent_id = existing_identity.get("agent_id", agent_uuid)
+                label = existing_identity.get("label")
+                logger.info(f"[ONBOARD] Found archived agent {agent_uuid[:8]}... — auto-unarchiving")
+                try:
+                    db = get_db()
+                    await db.update_agent_fields(agent_uuid, status="active")
+                    try:
+                        srv = get_mcp_server()
+                        if agent_uuid in srv.agent_metadata:
+                            srv.agent_metadata[agent_uuid].status = "active"
+                            srv.agent_metadata[agent_uuid].archived_at = None
+                    except Exception:
+                        pass
+                    try:
+                        from src.cache import get_metadata_cache
+                        await get_metadata_cache().invalidate(agent_uuid)
+                    except Exception:
+                        pass
+                    try:
+                        await srv.load_metadata_async(force=True)
+                    except Exception:
+                        pass
+                    logger.info(f"[ONBOARD] Auto-unarchived agent {agent_uuid[:8]}...")
+                    _was_archived = True
+                except Exception as e:
+                    logger.warning(f"[ONBOARD] Could not unarchive agent: {e}")
+                resume = True  # Route to resume path below
+            elif resume:
+                # Explicit resume=True — reuse existing UUID (escape hatch)
+                agent_uuid = existing_identity.get("agent_uuid")
+                agent_id = existing_identity.get("agent_id", agent_uuid)
+                label = existing_identity.get("label")
+                logger.info(f"[ONBOARD] Explicit resume — reusing {agent_uuid[:8]}...")
+            else:
+                # EXISTING TRAJECTORY FOUND — create new instance, link predecessor
+                predecessor_uuid = existing_identity.get("agent_uuid")
+                predecessor_label = existing_identity.get("label")
+                logger.info(f"[ONBOARD] Found existing trajectory {predecessor_uuid[:8]}... — creating new instance")
+
+                _parent_agent_id = _parent_agent_id or predecessor_uuid
+                _spawn_reason = _spawn_reason or "new_session"
+
+                import uuid as _uuid
+                agent_uuid = str(_uuid.uuid4())
+                agent_id = _generate_agent_id(model_type, client_hint)
+                existing_identity = {
+                    "agent_uuid": agent_uuid,
+                    "agent_id": agent_id,
+                    "created": True,
+                    "predecessor_uuid": predecessor_uuid,
+                    "predecessor_label": predecessor_label,
+                }
+                created_fresh_identity = True
+                is_new = True
+
+                session_key = base_session_key
+                if model_type:
+                    normalized_model = _normalize_model_type(model_type)
+                    session_key = f"{base_session_key}:{normalized_model}"
+        else:
+            # NEW AGENT - got a fresh identity from persist=False call
+            # CRITICAL FIX (v2.5.7): Capture the fresh identity to persist it directly
+            # instead of calling resolve_session_identity again (which could create a different UUID
+            # if Redis caching failed silently)
+            created_fresh_identity = True
+            agent_uuid = existing_identity.get("agent_uuid")
+            agent_id = existing_identity.get("agent_id", agent_uuid)
+            logger.info(f"[ONBOARD] Created fresh identity {agent_uuid[:8]}... (will persist)")
+
+            # Adjust session_key for fleet tracking
+            session_key = base_session_key
+            if model_type:
+                normalized_model = _normalize_model_type(model_type)
+                session_key = f"{base_session_key}:{normalized_model}"
+                logger.info(f"[ONBOARD] NEW agent with model_type={model_type} -> session_key includes model: {session_key}")
+    else:
+        # force_new requested - use model-suffixed key if model_type provided
+        session_key = base_session_key
+        if model_type:
+            normalized_model = _normalize_model_type(model_type)
+            session_key = f"{base_session_key}:{normalized_model}"
+            logger.info(f"[ONBOARD] force_new with model_type={model_type} -> session_key: {session_key}")
+
+    # STEP 2: Handle resume flag (explicit consent to resume existing identity)
+    # (resume was extracted earlier at STEP 1)
+    if resume and existing_identity and not existing_identity.get("created"):
+        # User explicitly chose to resume - use existing identity
+        agent_uuid = existing_identity.get("agent_uuid")
+        agent_id = existing_identity.get("agent_id", agent_uuid)
+        agent_label = existing_identity.get("label")
+        session_key = base_session_key  # Use base key, don't fork
+        is_new = False
+        identity = existing_identity
+        logger.info(f"[ONBOARD] Resuming existing agent {agent_uuid[:8]}... (explicit resume=true)")
+    elif created_fresh_identity:
+        # CRITICAL FIX (v2.5.7): Persist the fresh identity we already created
+        # instead of calling resolve_session_identity again (which could create a different UUID)
+        try:
+            # THREAD IDENTITY: Create/join thread for new agent
+            _thread_id = None
+            _thread_position = None
+            try:
+                from src.thread_identity import generate_thread_id, infer_spawn_reason
+                db = get_db()
+
+                _thread_id = _thread_id_hint or generate_thread_id(session_key)
+                await db.create_or_get_thread(_thread_id)
+                _thread_position = await db.claim_thread_position(_thread_id)
+
+                # Get existing nodes to infer spawn reason
+                existing_nodes = await db.get_thread_nodes(_thread_id)
+                # Exclude self (just claimed position but not yet persisted)
+                prior_nodes = [n for n in existing_nodes if n.get("agent_id") != agent_uuid]
+                if not _spawn_reason:
+                    _spawn_reason = infer_spawn_reason(arguments, prior_nodes)
+
+                logger.info(
+                    f"[THREAD] Agent {agent_uuid[:8]}... -> thread {_thread_id[:12]} "
+                    f"position {_thread_position} reason={_spawn_reason}"
+                )
+            except Exception as e:
+                logger.debug(f"[THREAD] Could not assign thread (non-fatal): {e}")
+
+            # Persist the identity we got from the persist=False call
+            newly_persisted = await ensure_agent_persisted(
+                agent_uuid, session_key,
+                parent_agent_id=_parent_agent_id,
+                spawn_reason=_spawn_reason,
+                thread_id=_thread_id,
+                thread_position=_thread_position,
+            )
+            if newly_persisted:
+                logger.info(f"[ONBOARD] Persisted fresh identity {agent_uuid[:8]}... to PostgreSQL")
+                # Sync parent_agent_id to in-memory metadata for EISV inheritance
+                if _parent_agent_id:
+                    try:
+                        from src.agent_metadata_model import agent_metadata as _agent_metadata
+                        from src.agent_metadata_persistence import get_or_create_metadata
+                        meta = get_or_create_metadata(agent_uuid)
+                        meta.parent_agent_id = _parent_agent_id
+                        meta.spawn_reason = _spawn_reason
+                    except Exception as e:
+                        logger.debug(f"[ONBOARD] Could not sync parent to metadata: {e}")
+            else:
+                logger.debug(f"[ONBOARD] Fresh identity {agent_uuid[:8]}... was already persisted")
+
+            # Create SPAWNED edge in AGE graph (non-blocking)
+            if _parent_agent_id:
+                import asyncio
+                asyncio.create_task(
+                    _create_spawned_edge_bg(agent_uuid, _parent_agent_id, _spawn_reason)
+                )
+
+            # Cache with the adjusted session_key (may include model suffix)
+            await _cache_session(session_key, agent_uuid, display_agent_id=agent_id)
+
+            identity = existing_identity
+            identity["persisted"] = True
+            identity["source"] = "created"
+            is_new = True
+            agent_label = None
+        except Exception as e:
+            logger.error(f"[ONBOARD] Failed to persist fresh identity: {e}")
+            return error_response(f"Failed to persist identity: {e}")
+    else:
+        # STEP 2b: Get or create identity (using v2 logic)
+        try:
+            # resolve_session_identity creates new if needed (PATH 3)
+            # We use force_new=True if requested to bypass cache/DB lookup
+            identity = await resolve_session_identity(
+                session_key,
+                persist=True,  # Onboard always persists (it's an explicit "I am here" action)
+                model_type=model_type,
+                client_hint=client_hint,
+                force_new=force_new
+            )
+            agent_uuid = identity["agent_uuid"]
+            agent_id = identity.get("agent_id", agent_uuid)
+            is_new = identity.get("created", False) or force_new
+            agent_label = identity.get("label")
+        except Exception as e:
+            logger.error(f"onboard() failed to create identity: {e}")
+            return error_response(f"Failed to create identity: {e}")
+
+    # CRITICAL: Update request context so signature in response matches new identity
+    try:
+        from ..context import update_context_agent_id
+        update_context_agent_id(agent_uuid)
+    except Exception as e:
+        logger.debug(f"Could not update context in onboard: {e}")
+
+    # Set label if requested (and different from current)
+    if name and name != agent_label:
+        success = await set_agent_label(agent_uuid, name, session_key=session_key)
+        if success:
+            agent_label = name
+            # Refresh identity object
+            identity["label"] = name
+        else:
+            logger.warning(f"[ONBOARD] set_agent_label returned False for {agent_uuid[:8]}... name={name}")
+            # Fallback: use the name for this response even if DB persistence failed
+            if agent_label is None:
+                agent_label = name
+                identity["label"] = name
+
+    # TRAJECTORY IDENTITY: Store genesis signature if provided (optional, non-blocking)
+    # Agents from anima-mcp can include trajectory_signature in their onboard call
+    trajectory_result = None
+    trajectory_signature = arguments.get("trajectory_signature")
+    if trajectory_signature and isinstance(trajectory_signature, dict):
+        try:
+            from src.trajectory_identity import TrajectorySignature, store_genesis_signature
+            sig = TrajectorySignature.from_dict(trajectory_signature)
+            stored = await store_genesis_signature(agent_uuid, sig)
+            if stored:
+                trajectory_result = {
+                    "genesis_stored": True,
+                    "confidence": sig.identity_confidence,
+                    "observations": sig.observation_count,
+                }
+                logger.info(f"[TRAJECTORY] Stored genesis for {agent_uuid[:8]}... at onboard")
+        except Exception as e:
+            logger.debug(f"[TRAJECTORY] Could not store genesis at onboard: {e}")
+            # Non-blocking - trajectory is optional
+
+    # STEP 3: Generate stable session ID
+    # Import helper to ensure consistent format
+    from .shared import make_client_session_id
+    stable_session_id = make_client_session_id(agent_uuid)
+
+    # STEP 4: Register binding under stable session ID (in v2 cache)
+    # This allows future calls using stable_session_id to find the agent
+    # even if the transport session key changes
+    await _cache_session(stable_session_id, agent_uuid, display_agent_id=agent_id)
+
+    # Also register in O(1) prefix index (legacy support)
+    try:
+        from .shared import _register_uuid_prefix
+        uuid_prefix = agent_uuid[:12]
+        _register_uuid_prefix(uuid_prefix, agent_uuid)
+    except ImportError:
+        pass
+
+    # STEP 4b: Pin onboard identity for transport-level session continuity
+    # When Claude.ai doesn't pass client_session_id, dispatch_tool() can
+    # use this pin to inject the correct session ID based on transport fingerprint.
+    # This prevents knowledge graph attribution from scattering across random UUIDs.
+    try:
+        logger.debug(f"[ONBOARD_PIN] base_session_key={base_session_key!r}")
+        base_fp = _extract_base_fingerprint(base_session_key)
+        await set_onboard_pin(base_fp, agent_uuid, stable_session_id)
+    except Exception as e:
+        logger.warning(f"[ONBOARD_PIN] Could not set pin: {e}")
+
+    # STEP 5: Build thread context (async — must happen before sync helper)
+    thread_context = None
+    try:
+        db = get_db()
+        thread_info = await db.get_agent_thread_info(agent_uuid)
+        if thread_info and thread_info.get("thread_id"):
+            _tid = thread_info["thread_id"]
+            all_nodes = await db.get_thread_nodes(_tid)
+            from src.thread_identity import build_fork_context
+            thread_context = build_fork_context(
+                agent_uuid=agent_uuid,
+                thread_id=_tid,
+                nodes=all_nodes,
+                spawn_reason=_spawn_reason,
+            )
+    except Exception as e:
+        logger.debug(f"[THREAD] Could not build thread context: {e}")
+
+    # STEP 6: Build response
+    result = _build_onboard_response(
+        agent_uuid=agent_uuid,
+        agent_id=agent_id,
+        agent_label=agent_label,
+        stable_session_id=stable_session_id,
+        is_new=is_new,
+        force_new=force_new,
+        client_hint=client_hint,
+        _was_archived=_was_archived,
+        trajectory_result=trajectory_result,
+        _parent_agent_id=_parent_agent_id,
+        _spawn_reason=_spawn_reason,
+        thread_context=thread_context,
+    )
+
+    logger.info(f"[ONBOARD] Agent {agent_uuid[:8]}... onboarded (is_new={is_new}, label={agent_label})")
+
+    # Fire-and-forget: auto-archive ephemeral agents (0 updates, older than 2 hours)
+    import asyncio
+    asyncio.create_task(_auto_archive_ephemeral_agents())
+
+    # Use lite_response to skip redundant signature
+    arguments["lite_response"] = True
+    return success_response(result, agent_id=agent_uuid, arguments=arguments)
+
+def _build_onboard_response(
+    *,
+    agent_uuid: str,
+    agent_id: str,
+    agent_label: Optional[str],
+    stable_session_id: str,
+    is_new: bool,
+    force_new: bool,
+    client_hint: str,
+    _was_archived: bool,
+    trajectory_result: Optional[dict],
+    _parent_agent_id: Optional[str],
+    _spawn_reason: Optional[str],
+    thread_context: Optional[dict] = None,
+) -> dict:
+    """Build the onboard response payload (templates, tips, welcome, thread context)."""
+
+    next_calls = [
+        {
+            "tool": "process_agent_update",
+            "why": "Log your work. Call after completing tasks.",
+            "args_min": {
+                "response_text": "...",
+                "complexity": 0.5
+            },
+            "args_full": {
+                "client_session_id": stable_session_id,
+                "response_text": "Summary of what you did",
+                "complexity": 0.5,
+                "confidence": 0.8
+            }
+        },
+        {
+            "tool": "get_governance_metrics",
+            "why": "Check your state (energy, coherence, etc.)",
+            "args_min": {},
+            "args_full": {
+                "client_session_id": stable_session_id
+            }
+        },
+        {
+            "tool": "identity",
+            "why": "Rename yourself or check identity later",
+            "args_min": {},
+            "args_full": {
+                "client_session_id": stable_session_id,
+                "name": "YourName"
+            }
+        }
+    ]
+
+    # Client-specific tips
+    client_tips = {
+        "chatgpt": "ChatGPT loses session state. ALWAYS include client_session_id in every call.",
+        "cursor": "Cursor maintains sessions well. client_session_id optional but recommended.",
+        "claude_desktop": "Claude Desktop has stable sessions. client_session_id optional.",
+        "unknown": "For best session continuity, include client_session_id in all tool calls."
+    }
+
+    # Get structured_id
+    structured_id = agent_id if agent_id and agent_id != agent_uuid else None
+    if not structured_id:
+        try:
+            if agent_uuid in mcp_server.agent_metadata:
+                meta = mcp_server.agent_metadata[agent_uuid]
+                structured_id = getattr(meta, 'structured_id', None)
+        except Exception:
+            pass
+
+    # Determine friendly name
+    if not structured_id:
+        structured_id = f"agent_{agent_uuid[:8]}"
+    friendly_name = agent_label or structured_id
+
+    # Welcome message — embed session ID directly in welcome so agents can't miss it
+    if thread_context:
+        if thread_context["is_root"]:
+            welcome = (
+                f"Your session ID is `{stable_session_id}`. "
+                f"You are node 1 in thread {thread_context['thread_id'][:12]}."
+            )
+        else:
+            pred = thread_context.get("predecessor")
+            pred_desc = f" (position {pred['position']})" if pred and pred.get("position") else ""
+            welcome = (
+                f"Your session ID is `{stable_session_id}`. "
+                f"You are node {thread_context['position']} in thread {thread_context['thread_id'][:12]}. "
+                f"A predecessor exists{pred_desc}."
+            )
+        welcome_message = thread_context["honest_message"]
+    elif is_new:
+        welcome = f"Welcome! Your session ID is `{stable_session_id}`. Pass this as `client_session_id` in all calls."
+        welcome_message = "This system monitors your work like a health monitor tracks your heart. It helps you stay on track, avoid getting stuck, and work more effectively. Your identity is created—use the templates below to get started."
+    elif _was_archived:
+        welcome = f"Reactivated '{friendly_name}'. Session: `{stable_session_id}`."
+        welcome_message = f"Your agent was archived and has been reactivated with the same identity. Pass `client_session_id: \"{stable_session_id}\"` in all tool calls for attribution."
+    else:
+        welcome = f"New instance. Continuing trajectory '{friendly_name}'. Session: `{stable_session_id}`."
+        welcome_message = f"An existing trajectory was found. You are a new instance, not a continuation of a previous conversation. Pass `client_session_id: \"{stable_session_id}\"` in all tool calls for attribution."
+
+    result = {
+        "success": True,
+        "welcome": welcome,
+        "welcome_message": welcome_message,
+        "suggest_new_identity": False,
+
+        # Three-tier identity model
+        "uuid": agent_uuid,
+        "agent_id": structured_id,
+        "display_name": agent_label,
+
+        # Legacy fields
+        "agent_uuid": agent_uuid,
+        "label": agent_label,
+        "is_new": is_new,
+        "force_new_applied": force_new,
+
+        # Session continuity
+        "client_session_id": stable_session_id,
+        "session_continuity": {
+            "client_session_id": stable_session_id,
+            "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
+            "tip": client_tips.get(client_hint, client_tips["unknown"])
+        },
+
+        # The toolcard
+        "next_calls": next_calls,
+
+        # Date context (implicit - no separate tool needed)
+        "date_context": _get_date_context(),
+
+        # Skill document resource (eliminates 3-5 orientation tool calls)
+        "skill_resource": {
+            "uri": "unitares://skill",
+            "tip": "Read this MCP resource for full framework orientation instead of calling list_tools/describe_tool",
+        },
+    }
+
+    # Add thread context to response (honest forking)
+    if thread_context:
+        result["thread_context"] = thread_context
+
+    # Add tool mode info so agents know what subset they're seeing
+    try:
+        from src.tool_modes import TOOL_MODE, get_tools_for_mode
+        from src.tool_schemas import get_tool_definitions
+        all_tools = get_tool_definitions()
+        mode_tools = get_tools_for_mode(TOOL_MODE)
+        result["tool_mode"] = {
+            "current_mode": TOOL_MODE,
+            "visible_tools": len(mode_tools),
+            "total_tools": len(all_tools),
+            "available_modes": ["minimal", "lite", "full"],
+            "tip": f"You're seeing {len(mode_tools)}/{len(all_tools)} tools in '{TOOL_MODE}' mode. Use list_tools() for discovery, or ask for ?mode=full if you need more."
+        }
+    except Exception as e:
+        logger.debug(f"Could not add tool_mode info: {e}")
+
+    # Add workflow guidance for new agents
+    if is_new or force_new:
+        result.update({
+            "workflow": {
+                "step_1": "Copy client_session_id from above",
+                "step_2": "Do your work",
+                "step_3": "Call process_agent_update with response_text describing what you did",
+                "loop": "Repeat steps 2-3. Check metrics with get_governance_metrics when curious."
+            },
+        })
+
+    # Add predecessor info for new instances continuing a trajectory
+    if _parent_agent_id and not force_new:
+        result["predecessor"] = {
+            "uuid": _parent_agent_id,
+            "note": "Previous instance in this trajectory. Your state was inherited from it."
+        }
+
+    # Add auto-resume notice for reactivated agents
+    if _was_archived:
+        result["auto_resumed"] = True
+        result["previous_status"] = "archived"
+
+    # Include trajectory result if genesis was stored
+    if trajectory_result:
+        result["trajectory"] = trajectory_result
+        result["trajectory"]["trust_tier"] = {
+            "tier": 1,
+            "name": "emerging",
+            "reason": "Genesis stored at onboard. Identity will mature with behavioral consistency.",
+        }
+
+    return result
+
+# =============================================================================
+# TRAJECTORY IDENTITY VERIFICATION TOOL
+# =============================================================================
+
+@mcp_tool("verify_trajectory_identity", timeout=10.0)
+async def handle_verify_trajectory_identity(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    VERIFY_TRAJECTORY_IDENTITY - Two-tier identity verification via trajectory signature.
+
+    Verifies agent identity using the Trajectory Identity framework:
+    - Tier 1 (Coherence): Compare to recent signature (short-term consistency)
+    - Tier 2 (Lineage): Compare to genesis signature (long-term identity continuity)
+
+    Args:
+        trajectory_signature: The current trajectory signature to verify (dict with:
+            preferences, beliefs, attractor, recovery, relational, stability_score,
+            identity_confidence, observation_count)
+        coherence_threshold: Optional threshold for Tier 1 (default: 0.7)
+        lineage_threshold: Optional threshold for Tier 2 (default: 0.6)
+
+    Returns:
+        Verification result with tier details and overall verdict.
+    """
+    # Get agent UUID from context
+    from ..context import get_context_agent_id
+    agent_uuid = get_context_agent_id()
+
+    if not agent_uuid:
+        return error_response("Identity not resolved. Call identity() or onboard() first.")
+
+    trajectory_signature = arguments.get("trajectory_signature")
+    if not trajectory_signature or not isinstance(trajectory_signature, dict):
+        return error_response(
+            "trajectory_signature is required",
+            recovery={
+                "action": "Include your trajectory signature from anima-mcp",
+                "example": "verify_trajectory_identity(trajectory_signature={...})"
+            }
+        )
+
+    coherence_threshold = arguments.get("coherence_threshold", 0.7)
+    lineage_threshold = arguments.get("lineage_threshold", 0.6)
+
+    try:
+        from src.trajectory_identity import TrajectorySignature, verify_trajectory_identity
+
+        sig = TrajectorySignature.from_dict(trajectory_signature)
+        result = await verify_trajectory_identity(
+            agent_uuid,
+            sig,
+            coherence_threshold=coherence_threshold,
+            lineage_threshold=lineage_threshold
+        )
+
+        if result.get("error"):
+            return error_response(result["error"])
+
+        return success_response(result, agent_id=agent_uuid, arguments=arguments)
+
+    except Exception as e:
+        logger.error(f"[TRAJECTORY] Verification failed: {e}")
+        return error_response(f"Trajectory verification failed: {e}")
+
+@mcp_tool("get_trajectory_status", timeout=10.0)
+async def handle_get_trajectory_status(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    GET_TRAJECTORY_STATUS - Check trajectory identity status for an agent.
+
+    Returns information about the agent's trajectory identity including:
+    - Whether genesis signature exists
+    - Current signature details
+    - Lineage similarity (if both exist)
+    - Drift detection status
+
+    No arguments required - uses current session identity.
+    """
+    # Get agent UUID from context
+    from ..context import get_context_agent_id
+    agent_uuid = get_context_agent_id()
+
+    if not agent_uuid:
+        return error_response("Identity not resolved. Call identity() or onboard() first.")
+
+    try:
+        from src.trajectory_identity import get_trajectory_status
+
+        result = await get_trajectory_status(agent_uuid)
+
+        if result.get("error"):
+            return error_response(result["error"])
+
+        # Add trust tier to status response
+        try:
+            from src.trajectory_identity import compute_trust_tier
+            from src.db import get_db
+            identity = await get_db().get_identity(agent_uuid)
+            if identity and identity.metadata:
+                result["trust_tier"] = compute_trust_tier(identity.metadata)
+        except Exception:
+            pass
+
+        return success_response(result, agent_id=agent_uuid, arguments=arguments)
+
+    except Exception as e:
+        logger.error(f"[TRAJECTORY] Status check failed: {e}")
+        return error_response(f"Trajectory status check failed: {e}")
+
+async def _auto_archive_ephemeral_agents():
+    """Fire-and-forget: archive agents with 0 updates older than 2 hours."""
+    try:
+        from datetime import timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
+        archived = 0
+        db = get_db()
+        for agent_id, meta in list(mcp_server.agent_metadata.items()):
+            if meta.status != "active":
+                continue
+            if meta.total_updates > 0:
+                continue
+            # Skip Lumen
+            if getattr(meta, "label", "") == "Lumen":
+                continue
+            # Check age via last_update or created_at
+            last = meta.last_update
+            if not last:
+                continue
+            try:
+                last_dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                if last_dt >= cutoff:
+                    continue
+            except Exception:
+                continue
+            # Archive it
+            try:
+                await db.update_agent_fields(agent_id, status="archived")
+                meta.status = "archived"
+                archived += 1
+            except Exception:
+                pass
+        if archived:
+            logger.info(f"[AUTO_ARCHIVE] Archived {archived} ephemeral agent(s) (0 updates, >2h old)")
+    except Exception as e:
+        logger.debug(f"[AUTO_ARCHIVE] Cleanup failed (non-fatal): {e}")
+
+
+async def _create_spawned_edge_bg(
+    child_id: str, parent_id: str, reason: str | None
+):
+    """Create SPAWNED edge in AGE graph (fire-and-forget background task)."""
+    try:
+        db = get_db()
+        from src.db.age_queries import create_spawned_edge, create_agent_node
+        # Ensure both Agent nodes exist
+        q, p = create_agent_node(parent_id)
+        await db.graph_query(q, p)
+        q, p = create_agent_node(child_id)
+        await db.graph_query(q, p)
+        # Create edge
+        q, p = create_spawned_edge(parent_id, child_id, spawn_reason=reason)
+        await db.graph_query(q, p)
+        logger.info(f"[SPAWNED] Created edge {parent_id[:8]}... -> {child_id[:8]}...")
+    except Exception as e:
+        logger.debug(f"SPAWNED edge creation failed (non-fatal): {e}")

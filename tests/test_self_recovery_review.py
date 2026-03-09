@@ -8,14 +8,14 @@ from typing import Dict, Any
 from unittest.mock import patch
 from mcp.types import TextContent
 
-from src.mcp_handlers.lifecycle import handle_self_recovery_review
+from src.mcp_handlers.lifecycle.handlers import handle_self_recovery_review
 
 
 MOCK_AGENT_ID = "test_agent_recovery"
 
 # Shared patch targets
 _PATCH_AUTH = patch(
-    "src.mcp_handlers.lifecycle.require_registered_agent",
+    "src.mcp_handlers.lifecycle.handlers.require_registered_agent",
     return_value=(MOCK_AGENT_ID, None),
 )
 _PATCH_OWNERSHIP = patch(

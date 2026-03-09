@@ -42,7 +42,7 @@ def test_history_export_path():
     print("Testing history export path...")
     
     # Check the export handler code
-    export_file = project_root / "src" / "mcp_handlers" / "export.py"
+    export_file = project_root / "src" / "mcp_handlers" / "introspection" / "export.py"
     
     with open(export_file, 'r') as f:
         content = f.read()
@@ -67,7 +67,7 @@ def test_dialectic_sessions_path():
     """Test that dialectic sessions use correct path"""
     print("Testing dialectic sessions path...")
     
-    dialectic_file = project_root / "src" / "mcp_handlers" / "dialectic.py"
+    dialectic_file = project_root / "src" / "mcp_handlers" / "dialectic" / "handlers.py"
     
     with open(dialectic_file, 'r') as f:
         content = f.read()

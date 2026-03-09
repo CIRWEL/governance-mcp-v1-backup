@@ -36,23 +36,23 @@ sys.path.insert(0, str(project_root))
 from mcp.types import TextContent
 
 # Module under test (facade)
-MODULE = "src.mcp_handlers.cirs_protocol"
+MODULE = "src.mcp_handlers.cirs.protocol"
 
 # Sub-modules where mcp_server / require_registered_agent are looked up at runtime
 _CIRS_MODULES_WITH_MCP_SERVER = [
-    "src.mcp_handlers.cirs_void",
-    "src.mcp_handlers.cirs_state",
-    "src.mcp_handlers.cirs_hooks",
-    "src.mcp_handlers.cirs_coherence",
-    "src.mcp_handlers.cirs_governance_action",
+    "src.mcp_handlers.cirs.void",
+    "src.mcp_handlers.cirs.state",
+    "src.mcp_handlers.cirs.hooks",
+    "src.mcp_handlers.cirs.coherence",
+    "src.mcp_handlers.cirs.governance_action",
 ]
 _CIRS_MODULES_WITH_REQUIRE = [
-    "src.mcp_handlers.cirs_void",
-    "src.mcp_handlers.cirs_state",
-    "src.mcp_handlers.cirs_coherence",
-    "src.mcp_handlers.cirs_boundary",
-    "src.mcp_handlers.cirs_governance_action",
-    "src.mcp_handlers.cirs_resonance",
+    "src.mcp_handlers.cirs.void",
+    "src.mcp_handlers.cirs.state",
+    "src.mcp_handlers.cirs.coherence",
+    "src.mcp_handlers.cirs.boundary",
+    "src.mcp_handlers.cirs.governance_action",
+    "src.mcp_handlers.cirs.resonance",
 ]
 
 
@@ -156,7 +156,7 @@ def _make_monitor(agent_id="agent-1", **state_kwargs):
 @pytest.fixture(autouse=True)
 def clear_buffers():
     """Clear all in-memory CIRS buffers between tests."""
-    from src.mcp_handlers.cirs_protocol import (
+    from src.mcp_handlers.cirs.protocol import (
         _void_alert_buffer,
         _state_announce_buffer,
         _coherence_report_buffer,
@@ -219,7 +219,7 @@ class TestVoidAlert:
     """Tests for VoidAlert dataclass."""
 
     def test_to_dict(self):
-        from src.mcp_handlers.cirs_protocol import VoidAlert, VoidSeverity
+        from src.mcp_handlers.cirs.protocol import VoidAlert, VoidSeverity
         alert = VoidAlert(
             agent_id="agent-1",
             timestamp="2026-01-01T00:00:00",
@@ -238,7 +238,7 @@ class TestVoidAlert:
         assert d["risk_at_event"] == 0.3
 
     def test_to_dict_optional_none(self):
-        from src.mcp_handlers.cirs_protocol import VoidAlert, VoidSeverity
+        from src.mcp_handlers.cirs.protocol import VoidAlert, VoidSeverity
         alert = VoidAlert(
             agent_id="agent-1",
             timestamp="2026-01-01T00:00:00",
@@ -255,7 +255,7 @@ class TestStateAnnounce:
     """Tests for StateAnnounce dataclass."""
 
     def test_to_dict_basic(self):
-        from src.mcp_handlers.cirs_protocol import StateAnnounce
+        from src.mcp_handlers.cirs.protocol import StateAnnounce
         announce = StateAnnounce(
             agent_id="agent-1",
             timestamp="2026-01-01T00:00:00",
@@ -275,7 +275,7 @@ class TestStateAnnounce:
         assert "purpose" not in d
 
     def test_to_dict_with_trajectory(self):
-        from src.mcp_handlers.cirs_protocol import StateAnnounce
+        from src.mcp_handlers.cirs.protocol import StateAnnounce
         announce = StateAnnounce(
             agent_id="agent-1",
             timestamp="2026-01-01T00:00:00",
@@ -299,7 +299,7 @@ class TestCoherenceReport:
     """Tests for CoherenceReport dataclass."""
 
     def test_to_dict(self):
-        from src.mcp_handlers.cirs_protocol import CoherenceReport
+        from src.mcp_handlers.cirs.protocol import CoherenceReport
         report = CoherenceReport(
             source_agent_id="agent-1",
             timestamp="2026-01-01T00:00:00",
@@ -316,7 +316,7 @@ class TestCoherenceReport:
         assert d["recommendation"] == "High alignment"
 
     def test_to_dict_without_optional(self):
-        from src.mcp_handlers.cirs_protocol import CoherenceReport
+        from src.mcp_handlers.cirs.protocol import CoherenceReport
         report = CoherenceReport(
             source_agent_id="agent-1",
             timestamp="2026-01-01T00:00:00",
@@ -335,7 +335,7 @@ class TestBoundaryContract:
     """Tests for BoundaryContract dataclass."""
 
     def test_to_dict(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             BoundaryContract, TrustLevel, VoidResponsePolicy,
         )
         contract = BoundaryContract(
@@ -359,7 +359,7 @@ class TestGovernanceAction:
     """Tests for GovernanceAction dataclass."""
 
     def test_to_dict(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             GovernanceAction, GovernanceActionType,
         )
         action = GovernanceAction(
@@ -378,7 +378,7 @@ class TestGovernanceAction:
         assert "response" not in d
 
     def test_to_dict_with_response(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             GovernanceAction, GovernanceActionType,
         )
         action = GovernanceAction(
@@ -403,48 +403,48 @@ class TestHelperFunctions:
     """Tests for trajectory signature helper functions."""
 
     def test_compute_decision_bias_neutral(self):
-        from src.mcp_handlers.cirs_protocol import _compute_decision_bias
+        from src.mcp_handlers.cirs.protocol import _compute_decision_bias
         state = SimpleNamespace(decision_history=[])
         assert _compute_decision_bias(state) == "neutral"
 
     def test_compute_decision_bias_no_history(self):
-        from src.mcp_handlers.cirs_protocol import _compute_decision_bias
+        from src.mcp_handlers.cirs.protocol import _compute_decision_bias
         state = SimpleNamespace()
         assert _compute_decision_bias(state) == "neutral"
 
     def test_compute_decision_bias_proceed_bias(self):
-        from src.mcp_handlers.cirs_protocol import _compute_decision_bias
+        from src.mcp_handlers.cirs.protocol import _compute_decision_bias
         state = SimpleNamespace(
             decision_history=["proceed"] * 8 + ["pause"] * 2,
         )
         assert _compute_decision_bias(state) == "proceed_bias"
 
     def test_compute_decision_bias_pause_bias(self):
-        from src.mcp_handlers.cirs_protocol import _compute_decision_bias
+        from src.mcp_handlers.cirs.protocol import _compute_decision_bias
         state = SimpleNamespace(
             decision_history=["pause"] * 8 + ["proceed"] * 2,
         )
         assert _compute_decision_bias(state) == "pause_bias"
 
     def test_compute_decision_bias_balanced(self):
-        from src.mcp_handlers.cirs_protocol import _compute_decision_bias
+        from src.mcp_handlers.cirs.protocol import _compute_decision_bias
         state = SimpleNamespace(
             decision_history=["proceed", "pause"] * 5,
         )
         assert _compute_decision_bias(state) == "balanced"
 
     def test_compute_focus_stability_insufficient_data(self):
-        from src.mcp_handlers.cirs_protocol import _compute_focus_stability
+        from src.mcp_handlers.cirs.protocol import _compute_focus_stability
         state = SimpleNamespace(coherence_history=[0.5, 0.6])
         assert _compute_focus_stability(state) == 0.5
 
     def test_compute_focus_stability_no_attr(self):
-        from src.mcp_handlers.cirs_protocol import _compute_focus_stability
+        from src.mcp_handlers.cirs.protocol import _compute_focus_stability
         state = SimpleNamespace()
         assert _compute_focus_stability(state) == 0.5
 
     def test_compute_focus_stability_stable(self):
-        from src.mcp_handlers.cirs_protocol import _compute_focus_stability
+        from src.mcp_handlers.cirs.protocol import _compute_focus_stability
         state = SimpleNamespace(
             coherence_history=[0.7] * 10,
         )
@@ -452,69 +452,69 @@ class TestHelperFunctions:
         assert _compute_focus_stability(state) == 1.0
 
     def test_compute_maturity_nascent(self):
-        from src.mcp_handlers.cirs_protocol import _compute_maturity
+        from src.mcp_handlers.cirs.protocol import _compute_maturity
         state = SimpleNamespace(update_count=2)
         assert _compute_maturity(state) == "nascent"
 
     def test_compute_maturity_developing(self):
-        from src.mcp_handlers.cirs_protocol import _compute_maturity
+        from src.mcp_handlers.cirs.protocol import _compute_maturity
         state = SimpleNamespace(update_count=10)
         assert _compute_maturity(state) == "developing"
 
     def test_compute_maturity_maturing(self):
-        from src.mcp_handlers.cirs_protocol import _compute_maturity
+        from src.mcp_handlers.cirs.protocol import _compute_maturity
         state = SimpleNamespace(update_count=30)
         assert _compute_maturity(state) == "maturing"
 
     def test_compute_maturity_mature(self):
-        from src.mcp_handlers.cirs_protocol import _compute_maturity
+        from src.mcp_handlers.cirs.protocol import _compute_maturity
         state = SimpleNamespace(update_count=100)
         assert _compute_maturity(state) == "mature"
 
     def test_compute_maturity_no_attr(self):
-        from src.mcp_handlers.cirs_protocol import _compute_maturity
+        from src.mcp_handlers.cirs.protocol import _compute_maturity
         state = SimpleNamespace()
         assert _compute_maturity(state) == "nascent"
 
     def test_compute_convergence_rate_insufficient_data(self):
-        from src.mcp_handlers.cirs_protocol import _compute_convergence_rate
+        from src.mcp_handlers.cirs.protocol import _compute_convergence_rate
         state = SimpleNamespace(S_history=[0.3, 0.2])
         assert _compute_convergence_rate(state) == 0.0
 
     def test_compute_convergence_rate_no_attr(self):
-        from src.mcp_handlers.cirs_protocol import _compute_convergence_rate
+        from src.mcp_handlers.cirs.protocol import _compute_convergence_rate
         state = SimpleNamespace()
         assert _compute_convergence_rate(state) == 0.0
 
     def test_compute_convergence_rate_decreasing_entropy(self):
-        from src.mcp_handlers.cirs_protocol import _compute_convergence_rate
+        from src.mcp_handlers.cirs.protocol import _compute_convergence_rate
         # Entropy decreasing = positive convergence rate
         state = SimpleNamespace(S_history=[0.5, 0.45, 0.4, 0.35, 0.3])
         rate = _compute_convergence_rate(state)
         assert rate > 0  # Decreasing entropy -> positive convergence
 
     def test_compute_risk_trend_stable(self):
-        from src.mcp_handlers.cirs_protocol import _compute_risk_trend
+        from src.mcp_handlers.cirs.protocol import _compute_risk_trend
         state = SimpleNamespace(risk_history=[0.3, 0.3, 0.3, 0.3, 0.3])
         assert _compute_risk_trend(state) == "stable"
 
     def test_compute_risk_trend_increasing(self):
-        from src.mcp_handlers.cirs_protocol import _compute_risk_trend
+        from src.mcp_handlers.cirs.protocol import _compute_risk_trend
         state = SimpleNamespace(risk_history=[0.1, 0.2, 0.3, 0.5, 0.7])
         assert _compute_risk_trend(state) == "increasing"
 
     def test_compute_risk_trend_decreasing(self):
-        from src.mcp_handlers.cirs_protocol import _compute_risk_trend
+        from src.mcp_handlers.cirs.protocol import _compute_risk_trend
         state = SimpleNamespace(risk_history=[0.7, 0.5, 0.3, 0.2, 0.1])
         assert _compute_risk_trend(state) == "decreasing"
 
     def test_compute_risk_trend_insufficient_data(self):
-        from src.mcp_handlers.cirs_protocol import _compute_risk_trend
+        from src.mcp_handlers.cirs.protocol import _compute_risk_trend
         state = SimpleNamespace(risk_history=[0.3, 0.4])
         assert _compute_risk_trend(state) == "stable"
 
     def test_compute_risk_trend_no_attr(self):
-        from src.mcp_handlers.cirs_protocol import _compute_risk_trend
+        from src.mcp_handlers.cirs.protocol import _compute_risk_trend
         state = SimpleNamespace()
         assert _compute_risk_trend(state) == "stable"
 
@@ -527,7 +527,7 @@ class TestMaybeEmitVoidAlert:
     """Tests for maybe_emit_void_alert auto-emit hook."""
 
     def test_emit_on_void_transition(self):
-        from src.mcp_handlers.cirs_protocol import maybe_emit_void_alert
+        from src.mcp_handlers.cirs.protocol import maybe_emit_void_alert
         result = maybe_emit_void_alert(
             agent_id="agent-1",
             V=0.1,
@@ -541,7 +541,7 @@ class TestMaybeEmitVoidAlert:
         assert result["severity"] == "warning"
 
     def test_emit_critical_on_high_V(self):
-        from src.mcp_handlers.cirs_protocol import maybe_emit_void_alert
+        from src.mcp_handlers.cirs.protocol import maybe_emit_void_alert
         result = maybe_emit_void_alert(
             agent_id="agent-1",
             V=0.2,
@@ -554,7 +554,7 @@ class TestMaybeEmitVoidAlert:
         assert result["severity"] == "critical"
 
     def test_no_emit_when_staying_in_void(self):
-        from src.mcp_handlers.cirs_protocol import maybe_emit_void_alert
+        from src.mcp_handlers.cirs.protocol import maybe_emit_void_alert
         result = maybe_emit_void_alert(
             agent_id="agent-1",
             V=0.1,
@@ -566,7 +566,7 @@ class TestMaybeEmitVoidAlert:
         assert result is None
 
     def test_no_emit_when_not_in_void(self):
-        from src.mcp_handlers.cirs_protocol import maybe_emit_void_alert
+        from src.mcp_handlers.cirs.protocol import maybe_emit_void_alert
         result = maybe_emit_void_alert(
             agent_id="agent-1",
             V=0.01,
@@ -578,7 +578,7 @@ class TestMaybeEmitVoidAlert:
         assert result is None
 
     def test_no_emit_when_exiting_void(self):
-        from src.mcp_handlers.cirs_protocol import maybe_emit_void_alert
+        from src.mcp_handlers.cirs.protocol import maybe_emit_void_alert
         result = maybe_emit_void_alert(
             agent_id="agent-1",
             V=0.01,
@@ -594,64 +594,64 @@ class TestAutoEmitStateAnnounce:
     """Tests for auto_emit_state_announce."""
 
     def test_emit_on_5th_update(self):
-        from src.mcp_handlers.cirs_protocol import auto_emit_state_announce
+        from src.mcp_handlers.cirs.protocol import auto_emit_state_announce
         metrics = {
             "E": 0.7, "I": 0.8, "S": 0.2, "V": 0.0,
             "coherence": 0.7, "regime": "convergence",
             "phi": 0.5, "verdict": "safe",
             "risk_score": 0.3, "updates": 5,
         }
-        with patch("src.mcp_handlers.cirs_hooks.mcp_server", _make_mock_server()):
+        with patch("src.mcp_handlers.cirs.hooks.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         assert result is not None
         assert result["agent_id"] == "agent-1"
 
     def test_emit_on_10th_update(self):
-        from src.mcp_handlers.cirs_protocol import auto_emit_state_announce
+        from src.mcp_handlers.cirs.protocol import auto_emit_state_announce
         metrics = {
             "E": 0.7, "I": 0.8, "S": 0.2, "V": 0.0,
             "coherence": 0.7, "regime": "stable",
             "phi": 0.5, "verdict": "safe",
             "risk_score": 0.2, "updates": 10,
         }
-        with patch("src.mcp_handlers.cirs_hooks.mcp_server", _make_mock_server()):
+        with patch("src.mcp_handlers.cirs.hooks.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         assert result is not None
 
     def test_skip_non_5th_update(self):
-        from src.mcp_handlers.cirs_protocol import auto_emit_state_announce
+        from src.mcp_handlers.cirs.protocol import auto_emit_state_announce
         metrics = {"updates": 3}
         result = auto_emit_state_announce("agent-1", metrics, None)
         assert result is None
 
     def test_emit_on_first_update(self):
-        from src.mcp_handlers.cirs_protocol import auto_emit_state_announce
+        from src.mcp_handlers.cirs.protocol import auto_emit_state_announce
         metrics = {
             "E": 0.7, "I": 0.8, "S": 0.2, "V": 0.0,
             "coherence": 0.7, "regime": "divergence",
             "phi": 0.1, "verdict": "caution",
             "risk_score": 0.5, "updates": 1,
         }
-        with patch("src.mcp_handlers.cirs_hooks.mcp_server", _make_mock_server()):
+        with patch("src.mcp_handlers.cirs.hooks.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         # updates=1 -> 1 % 5 != 0 but update_count > 1 is False, so it emits
         assert result is not None
 
     def test_emit_on_zeroth_update(self):
-        from src.mcp_handlers.cirs_protocol import auto_emit_state_announce
+        from src.mcp_handlers.cirs.protocol import auto_emit_state_announce
         metrics = {
             "E": 0.7, "I": 0.8, "S": 0.2, "V": 0.0,
             "coherence": 0.7, "regime": "divergence",
             "phi": 0.1, "verdict": "caution",
             "risk_score": 0.5, "updates": 0,
         }
-        with patch("src.mcp_handlers.cirs_hooks.mcp_server", _make_mock_server()):
+        with patch("src.mcp_handlers.cirs.hooks.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         # updates=0 -> 0 % 5 == 0, so it emits
         assert result is not None
 
     def test_handles_mcp_server_exception_gracefully(self):
-        from src.mcp_handlers.cirs_protocol import auto_emit_state_announce
+        from src.mcp_handlers.cirs.protocol import auto_emit_state_announce
         # mcp_server.agent_metadata.get() failure is caught by inner try/except
         metrics = {"updates": 5, "E": 0.7, "I": 0.8, "S": 0.2, "V": 0.0,
                    "coherence": 0.7, "regime": "stable", "phi": 0.5,
@@ -659,17 +659,17 @@ class TestAutoEmitStateAnnounce:
         broken_server = MagicMock()
         broken_server.agent_metadata = MagicMock()
         broken_server.agent_metadata.get = MagicMock(side_effect=Exception("boom"))
-        with patch("src.mcp_handlers.cirs_hooks.mcp_server", broken_server):
+        with patch("src.mcp_handlers.cirs.hooks.mcp_server", broken_server):
             result = auto_emit_state_announce("agent-1", metrics, None)
         # Still succeeds because mcp_server access is only for trust_tier (inner try)
         assert result is not None
         assert result["agent_id"] == "agent-1"
 
     def test_handles_outer_exception_returns_none(self):
-        from src.mcp_handlers.cirs_protocol import auto_emit_state_announce
+        from src.mcp_handlers.cirs.protocol import auto_emit_state_announce
         # Cause the outer try to fail by providing non-numeric data
         metrics = {"updates": 5, "E": "not_a_number"}
-        with patch("src.mcp_handlers.cirs_hooks.mcp_server", _make_mock_server()):
+        with patch("src.mcp_handlers.cirs.hooks.mcp_server", _make_mock_server()):
             result = auto_emit_state_announce("agent-1", metrics, None)
         # float("not_a_number") raises ValueError, caught by outer try
         assert result is None
@@ -684,7 +684,7 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_missing_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_void_alert
+        from src.mcp_handlers.cirs.protocol import handle_void_alert
         result = await handle_void_alert.__wrapped__({"no_action": True})
         data = _parse(result)
         assert data["success"] is False
@@ -692,14 +692,14 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_invalid_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_void_alert
+        from src.mcp_handlers.cirs.protocol import handle_void_alert
         result = await handle_void_alert.__wrapped__({"action": "invalid"})
         data = _parse(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_query_empty(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_void_alert
+        from src.mcp_handlers.cirs.protocol import handle_void_alert
         result = await handle_void_alert.__wrapped__({"action": "query"})
         data = _parse(result)
         assert data["success"] is True
@@ -708,7 +708,7 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_query_with_alerts(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_void_alert, _store_void_alert, VoidAlert, VoidSeverity,
         )
         # Pre-populate some alerts
@@ -734,7 +734,7 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_query_filter_by_agent(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_void_alert, _store_void_alert, VoidAlert, VoidSeverity,
         )
         _store_void_alert(VoidAlert(
@@ -760,7 +760,7 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_query_filter_by_severity(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_void_alert, _store_void_alert, VoidAlert, VoidSeverity,
         )
         _store_void_alert(VoidAlert(
@@ -786,7 +786,7 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_query_invalid_severity_filter(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_void_alert
+        from src.mcp_handlers.cirs.protocol import handle_void_alert
         result = await handle_void_alert.__wrapped__({
             "action": "query",
             "filter_severity": "banana",
@@ -796,11 +796,11 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_emit_requires_registered_agent(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_void_alert
+        from src.mcp_handlers.cirs.protocol import handle_void_alert
         err = TextContent(type="text", text=json.dumps({
             "success": False, "error": "Not registered",
         }))
-        with patch("src.mcp_handlers.cirs_void.require_registered_agent", return_value=(None, err)):
+        with patch("src.mcp_handlers.cirs.void.require_registered_agent", return_value=(None, err)):
             result = await handle_void_alert.__wrapped__({
                 "action": "emit",
                 "severity": "warning",
@@ -810,7 +810,7 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_emit_with_explicit_severity(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_void_alert
+        from src.mcp_handlers.cirs.protocol import handle_void_alert
         with patch_require_registered("agent-1"):
             result = await handle_void_alert.__wrapped__({
                 "action": "emit",
@@ -824,7 +824,7 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_emit_invalid_severity(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_void_alert
+        from src.mcp_handlers.cirs.protocol import handle_void_alert
         with patch_require_registered("agent-1"):
             result = await handle_void_alert.__wrapped__({
                 "action": "emit",
@@ -835,7 +835,7 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_emit_auto_detect_severity(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_void_alert
+        from src.mcp_handlers.cirs.protocol import handle_void_alert
         # Set a high V value so auto-detection triggers
         monitor = mock_server.monitors["agent-1"]
         monitor.state.V = 0.3
@@ -856,7 +856,7 @@ class TestHandleVoidAlert:
 
     @pytest.mark.asyncio
     async def test_emit_auto_detect_below_threshold(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_void_alert
+        from src.mcp_handlers.cirs.protocol import handle_void_alert
         # Set a low V value
         monitor = mock_server.monitors["agent-1"]
         monitor.state.V = 0.01
@@ -885,7 +885,7 @@ class TestHandleStateAnnounce:
 
     @pytest.mark.asyncio
     async def test_missing_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_state_announce
+        from src.mcp_handlers.cirs.protocol import handle_state_announce
         result = await handle_state_announce.__wrapped__({})
         data = _parse(result)
         assert data["success"] is False
@@ -893,14 +893,14 @@ class TestHandleStateAnnounce:
 
     @pytest.mark.asyncio
     async def test_invalid_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_state_announce
+        from src.mcp_handlers.cirs.protocol import handle_state_announce
         result = await handle_state_announce.__wrapped__({"action": "bad"})
         data = _parse(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_query_empty(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_state_announce
+        from src.mcp_handlers.cirs.protocol import handle_state_announce
         result = await handle_state_announce.__wrapped__({"action": "query"})
         data = _parse(result)
         assert data["success"] is True
@@ -909,7 +909,7 @@ class TestHandleStateAnnounce:
 
     @pytest.mark.asyncio
     async def test_query_with_announces(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_state_announce, _store_state_announce, StateAnnounce,
         )
         _store_state_announce(StateAnnounce(
@@ -925,7 +925,7 @@ class TestHandleStateAnnounce:
 
     @pytest.mark.asyncio
     async def test_query_filter_by_regime(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_state_announce, _store_state_announce, StateAnnounce,
         )
         _store_state_announce(StateAnnounce(
@@ -952,7 +952,7 @@ class TestHandleStateAnnounce:
 
     @pytest.mark.asyncio
     async def test_query_invalid_regime(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_state_announce
+        from src.mcp_handlers.cirs.protocol import handle_state_announce
         result = await handle_state_announce.__wrapped__({
             "action": "query",
             "regime": "banana",
@@ -962,7 +962,7 @@ class TestHandleStateAnnounce:
 
     @pytest.mark.asyncio
     async def test_query_filter_by_min_coherence(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_state_announce, _store_state_announce, StateAnnounce,
         )
         _store_state_announce(StateAnnounce(
@@ -988,18 +988,18 @@ class TestHandleStateAnnounce:
 
     @pytest.mark.asyncio
     async def test_emit_requires_registered_agent(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_state_announce
+        from src.mcp_handlers.cirs.protocol import handle_state_announce
         err = TextContent(type="text", text=json.dumps({
             "success": False, "error": "Not registered",
         }))
-        with patch("src.mcp_handlers.cirs_state.require_registered_agent", return_value=(None, err)):
+        with patch("src.mcp_handlers.cirs.state.require_registered_agent", return_value=(None, err)):
             result = await handle_state_announce.__wrapped__({"action": "emit"})
         data = _parse(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_emit_happy_path(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_state_announce
+        from src.mcp_handlers.cirs.protocol import handle_state_announce
         with patch_require_registered("agent-1"):
             result = await handle_state_announce.__wrapped__({
                 "action": "emit",
@@ -1012,7 +1012,7 @@ class TestHandleStateAnnounce:
 
     @pytest.mark.asyncio
     async def test_emit_with_trajectory(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_state_announce
+        from src.mcp_handlers.cirs.protocol import handle_state_announce
         with patch_require_registered("agent-1"):
             result = await handle_state_announce.__wrapped__({
                 "action": "emit",
@@ -1026,7 +1026,7 @@ class TestHandleStateAnnounce:
 
     @pytest.mark.asyncio
     async def test_emit_with_agent_purpose(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_state_announce
+        from src.mcp_handlers.cirs.protocol import handle_state_announce
         # Set agent metadata with purpose
         mock_server.agent_metadata["agent-1"].purpose = "Testing purpose"
         mock_server.agent_metadata["agent-1"].trust_tier = "full"
@@ -1051,21 +1051,21 @@ class TestHandleCoherenceReport:
 
     @pytest.mark.asyncio
     async def test_missing_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_coherence_report
+        from src.mcp_handlers.cirs.protocol import handle_coherence_report
         result = await handle_coherence_report.__wrapped__({})
         data = _parse(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_invalid_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_coherence_report
+        from src.mcp_handlers.cirs.protocol import handle_coherence_report
         result = await handle_coherence_report.__wrapped__({"action": "invalid"})
         data = _parse(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_query_empty(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_coherence_report
+        from src.mcp_handlers.cirs.protocol import handle_coherence_report
         result = await handle_coherence_report.__wrapped__({"action": "query"})
         data = _parse(result)
         assert data["success"] is True
@@ -1073,7 +1073,7 @@ class TestHandleCoherenceReport:
 
     @pytest.mark.asyncio
     async def test_query_with_reports(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_coherence_report, _store_coherence_report, CoherenceReport,
         )
         _store_coherence_report(CoherenceReport(
@@ -1091,7 +1091,7 @@ class TestHandleCoherenceReport:
 
     @pytest.mark.asyncio
     async def test_query_filter_by_min_similarity(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_coherence_report, _store_coherence_report, CoherenceReport,
         )
         _store_coherence_report(CoherenceReport(
@@ -1119,11 +1119,11 @@ class TestHandleCoherenceReport:
 
     @pytest.mark.asyncio
     async def test_compute_requires_registered_agent(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_coherence_report
+        from src.mcp_handlers.cirs.protocol import handle_coherence_report
         err = TextContent(type="text", text=json.dumps({
             "success": False, "error": "Not registered",
         }))
-        with patch("src.mcp_handlers.cirs_coherence.require_registered_agent", return_value=(None, err)):
+        with patch("src.mcp_handlers.cirs.coherence.require_registered_agent", return_value=(None, err)):
             result = await handle_coherence_report.__wrapped__({
                 "action": "compute",
                 "target_agent_id": "agent-2",
@@ -1133,7 +1133,7 @@ class TestHandleCoherenceReport:
 
     @pytest.mark.asyncio
     async def test_compute_missing_target(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_coherence_report
+        from src.mcp_handlers.cirs.protocol import handle_coherence_report
         with patch_require_registered("agent-1"):
             result = await handle_coherence_report.__wrapped__({
                 "action": "compute",
@@ -1144,7 +1144,7 @@ class TestHandleCoherenceReport:
 
     @pytest.mark.asyncio
     async def test_compute_target_not_found(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_coherence_report
+        from src.mcp_handlers.cirs.protocol import handle_coherence_report
         with patch_require_registered("agent-1"):
             result = await handle_coherence_report.__wrapped__({
                 "action": "compute",
@@ -1156,7 +1156,7 @@ class TestHandleCoherenceReport:
 
     @pytest.mark.asyncio
     async def test_compute_happy_path(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_coherence_report
+        from src.mcp_handlers.cirs.protocol import handle_coherence_report
         with patch_require_registered("agent-1"):
             result = await handle_coherence_report.__wrapped__({
                 "action": "compute",
@@ -1182,21 +1182,21 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_missing_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         result = await handle_boundary_contract.__wrapped__({})
         data = _parse(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_invalid_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         result = await handle_boundary_contract.__wrapped__({"action": "invalid"})
         data = _parse(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_list_empty(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         result = await handle_boundary_contract.__wrapped__({"action": "list"})
         data = _parse(result)
         assert data["success"] is True
@@ -1205,18 +1205,18 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_set_requires_registered_agent(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         err = TextContent(type="text", text=json.dumps({
             "success": False, "error": "Not registered",
         }))
-        with patch("src.mcp_handlers.cirs_boundary.require_registered_agent", return_value=(None, err)):
+        with patch("src.mcp_handlers.cirs.boundary.require_registered_agent", return_value=(None, err)):
             result = await handle_boundary_contract.__wrapped__({"action": "set"})
         data = _parse(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_set_happy_path(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         with patch_require_registered("agent-1"):
             result = await handle_boundary_contract.__wrapped__({
                 "action": "set",
@@ -1235,7 +1235,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_set_with_trust_overrides(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         with patch_require_registered("agent-1"):
             result = await handle_boundary_contract.__wrapped__({
                 "action": "set",
@@ -1248,7 +1248,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_set_invalid_trust_default(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         with patch_require_registered("agent-1"):
             result = await handle_boundary_contract.__wrapped__({
                 "action": "set",
@@ -1259,7 +1259,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_set_invalid_trust_override_value(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         with patch_require_registered("agent-1"):
             result = await handle_boundary_contract.__wrapped__({
                 "action": "set",
@@ -1270,7 +1270,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_set_invalid_void_policy(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         with patch_require_registered("agent-1"):
             result = await handle_boundary_contract.__wrapped__({
                 "action": "set",
@@ -1281,7 +1281,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_set_preserves_violation_count(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_boundary_contract, _store_boundary_contract,
             BoundaryContract, TrustLevel, VoidResponsePolicy,
         )
@@ -1308,7 +1308,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_set_clamps_complexity(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         with patch_require_registered("agent-1"):
             result = await handle_boundary_contract.__wrapped__({
                 "action": "set",
@@ -1320,7 +1320,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_get_missing_target(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         result = await handle_boundary_contract.__wrapped__({"action": "get"})
         data = _parse(result)
         assert data["success"] is False
@@ -1328,7 +1328,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_get_not_found(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_boundary_contract
+        from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         result = await handle_boundary_contract.__wrapped__({
             "action": "get",
             "target_agent_id": "nonexistent",
@@ -1339,7 +1339,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_get_found(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_boundary_contract, _store_boundary_contract,
             BoundaryContract, TrustLevel, VoidResponsePolicy,
         )
@@ -1362,7 +1362,7 @@ class TestHandleBoundaryContract:
 
     @pytest.mark.asyncio
     async def test_list_with_contracts(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_boundary_contract, _store_boundary_contract,
             BoundaryContract, TrustLevel, VoidResponsePolicy,
         )
@@ -1401,14 +1401,14 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_missing_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         result = await handle_governance_action.__wrapped__({})
         data = _parse(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_invalid_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         result = await handle_governance_action.__wrapped__({"action": "invalid"})
         data = _parse(result)
         assert data["success"] is False
@@ -1417,11 +1417,11 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_initiate_requires_registered_agent(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         err = TextContent(type="text", text=json.dumps({
             "success": False, "error": "Not registered",
         }))
-        with patch("src.mcp_handlers.cirs_governance_action.require_registered_agent", return_value=(None, err)):
+        with patch("src.mcp_handlers.cirs.governance_action.require_registered_agent", return_value=(None, err)):
             result = await handle_governance_action.__wrapped__({
                 "action": "initiate",
                 "action_type": "void_intervention",
@@ -1432,7 +1432,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_initiate_missing_action_type(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         with patch_require_registered("agent-1"):
             result = await handle_governance_action.__wrapped__({
                 "action": "initiate",
@@ -1443,7 +1443,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_initiate_invalid_action_type(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         with patch_require_registered("agent-1"):
             result = await handle_governance_action.__wrapped__({
                 "action": "initiate",
@@ -1455,7 +1455,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_initiate_missing_target(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         with patch_require_registered("agent-1"):
             result = await handle_governance_action.__wrapped__({
                 "action": "initiate",
@@ -1467,7 +1467,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_initiate_happy_path(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         with patch_require_registered("agent-1"):
             result = await handle_governance_action.__wrapped__({
                 "action": "initiate",
@@ -1485,7 +1485,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_initiate_void_intervention_adds_state(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         with patch_require_registered("agent-1"):
             result = await handle_governance_action.__wrapped__({
                 "action": "initiate",
@@ -1500,7 +1500,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_initiate_blocked_by_trust_none(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_boundary_contract,
             BoundaryContract, TrustLevel, VoidResponsePolicy,
         )
@@ -1526,7 +1526,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_initiate_warning_observe_trust(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_boundary_contract,
             BoundaryContract, TrustLevel, VoidResponsePolicy,
         )
@@ -1552,7 +1552,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_initiate_trust_override_allows(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_boundary_contract,
             BoundaryContract, TrustLevel, VoidResponsePolicy,
         )
@@ -1579,11 +1579,11 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_respond_requires_registered_agent(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         err = TextContent(type="text", text=json.dumps({
             "success": False, "error": "Not registered",
         }))
-        with patch("src.mcp_handlers.cirs_governance_action.require_registered_agent", return_value=(None, err)):
+        with patch("src.mcp_handlers.cirs.governance_action.require_registered_agent", return_value=(None, err)):
             result = await handle_governance_action.__wrapped__({
                 "action": "respond",
                 "action_id": "abc",
@@ -1593,7 +1593,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_respond_missing_action_id(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         with patch_require_registered("agent-2"):
             result = await handle_governance_action.__wrapped__({
                 "action": "respond",
@@ -1604,7 +1604,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_respond_action_not_found(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         with patch_require_registered("agent-2"):
             result = await handle_governance_action.__wrapped__({
                 "action": "respond",
@@ -1616,7 +1616,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_respond_not_target(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_governance_action,
             GovernanceAction, GovernanceActionType,
         )
@@ -1641,7 +1641,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_respond_already_responded(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_governance_action,
             GovernanceAction, GovernanceActionType,
         )
@@ -1666,7 +1666,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_respond_accept(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_governance_action,
             GovernanceAction, GovernanceActionType,
         )
@@ -1695,7 +1695,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_respond_reject(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_governance_action,
             GovernanceAction, GovernanceActionType,
         )
@@ -1722,11 +1722,11 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_query_requires_registered_agent(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         err = TextContent(type="text", text=json.dumps({
             "success": False, "error": "Not registered",
         }))
-        with patch("src.mcp_handlers.cirs_governance_action.require_registered_agent", return_value=(None, err)):
+        with patch("src.mcp_handlers.cirs.governance_action.require_registered_agent", return_value=(None, err)):
             result = await handle_governance_action.__wrapped__({
                 "action": "query",
             })
@@ -1735,7 +1735,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_query_empty(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         with patch_require_registered("agent-1"):
             result = await handle_governance_action.__wrapped__({
                 "action": "query",
@@ -1747,7 +1747,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_query_with_actions(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_governance_action,
             GovernanceAction, GovernanceActionType,
         )
@@ -1780,7 +1780,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_query_filter_by_status(self, mock_server, patch_require_registered):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_governance_action,
             GovernanceAction, GovernanceActionType,
         )
@@ -1815,7 +1815,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_status_missing_action_id(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         result = await handle_governance_action.__wrapped__({
             "action": "status",
         })
@@ -1825,7 +1825,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_status_not_found(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_governance_action
+        from src.mcp_handlers.cirs.protocol import handle_governance_action
         result = await handle_governance_action.__wrapped__({
             "action": "status",
             "action_id": "nonexistent",
@@ -1836,7 +1836,7 @@ class TestHandleGovernanceAction:
 
     @pytest.mark.asyncio
     async def test_status_found(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             handle_governance_action, _store_governance_action,
             GovernanceAction, GovernanceActionType,
         )
@@ -1868,7 +1868,7 @@ class TestHandleCirsProtocol:
 
     @pytest.mark.asyncio
     async def test_missing_protocol(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_cirs_protocol
+        from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({})
         data = _parse(result)
         assert data["success"] is False
@@ -1876,7 +1876,7 @@ class TestHandleCirsProtocol:
 
     @pytest.mark.asyncio
     async def test_unknown_protocol(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_cirs_protocol
+        from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({"protocol": "banana"})
         data = _parse(result)
         assert data["success"] is False
@@ -1884,7 +1884,7 @@ class TestHandleCirsProtocol:
 
     @pytest.mark.asyncio
     async def test_dispatch_void_alert(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_cirs_protocol
+        from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({
             "protocol": "void_alert",
             "action": "query",
@@ -1895,7 +1895,7 @@ class TestHandleCirsProtocol:
 
     @pytest.mark.asyncio
     async def test_dispatch_state_announce(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_cirs_protocol
+        from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({
             "protocol": "state_announce",
             "action": "query",
@@ -1906,7 +1906,7 @@ class TestHandleCirsProtocol:
 
     @pytest.mark.asyncio
     async def test_dispatch_coherence_report(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_cirs_protocol
+        from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({
             "protocol": "coherence_report",
             "action": "query",
@@ -1917,7 +1917,7 @@ class TestHandleCirsProtocol:
 
     @pytest.mark.asyncio
     async def test_dispatch_boundary_contract(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_cirs_protocol
+        from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({
             "protocol": "boundary_contract",
             "action": "list",
@@ -1928,7 +1928,7 @@ class TestHandleCirsProtocol:
 
     @pytest.mark.asyncio
     async def test_dispatch_governance_action(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_cirs_protocol
+        from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({
             "protocol": "governance_action",
             "action": "status",
@@ -1940,7 +1940,7 @@ class TestHandleCirsProtocol:
 
     @pytest.mark.asyncio
     async def test_dispatch_case_insensitive(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_cirs_protocol
+        from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({
             "protocol": "VOID_ALERT",
             "action": "query",
@@ -1950,7 +1950,7 @@ class TestHandleCirsProtocol:
 
     @pytest.mark.asyncio
     async def test_dispatch_strips_whitespace(self, mock_server):
-        from src.mcp_handlers.cirs_protocol import handle_cirs_protocol
+        from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({
             "protocol": "  void_alert  ",
             "action": "query",
@@ -1967,7 +1967,7 @@ class TestBufferManagement:
     """Tests for in-memory buffer operations and TTL cleanup."""
 
     def test_void_alert_buffer_stores_and_retrieves(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             _store_void_alert, _get_recent_void_alerts,
             VoidAlert, VoidSeverity,
         )
@@ -1982,7 +1982,7 @@ class TestBufferManagement:
         assert alerts[0]["agent_id"] == "agent-1"
 
     def test_void_alert_buffer_respects_limit(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             _store_void_alert, _get_recent_void_alerts,
             VoidAlert, VoidSeverity,
         )
@@ -1997,7 +1997,7 @@ class TestBufferManagement:
         assert len(alerts) == 3
 
     def test_state_announce_overwrites_per_agent(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             _store_state_announce, _get_state_announces, StateAnnounce,
         )
         _store_state_announce(StateAnnounce(
@@ -2021,7 +2021,7 @@ class TestBufferManagement:
         assert announces[0]["regime"] == "stable"
 
     def test_coherence_report_overwrites_per_pair(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             _store_coherence_report, _get_coherence_reports, CoherenceReport,
         )
         _store_coherence_report(CoherenceReport(
@@ -2045,7 +2045,7 @@ class TestBufferManagement:
         assert reports[0]["similarity_score"] == 0.9
 
     def test_governance_action_stored_by_id(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             _store_governance_action, _get_governance_action,
             _get_governance_actions_for_agent,
             GovernanceAction, GovernanceActionType,
@@ -2072,7 +2072,7 @@ class TestBufferManagement:
         assert len(actions_none) == 0
 
     def test_governance_actions_for_agent_filters(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             _store_governance_action, _get_governance_actions_for_agent,
             GovernanceAction, GovernanceActionType,
         )
@@ -2114,7 +2114,7 @@ class TestBufferManagement:
         assert pending[0]["action_id"] == "act-1"
 
     def test_boundary_contract_get_and_store(self):
-        from src.mcp_handlers.cirs_protocol import (
+        from src.mcp_handlers.cirs.protocol import (
             _store_boundary_contract, _get_boundary_contract,
             _get_all_boundary_contracts,
             BoundaryContract, TrustLevel, VoidResponsePolicy,
@@ -2145,33 +2145,33 @@ class TestEnums:
     """Tests for CIRS protocol enums."""
 
     def test_void_severity_values(self):
-        from src.mcp_handlers.cirs_protocol import VoidSeverity
+        from src.mcp_handlers.cirs.protocol import VoidSeverity
         assert VoidSeverity.WARNING.value == "warning"
         assert VoidSeverity.CRITICAL.value == "critical"
 
     def test_agent_regime_values(self):
-        from src.mcp_handlers.cirs_protocol import AgentRegime
+        from src.mcp_handlers.cirs.protocol import AgentRegime
         assert AgentRegime.DIVERGENCE.value == "divergence"
         assert AgentRegime.TRANSITION.value == "transition"
         assert AgentRegime.CONVERGENCE.value == "convergence"
         assert AgentRegime.STABLE.value == "stable"
 
     def test_trust_level_values(self):
-        from src.mcp_handlers.cirs_protocol import TrustLevel
+        from src.mcp_handlers.cirs.protocol import TrustLevel
         assert TrustLevel.FULL.value == "full"
         assert TrustLevel.PARTIAL.value == "partial"
         assert TrustLevel.OBSERVE.value == "observe"
         assert TrustLevel.NONE.value == "none"
 
     def test_void_response_policy_values(self):
-        from src.mcp_handlers.cirs_protocol import VoidResponsePolicy
+        from src.mcp_handlers.cirs.protocol import VoidResponsePolicy
         assert VoidResponsePolicy.NOTIFY.value == "notify"
         assert VoidResponsePolicy.ASSIST.value == "assist"
         assert VoidResponsePolicy.ISOLATE.value == "isolate"
         assert VoidResponsePolicy.COORDINATE.value == "coordinate"
 
     def test_governance_action_type_values(self):
-        from src.mcp_handlers.cirs_protocol import GovernanceActionType
+        from src.mcp_handlers.cirs.protocol import GovernanceActionType
         assert GovernanceActionType.VOID_INTERVENTION.value == "void_intervention"
         assert GovernanceActionType.COHERENCE_BOOST.value == "coherence_boost"
         assert GovernanceActionType.DELEGATION_REQUEST.value == "delegation_request"

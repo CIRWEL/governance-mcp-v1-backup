@@ -3,7 +3,7 @@
 import pytest
 from datetime import datetime, timezone, timedelta
 
-from src.mcp_handlers.dialectic_enforcement import (
+from src.mcp_handlers.dialectic.enforcement import (
     enforce_post_ode_conditions,
     enforce_complexity_limit,
     _is_expired,

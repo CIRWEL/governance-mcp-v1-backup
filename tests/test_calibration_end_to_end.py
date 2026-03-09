@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.calibration import CalibrationChecker, get_calibration_checker
 from src.audit_log import AuditLogger
 from src.dialectic_protocol import DialecticSession, DialecticMessage, DialecticPhase, Resolution
-from src.mcp_handlers.dialectic_calibration import (
+from src.mcp_handlers.dialectic.calibration import (
     update_calibration_from_dialectic,
     update_calibration_from_dialectic_disagreement
 )
@@ -53,7 +53,7 @@ async def test_agreement_calibration():
     
     # Patch the singleton to use our isolated checker
     with unittest.mock.patch('src.calibration._calibration_checker_instance', isolated_checker):
-        with unittest.mock.patch('src.mcp_handlers.dialectic_calibration.calibration_checker', isolated_checker):
+        with unittest.mock.patch('src.mcp_handlers.dialectic.calibration.calibration_checker', isolated_checker):
             # Create a mock converged verification session
             session = DialecticSession(
                 paused_agent_id="test_agent_agree",
@@ -154,7 +154,7 @@ async def test_disagreement_calibration():
     
     # Patch the singleton to use our isolated checker
     with unittest.mock.patch('src.calibration._calibration_checker_instance', isolated_checker):
-        with unittest.mock.patch('src.mcp_handlers.dialectic_calibration.calibration_checker', isolated_checker):
+        with unittest.mock.patch('src.mcp_handlers.dialectic.calibration.calibration_checker', isolated_checker):
             # Create a mock escalated verification session (disagreement)
             session = DialecticSession(
                 paused_agent_id="test_agent_disagree",
@@ -247,7 +247,7 @@ async def test_both_paths_together():
     
     # Patch the singleton to use our isolated checker
     with unittest.mock.patch('src.calibration._calibration_checker_instance', isolated_checker):
-        with unittest.mock.patch('src.mcp_handlers.dialectic_calibration.calibration_checker', isolated_checker):
+        with unittest.mock.patch('src.mcp_handlers.dialectic.calibration.calibration_checker', isolated_checker):
             # Test agreement path
             session1 = DialecticSession(
         paused_agent_id="test_agent_both_1",

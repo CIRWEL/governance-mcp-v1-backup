@@ -7,7 +7,7 @@ Existing imports continue to work unchanged.
 
 # Re-export all public names for backward compatibility
 from .serialization import _make_json_serializable
-from .agent_auth import (
+from .support.agent_auth import (
     compute_agent_signature,
     check_agent_can_operate,
     require_argument,
@@ -25,7 +25,7 @@ from .response_base import (
     format_metrics_text,
     success_response,
 )
-from .feedback import (
+from .introspection.feedback import (
     get_calibration_feedback,
     generate_actionable_feedback,
     _calibration_message_cache,

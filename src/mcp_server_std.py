@@ -513,7 +513,7 @@ async def main():
             logger.warning(f"Could not clean up stale locks: {e}", exc_info=True)
 
         try:
-            from src.mcp_handlers.dialectic import load_all_sessions
+            from src.mcp_handlers.dialectic.handlers import load_all_sessions
             loaded_sessions = await load_all_sessions()
             if loaded_sessions > 0:
                 logger.info(f"Restored {loaded_sessions} active dialectic session(s) from disk")
@@ -521,7 +521,7 @@ async def main():
             logger.warning(f"Could not load dialectic sessions: {e}", exc_info=True)
 
         try:
-            from src.mcp_handlers.dialectic_session import run_startup_consolidation
+            from src.mcp_handlers.dialectic.session import run_startup_consolidation
             consolidation_result = await run_startup_consolidation()
             if consolidation_result.get('exported', 0) > 0:
                 logger.info(f"Dialectic consolidation: exported {consolidation_result['exported']} sessions")

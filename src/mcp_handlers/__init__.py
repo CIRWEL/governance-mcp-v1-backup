@@ -14,18 +14,18 @@ from .core import (
     handle_get_governance_metrics,
     handle_simulate_update,
 )
-from .config import (
+from .admin.config import (
     handle_get_thresholds,
     handle_set_thresholds,
 )
-from .observability import (
+from .observability.handlers import (
     handle_observe_agent,
     handle_compare_agents,
     handle_compare_me_to_similar,
     handle_detect_anomalies,
     handle_aggregate_metrics,
 )
-from .lifecycle import (
+from .lifecycle.handlers import (
     handle_list_agents,
     handle_get_agent_metadata,
     handle_update_agent_metadata,
@@ -40,11 +40,11 @@ from .lifecycle import (
     handle_detect_stuck_agents,
     handle_ping_agent,
 )
-from .export import (
+from .introspection.export import (
     handle_get_system_history,
     handle_export_to_file,
 )
-from .admin import (
+from .admin.handlers import (
     handle_reset_monitor,
     handle_get_server_info,
     handle_health_check,
@@ -55,18 +55,18 @@ from .admin import (
     handle_get_tool_usage_stats,
     handle_validate_file_path,
 )
-from .calibration_handlers import (
+from .admin.calibration import (
     handle_check_calibration,
     handle_rebuild_calibration,
     handle_update_calibration_ground_truth,
     handle_backfill_calibration_from_dialectic,
 )
-from .tool_introspection import (
+from .introspection.tool_introspection import (
     handle_list_tools,
     handle_describe_tool,
 )
 # Knowledge Graph
-from .knowledge_graph import (
+from .knowledge.handlers import (
     handle_store_knowledge_graph,
     handle_search_knowledge_graph,
     handle_get_knowledge_graph,
@@ -78,7 +78,7 @@ from .knowledge_graph import (
     handle_get_lifecycle_stats,
 )
 # Dialectic - full protocol restored (Feb 2026)
-from .dialectic import (
+from .dialectic.handlers import (
     handle_get_dialectic_session,
     handle_list_dialectic_sessions,
     handle_request_dialectic_review,
@@ -89,23 +89,23 @@ from .dialectic import (
 )
 # Self-Recovery - Simplified recovery without external reviewers (Jan 2026)
 # Note: handle_self_recovery_review moved to lifecycle.py per SELF_RECOVERY_SPEC.md
-from .self_recovery import (
+from .lifecycle.self_recovery import (
     handle_self_recovery,  # Consolidated entry point
     handle_quick_resume,  # Hidden, used by dispatcher
     handle_check_recovery_options,  # Hidden, used by dispatcher
     handle_operator_resume_agent,
 )
 # Identity - v2 simplified (Dec 2025, 3-path architecture)
-from .identity_v2 import (
+from .identity.handlers import (
     handle_identity_adapter as handle_identity,
     handle_onboard_v2 as handle_onboard,
     handle_verify_trajectory_identity,
     handle_get_trajectory_status,
 )
 # Model Inference - Free/low-cost LLM access via ngrok.ai
-from .model_inference import handle_call_model
+from .support.model_inference import handle_call_model
 # Outcome Events - EISV validation infrastructure (Feb 2026)
-from .outcome_events import handle_outcome_event
+from .observability.outcome_events import handle_outcome_event
 # Consolidated tools - reduces cognitive load for agents (Jan 2026)
 from .consolidated import (
     handle_knowledge,
@@ -114,7 +114,7 @@ from .consolidated import (
 )
 # CIRS Protocol - Multi-agent resonance layer (Feb 2026)
 # See: UARG Whitepaper for protocol specification
-from .cirs_protocol import (
+from .cirs import (
     handle_cirs_protocol,  # Consolidated entry point
     # Individual handlers (hidden, for backwards compat)
     handle_void_alert,
@@ -129,7 +129,7 @@ from .cirs_protocol import (
 )
 # Pi Orchestration - Mac→Pi coordination tools (Feb 2026)
 # Proxies calls to anima-mcp on Pi via Streamable HTTP transport (MCP 1.24.0+)
-from .pi_orchestration import (
+from .observability.pi_orchestration import (
     handle_pi_list_tools,
     handle_pi_get_context,
     handle_pi_health,
@@ -144,13 +144,13 @@ from .pi_orchestration import (
     handle_pi_restart_service,  # SSH-based fallback when MCP is down
 )
 # Keep helper functions from identity_shared.py (used by dispatch_tool)
-from .identity_shared import (
+from .identity.shared import (
     get_bound_agent_id,
     is_session_bound,
 )
 
 # Common utilities
-from .dashboard import handle_dashboard
+from .admin.dashboard import handle_dashboard
 from .utils import error_response, success_response
 
 # Error helpers (for exception handlers)
@@ -239,4 +239,3 @@ async def dispatch_tool(name: str, arguments: Optional[Dict[str, Any]]) -> Seque
         reset_session_context(ctx.context_token)
         if ctx.trajectory_confidence_token is not None:
             reset_trajectory_confidence(ctx.trajectory_confidence_token)
-

@@ -70,8 +70,8 @@ class TestListAgentsLite:
     async def test_empty_metadata(self, mock_mcp_server):
         mock_mcp_server.agent_metadata = {}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_list_agents
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_list_agents
             result = await handle_list_agents({"lite": True})
 
             data = json.loads(result[0].text)
@@ -85,8 +85,8 @@ class TestListAgentsLite:
             "a2": make_agent_meta(label="Beta", total_updates=3),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_list_agents
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_list_agents
             result = await handle_list_agents({"lite": True})
 
             data = json.loads(result[0].text)
@@ -100,8 +100,8 @@ class TestListAgentsLite:
             "test_agent_1": make_agent_meta(label="Test"),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_list_agents
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_list_agents
             result = await handle_list_agents({"lite": True, "include_test_agents": False})
 
             data = json.loads(result[0].text)
@@ -116,8 +116,8 @@ class TestListAgentsLite:
             "test_agent_1": make_agent_meta(label="Test"),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_list_agents
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_list_agents
             result = await handle_list_agents({"lite": True, "include_test_agents": True})
 
             data = json.loads(result[0].text)
@@ -131,8 +131,8 @@ class TestListAgentsLite:
             "archived-1": make_agent_meta(status="archived"),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_list_agents
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_list_agents
             result = await handle_list_agents({"lite": True, "status_filter": "active"})
 
             data = json.loads(result[0].text)
@@ -147,8 +147,8 @@ class TestListAgentsLite:
             for i in range(10)
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_list_agents
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_list_agents
             result = await handle_list_agents({"lite": True, "limit": 3})
 
             data = json.loads(result[0].text)
@@ -165,8 +165,8 @@ class TestListAgentsLite:
             "old-agent": make_agent_meta(last_update=old),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_list_agents
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_list_agents
             result = await handle_list_agents({"lite": True, "recent_days": 7})
 
             data = json.loads(result[0].text)
@@ -195,14 +195,14 @@ class TestArchiveAgent:
         meta = make_agent_meta(status="active")
         mock_mcp_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
-             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
 
             mock_storage.archive_agent = AsyncMock()
 
-            from src.mcp_handlers.lifecycle import handle_archive_agent
+            from src.mcp_handlers.lifecycle.handlers import handle_archive_agent
             result = await handle_archive_agent({"agent_id": "agent-1"})
 
             data = json.loads(result[0].text)
@@ -214,10 +214,10 @@ class TestArchiveAgent:
         meta = make_agent_meta(status="archived")
         mock_mcp_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.lifecycle import handle_archive_agent
+            from src.mcp_handlers.lifecycle.handlers import handle_archive_agent
             result = await handle_archive_agent({"agent_id": "agent-1"})
 
             text = result[0].text
@@ -227,10 +227,10 @@ class TestArchiveAgent:
     async def test_archive_not_found(self, mock_mcp_server):
         mock_mcp_server.agent_metadata = {}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.lifecycle import handle_archive_agent
+            from src.mcp_handlers.lifecycle.handlers import handle_archive_agent
             result = await handle_archive_agent({"agent_id": "agent-1"})
 
             text = result[0].text
@@ -242,10 +242,10 @@ class TestArchiveAgent:
         meta = make_agent_meta(status="active")
         mock_mcp_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.lifecycle import handle_archive_agent
+            from src.mcp_handlers.lifecycle.handlers import handle_archive_agent
             result = await handle_archive_agent({"agent_id": "agent-1"})
 
             text = result[0].text
@@ -270,10 +270,10 @@ class TestDeleteAgent:
 
     @pytest.mark.asyncio
     async def test_delete_requires_confirm(self, mock_mcp_server):
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.lifecycle import handle_delete_agent
+            from src.mcp_handlers.lifecycle.handlers import handle_delete_agent
             result = await handle_delete_agent({"agent_id": "agent-1", "confirm": False})
 
             text = result[0].text
@@ -284,10 +284,10 @@ class TestDeleteAgent:
         meta = make_agent_meta(status="active", tags=["pioneer"])
         mock_mcp_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.lifecycle import handle_delete_agent
+            from src.mcp_handlers.lifecycle.handlers import handle_delete_agent
             result = await handle_delete_agent({"agent_id": "agent-1", "confirm": True})
 
             text = result[0].text
@@ -298,14 +298,14 @@ class TestDeleteAgent:
         meta = make_agent_meta(status="active", tags=[])
         mock_mcp_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
-             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
 
             mock_storage.delete_agent = AsyncMock()
 
-            from src.mcp_handlers.lifecycle import handle_delete_agent
+            from src.mcp_handlers.lifecycle.handlers import handle_delete_agent
             result = await handle_delete_agent({
                 "agent_id": "agent-1", "confirm": True, "backup_first": False,
             })
@@ -318,10 +318,10 @@ class TestDeleteAgent:
     async def test_delete_not_found(self, mock_mcp_server):
         mock_mcp_server.agent_metadata = {}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.lifecycle import handle_delete_agent
+            from src.mcp_handlers.lifecycle.handlers import handle_delete_agent
             result = await handle_delete_agent({"agent_id": "agent-1", "confirm": True})
 
             text = result[0].text
@@ -348,15 +348,15 @@ class TestMarkResponseComplete:
         meta = make_agent_meta(status="active")
         mock_mcp_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
-             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.knowledge_graph.get_knowledge_graph", new_callable=AsyncMock, side_effect=Exception("no graph")):
 
             mock_storage.update_agent = AsyncMock()
 
-            from src.mcp_handlers.lifecycle import handle_mark_response_complete
+            from src.mcp_handlers.lifecycle.handlers import handle_mark_response_complete
             result = await handle_mark_response_complete({"agent_id": "agent-1"})
 
             data = json.loads(result[0].text)
@@ -369,15 +369,15 @@ class TestMarkResponseComplete:
         meta = make_agent_meta(status="active")
         mock_mcp_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
-             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage, \
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)), \
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage, \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
              patch("src.knowledge_graph.get_knowledge_graph", new_callable=AsyncMock, side_effect=Exception("no graph")):
 
             mock_storage.update_agent = AsyncMock()
 
-            from src.mcp_handlers.lifecycle import handle_mark_response_complete
+            from src.mcp_handlers.lifecycle.handlers import handle_mark_response_complete
             result = await handle_mark_response_complete({"agent_id": "agent-1", "summary": "Finished refactoring"})
 
             data = json.loads(result[0].text)
@@ -390,10 +390,10 @@ class TestMarkResponseComplete:
         from mcp.types import TextContent
         error = TextContent(type="text", text='{"error": "not registered"}')
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=(None, error)):
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=(None, error)):
 
-            from src.mcp_handlers.lifecycle import handle_mark_response_complete
+            from src.mcp_handlers.lifecycle.handlers import handle_mark_response_complete
             result = await handle_mark_response_complete({})
 
             assert "not registered" in result[0].text
@@ -403,11 +403,11 @@ class TestMarkResponseComplete:
         meta = make_agent_meta(status="active")
         mock_mcp_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
 
-            from src.mcp_handlers.lifecycle import handle_mark_response_complete
+            from src.mcp_handlers.lifecycle.handlers import handle_mark_response_complete
             result = await handle_mark_response_complete({"agent_id": "agent-1"})
 
             text = result[0].text
@@ -440,8 +440,8 @@ class TestPingAgent:
         mock_monitor.get_metrics.return_value = {"E": 0.7}
         mock_mcp_server.get_or_create_monitor.return_value = mock_monitor
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_ping_agent
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_ping_agent
             result = await handle_ping_agent({"agent_id": "agent-1"})
 
             data = json.loads(result[0].text)
@@ -460,8 +460,8 @@ class TestPingAgent:
         mock_monitor.get_metrics.return_value = {"E": 0.7}
         mock_mcp_server.get_or_create_monitor.return_value = mock_monitor
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_ping_agent
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_ping_agent
             result = await handle_ping_agent({"agent_id": "agent-1"})
 
             data = json.loads(result[0].text)
@@ -472,8 +472,8 @@ class TestPingAgent:
     async def test_ping_not_found(self, mock_mcp_server):
         mock_mcp_server.agent_metadata = {}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_ping_agent
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_ping_agent
             result = await handle_ping_agent({"agent_id": "nonexistent"})
 
             text = result[0].text
@@ -490,8 +490,8 @@ class TestPingAgent:
         mock_monitor.get_metrics.side_effect = RuntimeError("cannot get metrics")
         mock_mcp_server.get_or_create_monitor.return_value = mock_monitor
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server):
-            from src.mcp_handlers.lifecycle import handle_ping_agent
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server):
+            from src.mcp_handlers.lifecycle.handlers import handle_ping_agent
             result = await handle_ping_agent({"agent_id": "agent-1"})
 
             data = json.loads(result[0].text)
@@ -500,9 +500,9 @@ class TestPingAgent:
 
     @pytest.mark.asyncio
     async def test_ping_no_agent_id(self, mock_mcp_server):
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.identity_shared.get_bound_agent_id", return_value=None):
-            from src.mcp_handlers.lifecycle import handle_ping_agent
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.identity.shared.get_bound_agent_id", return_value=None):
+            from src.mcp_handlers.lifecycle.handlers import handle_ping_agent
             result = await handle_ping_agent({})
 
             text = result[0].text
@@ -536,11 +536,11 @@ class TestArchiveOldTestAgents:
             "real_agent": make_agent_meta(status="active", last_update=recent, total_updates=10),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage:
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage:
             mock_storage.archive_agent = AsyncMock()
 
-            from src.mcp_handlers.lifecycle import handle_archive_old_test_agents
+            from src.mcp_handlers.lifecycle.handlers import handle_archive_old_test_agents
             result = await handle_archive_old_test_agents({"dry_run": True})
 
             data = json.loads(result[0].text)
@@ -557,11 +557,11 @@ class TestArchiveOldTestAgents:
             "test_ping_1": make_agent_meta(status="active", last_update=recent, total_updates=1),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage:
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage:
             mock_storage.archive_agent = AsyncMock()
 
-            from src.mcp_handlers.lifecycle import handle_archive_old_test_agents
+            from src.mcp_handlers.lifecycle.handlers import handle_archive_old_test_agents
             result = await handle_archive_old_test_agents({})
 
             data = json.loads(result[0].text)
@@ -576,11 +576,11 @@ class TestArchiveOldTestAgents:
             "test_archived": make_agent_meta(status="archived", total_updates=1),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage:
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage:
             mock_storage.archive_agent = AsyncMock()
 
-            from src.mcp_handlers.lifecycle import handle_archive_old_test_agents
+            from src.mcp_handlers.lifecycle.handlers import handle_archive_old_test_agents
             result = await handle_archive_old_test_agents({})
 
             data = json.loads(result[0].text)
@@ -593,11 +593,11 @@ class TestArchiveOldTestAgents:
             "production-agent": make_agent_meta(status="active", last_update=old, total_updates=5),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage:
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage:
             mock_storage.archive_agent = AsyncMock()
 
-            from src.mcp_handlers.lifecycle import handle_archive_old_test_agents
+            from src.mcp_handlers.lifecycle.handlers import handle_archive_old_test_agents
             result = await handle_archive_old_test_agents({})
 
             data = json.loads(result[0].text)
@@ -610,11 +610,11 @@ class TestArchiveOldTestAgents:
             "production-agent": make_agent_meta(status="active", last_update=old, total_updates=5),
         }
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.lifecycle.agent_storage") as mock_storage:
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage:
             mock_storage.archive_agent = AsyncMock()
 
-            from src.mcp_handlers.lifecycle import handle_archive_old_test_agents
+            from src.mcp_handlers.lifecycle.handlers import handle_archive_old_test_agents
             result = await handle_archive_old_test_agents({"include_all": True})
 
             data = json.loads(result[0].text)

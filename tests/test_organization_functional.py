@@ -160,7 +160,7 @@ def test_export_handler_integration():
     print("Testing export handler integration...")
     
     # Check the code to verify it uses history directory (don't import to avoid dialectic dependency)
-    export_file = project_root / "src" / "mcp_handlers" / "export.py"
+    export_file = project_root / "src" / "mcp_handlers" / "introspection" / "export.py"
     with open(export_file, 'r') as f:
         content = f.read()
     

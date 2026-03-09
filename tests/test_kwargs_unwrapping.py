@@ -93,7 +93,7 @@ async def test_dispatch_tool_kwargs_dict_unwrap():
 @pytest.mark.asyncio
 async def test_handle_identity_kwargs_dict_direct():
     """handle_identity should unwrap kwargs dicts when bypassing dispatch_tool."""
-    from src.mcp_handlers.identity_v2 import handle_identity_adapter as handle_identity
+    from src.mcp_handlers.identity.handlers import handle_identity_adapter as handle_identity
 
     name = _make_unique_name("test_kwargs_direct")
     result = await handle_identity({"kwargs": {"name": name}})

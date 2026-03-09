@@ -375,7 +375,7 @@ def auto_register_all_tools():
     The SSE server will automatically pick it up.
     """
     from src.tool_schemas import get_tool_definitions
-    from src.mcp_handlers.wrapper_generator import create_typed_wrapper
+    from src.mcp_handlers.support.wrapper_generator import create_typed_wrapper
     from src.mcp_handlers.decorators import get_tool_registry
 
     tools = get_tool_definitions()
@@ -429,7 +429,7 @@ auto_register_all_tools()
 
 def _register_common_aliases():
     from src.mcp_handlers.tool_stability import resolve_tool_alias
-    from src.mcp_handlers.wrapper_generator import create_typed_wrapper
+    from src.mcp_handlers.support.wrapper_generator import create_typed_wrapper
 
     common = ["status", "list_agents", "observe_agent"]
     count = 0
@@ -525,7 +525,7 @@ async def debug_request_context(ctx: Context = None) -> dict:
     bound_agent_id = None
     session_bound = False
     try:
-        from src.mcp_handlers.identity_shared import get_bound_agent_id
+        from src.mcp_handlers.identity.shared import get_bound_agent_id
         bound_agent_id = get_bound_agent_id(arguments={"client_session_id": session_id} if session_id else {})
         session_bound = bool(bound_agent_id)
     except Exception as e:

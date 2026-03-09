@@ -362,7 +362,7 @@ async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextC
     if meta and agent_state_source == "existing":
         try:
             if getattr(meta, "dialectic_conditions", None):
-                from .dialectic_enforcement import enforce_complexity_limit
+                from .dialectic.enforcement import enforce_complexity_limit
                 complexity, cap_warning = enforce_complexity_limit(
                     meta.dialectic_conditions, complexity
                 )
@@ -397,7 +397,7 @@ async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextC
     if meta and agent_state_source == "existing":
         try:
             if getattr(meta, "dialectic_conditions", None):
-                from .dialectic_enforcement import enforce_post_ode_conditions
+                from .dialectic.enforcement import enforce_post_ode_conditions
                 decision = result.get("decision", {})
                 escalated_decision, condition_warnings = enforce_post_ode_conditions(
                     meta.dialectic_conditions, result.get("metrics", {}), decision
@@ -469,15 +469,15 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
     No api_key needed - identity is bound to session via UUID.
     """
     from .validators import apply_param_aliases
-    from .update_context import UpdateContext
-    from .update_phases import (
+    from .updates.context import UpdateContext
+    from .updates.phases import (
         resolve_identity_and_guards,
         handle_onboarding_and_resume,
         transform_inputs,
         execute_locked_update,
         execute_post_update_effects,
     )
-    from .update_enrichments import (
+    from .updates.enrichments import (
         enrich_state_interpretation,
         enrich_actionable_feedback,
         enrich_llm_coaching,

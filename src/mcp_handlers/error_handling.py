@@ -113,7 +113,7 @@ def error_response(
     Auto-infers error_code and error_category if not provided.
     """
     from . import serialization as _ser
-    from . import agent_auth as _auth
+    from .support import agent_auth as _auth
 
     sanitized_message = _sanitize_error_message(message)
 

@@ -67,8 +67,8 @@ def mock_mcp_server():
 @pytest.fixture
 def patch_mcp_server(mock_mcp_server):
     """Patch both mcp_server and get_mcp_server references."""
-    with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
-         patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server):
+    with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
+         patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server):
         yield mock_mcp_server
 
 
@@ -92,9 +92,9 @@ class TestGetServerInfo:
     @pytest.mark.asyncio
     async def test_server_info_without_psutil(self, mock_mcp_server, patch_context_agent_id):
         mock_mcp_server.PSUTIL_AVAILABLE = False
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {"a": None, "b": None, "c": None}):
-            from src.mcp_handlers.admin import handle_get_server_info
+            from src.mcp_handlers.admin.handlers import handle_get_server_info
             result = await handle_get_server_info({})
 
             data = parse_result(result)
@@ -124,12 +124,12 @@ class TestGetServerInfo:
         mock_current.create_time.return_value = 100.0
         mock_current.status.return_value = "running"
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {"a": None}), \
              patch("psutil.process_iter", return_value=[mock_proc]), \
              patch("psutil.Process", return_value=mock_current), \
              patch("time.time", return_value=200.0):
-            from src.mcp_handlers.admin import handle_get_server_info
+            from src.mcp_handlers.admin.handlers import handle_get_server_info
             result = await handle_get_server_info({})
 
             data = parse_result(result)
@@ -140,10 +140,10 @@ class TestGetServerInfo:
     async def test_server_info_transport_detection(self, mock_mcp_server, patch_context_agent_id):
         """Test that transport is detected from sys.argv."""
         mock_mcp_server.PSUTIL_AVAILABLE = False
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {}), \
              patch.object(sys, "argv", ["python", "mcp_server.py"]):
-            from src.mcp_handlers.admin import handle_get_server_info
+            from src.mcp_handlers.admin.handlers import handle_get_server_info
             result = await handle_get_server_info({})
             data = parse_result(result)
             assert data["transport"] == "HTTP"
@@ -160,10 +160,10 @@ class TestGetConnectionStatus:
         mock_server = MagicMock()
         mock_server.agent_metadata = {}
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {"tool1": None}):
-            from src.mcp_handlers.admin import handle_get_connection_status
+            from src.mcp_handlers.admin.handlers import handle_get_connection_status
             result = await handle_get_connection_status({})
 
             data = parse_result(result)
@@ -180,11 +180,11 @@ class TestGetConnectionStatus:
         meta.label = "TestAgent"
         mock_server.agent_metadata = {"uuid-123": meta}
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {"tool1": None}), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value="uuid-123"):
-            from src.mcp_handlers.admin import handle_get_connection_status
+            from src.mcp_handlers.admin.handlers import handle_get_connection_status
             result = await handle_get_connection_status({})
 
             data = parse_result(result)
@@ -199,10 +199,10 @@ class TestGetConnectionStatus:
         mock_server = MagicMock()
         mock_server.agent_metadata = {}
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {}):
-            from src.mcp_handlers.admin import handle_get_connection_status
+            from src.mcp_handlers.admin.handlers import handle_get_connection_status
             result = await handle_get_connection_status({})
 
             data = parse_result(result)
@@ -218,8 +218,8 @@ class TestValidateFilePath:
 
     @pytest.mark.asyncio
     async def test_valid_path(self, patch_context_agent_id):
-        with patch("src.mcp_handlers.admin.validate_file_path_policy", return_value=(None, None)):
-            from src.mcp_handlers.admin import handle_validate_file_path
+        with patch("src.mcp_handlers.admin.handlers.validate_file_path_policy", return_value=(None, None)):
+            from src.mcp_handlers.admin.handlers import handle_validate_file_path
             result = await handle_validate_file_path({"file_path": "src/main.py"})
 
             data = parse_result(result)
@@ -230,9 +230,9 @@ class TestValidateFilePath:
     @pytest.mark.asyncio
     async def test_warning_path(self, patch_context_agent_id):
         warning_msg = "Test script should be in tests/"
-        with patch("src.mcp_handlers.admin.validate_file_path_policy",
+        with patch("src.mcp_handlers.admin.handlers.validate_file_path_policy",
                     return_value=(warning_msg, None)):
-            from src.mcp_handlers.admin import handle_validate_file_path
+            from src.mcp_handlers.admin.handlers import handle_validate_file_path
             result = await handle_validate_file_path({"file_path": "test_foo.py"})
 
             data = parse_result(result)
@@ -245,9 +245,9 @@ class TestValidateFilePath:
     async def test_error_path(self, patch_context_agent_id):
         from mcp.types import TextContent
         error_tc = TextContent(type="text", text='{"success":false,"error":"blocked"}')
-        with patch("src.mcp_handlers.admin.validate_file_path_policy",
+        with patch("src.mcp_handlers.admin.handlers.validate_file_path_policy",
                     return_value=(None, error_tc)):
-            from src.mcp_handlers.admin import handle_validate_file_path
+            from src.mcp_handlers.admin.handlers import handle_validate_file_path
             result = await handle_validate_file_path({"file_path": "/etc/passwd"})
 
             data = json.loads(result[0].text)
@@ -255,7 +255,7 @@ class TestValidateFilePath:
 
     @pytest.mark.asyncio
     async def test_missing_file_path(self, patch_context_agent_id):
-        from src.mcp_handlers.admin import handle_validate_file_path
+        from src.mcp_handlers.admin.handlers import handle_validate_file_path
         result = await handle_validate_file_path({})
 
         data = parse_result(result)
@@ -274,10 +274,10 @@ class TestResetMonitor:
         mock_mcp_server.monitors = {"agent-1": MagicMock()}
         mock_mcp_server.agent_metadata = {"agent-1": MagicMock(status="active")}
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.admin.require_registered_agent",
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.require_registered_agent",
                    return_value=("agent-1", None)):
-            from src.mcp_handlers.admin import handle_reset_monitor
+            from src.mcp_handlers.admin.handlers import handle_reset_monitor
             result = await handle_reset_monitor({"agent_id": "agent-1"})
 
             data = parse_result(result)
@@ -289,10 +289,10 @@ class TestResetMonitor:
     async def test_reset_nonexistent_monitor(self, mock_mcp_server, patch_context_agent_id):
         mock_mcp_server.monitors = {}
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.admin.require_registered_agent",
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.require_registered_agent",
                    return_value=("agent-1", None)):
-            from src.mcp_handlers.admin import handle_reset_monitor
+            from src.mcp_handlers.admin.handlers import handle_reset_monitor
             result = await handle_reset_monitor({"agent_id": "agent-1"})
 
             data = parse_result(result)
@@ -304,10 +304,10 @@ class TestResetMonitor:
         from mcp.types import TextContent
         error = TextContent(type="text", text='{"success":false,"error":"not registered"}')
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
-             patch("src.mcp_handlers.admin.require_registered_agent",
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.require_registered_agent",
                    return_value=(None, error)):
-            from src.mcp_handlers.admin import handle_reset_monitor
+            from src.mcp_handlers.admin.handlers import handle_reset_monitor
             result = await handle_reset_monitor({})
 
             data = json.loads(result[0].text)
@@ -328,7 +328,7 @@ class TestCleanupStaleLocks:
         }
         with patch("src.lock_cleanup.cleanup_stale_state_locks",
                     return_value=mock_result):
-            from src.mcp_handlers.admin import handle_cleanup_stale_locks
+            from src.mcp_handlers.admin.handlers import handle_cleanup_stale_locks
             result = await handle_cleanup_stale_locks({})
 
             data = parse_result(result)
@@ -345,7 +345,7 @@ class TestCleanupStaleLocks:
         }
         with patch("src.lock_cleanup.cleanup_stale_state_locks",
                     return_value=mock_result):
-            from src.mcp_handlers.admin import handle_cleanup_stale_locks
+            from src.mcp_handlers.admin.handlers import handle_cleanup_stale_locks
             result = await handle_cleanup_stale_locks({"dry_run": True})
 
             data = parse_result(result)
@@ -359,7 +359,7 @@ class TestCleanupStaleLocks:
         }
         with patch("src.lock_cleanup.cleanup_stale_state_locks",
                     return_value=mock_result) as mock_fn:
-            from src.mcp_handlers.admin import handle_cleanup_stale_locks
+            from src.mcp_handlers.admin.handlers import handle_cleanup_stale_locks
             result = await handle_cleanup_stale_locks({"max_age_seconds": 600.0})
 
             data = parse_result(result)
@@ -369,7 +369,7 @@ class TestCleanupStaleLocks:
     async def test_cleanup_error_handling(self, patch_context_agent_id):
         with patch("src.lock_cleanup.cleanup_stale_state_locks",
                     side_effect=RuntimeError("lock dir missing")):
-            from src.mcp_handlers.admin import handle_cleanup_stale_locks
+            from src.mcp_handlers.admin.handlers import handle_cleanup_stale_locks
             result = await handle_cleanup_stale_locks({})
 
             data = parse_result(result)
@@ -392,7 +392,7 @@ class TestGetToolUsageStats:
         }
         with patch("src.tool_usage_tracker.get_tool_usage_tracker",
                     return_value=mock_tracker):
-            from src.mcp_handlers.admin import handle_get_tool_usage_stats
+            from src.mcp_handlers.admin.handlers import handle_get_tool_usage_stats
             result = await handle_get_tool_usage_stats({})
 
             data = parse_result(result)
@@ -406,7 +406,7 @@ class TestGetToolUsageStats:
 
         with patch("src.tool_usage_tracker.get_tool_usage_tracker",
                     return_value=mock_tracker):
-            from src.mcp_handlers.admin import handle_get_tool_usage_stats
+            from src.mcp_handlers.admin.handlers import handle_get_tool_usage_stats
             result = await handle_get_tool_usage_stats({
                 "tool_name": "health_check",
                 "agent_id": "agent-1",
@@ -434,7 +434,7 @@ class TestGetWorkspaceHealth:
         }
         with patch("src.workspace_health.get_workspace_health",
                     return_value=mock_data):
-            from src.mcp_handlers.admin import handle_get_workspace_health
+            from src.mcp_handlers.admin.handlers import handle_get_workspace_health
             result = await handle_get_workspace_health({})
 
             data = parse_result(result)
@@ -445,7 +445,7 @@ class TestGetWorkspaceHealth:
     async def test_workspace_health_error(self, patch_context_agent_id):
         with patch("src.workspace_health.get_workspace_health",
                     side_effect=RuntimeError("disk full")):
-            from src.mcp_handlers.admin import handle_get_workspace_health
+            from src.mcp_handlers.admin.handlers import handle_get_workspace_health
             result = await handle_get_workspace_health({})
 
             data = parse_result(result)
@@ -467,7 +467,7 @@ class TestDescribeTool:
         mock_tool.inputSchema = {"type": "object", "properties": {}}
 
         with patch("src.tool_schemas.get_tool_definitions", return_value=[mock_tool]):
-            from src.mcp_handlers.tool_introspection import handle_describe_tool
+            from src.mcp_handlers.introspection.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({
                 "tool_name": "health_check",
                 "lite": False
@@ -479,7 +479,7 @@ class TestDescribeTool:
 
     @pytest.mark.asyncio
     async def test_describe_missing_tool_name(self, patch_context_agent_id):
-        from src.mcp_handlers.tool_introspection import handle_describe_tool
+        from src.mcp_handlers.introspection.tool_introspection import handle_describe_tool
         result = await handle_describe_tool({})
 
         data = parse_result(result)
@@ -489,7 +489,7 @@ class TestDescribeTool:
     @pytest.mark.asyncio
     async def test_describe_unknown_tool(self, patch_context_agent_id):
         with patch("src.tool_schemas.get_tool_definitions", return_value=[]):
-            from src.mcp_handlers.tool_introspection import handle_describe_tool
+            from src.mcp_handlers.introspection.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({"tool_name": "nonexistent_tool"})
 
             data = parse_result(result)
@@ -514,7 +514,7 @@ class TestDescribeTool:
         with patch("src.tool_schemas.get_tool_definitions", return_value=[mock_tool]), \
              patch("src.tool_schemas.get_pydantic_schemas", return_value={}), \
              patch("src.mcp_handlers.validators.PARAM_ALIASES", {}):
-            from src.mcp_handlers.tool_introspection import handle_describe_tool
+            from src.mcp_handlers.introspection.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({
                 "tool_name": "some_tool",
                 "lite": True
@@ -529,7 +529,7 @@ class TestDescribeTool:
     async def test_describe_tool_error_handling(self, patch_context_agent_id):
         with patch("src.tool_schemas.get_tool_definitions",
                     side_effect=ImportError("module not found")):
-            from src.mcp_handlers.tool_introspection import handle_describe_tool
+            from src.mcp_handlers.introspection.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({"tool_name": "health_check"})
 
             data = parse_result(result)
@@ -553,7 +553,7 @@ class TestHealthCheck:
         mock_db.health_check = AsyncMock(return_value={"status": "healthy"})
         mock_db.init = AsyncMock()
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker") as mock_cal, \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -573,7 +573,7 @@ class TestHealthCheck:
             mock_kg_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_kg.return_value = mock_kg_instance
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -595,7 +595,7 @@ class TestHealthCheck:
         mock_cal = MagicMock()
         mock_cal.get_pending_updates.return_value = 0
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker", mock_cal), \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -614,7 +614,7 @@ class TestHealthCheck:
             mock_kg_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_kg.return_value = mock_kg_instance
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -631,14 +631,14 @@ class TestDebugRequestContext:
 
     @pytest.mark.asyncio
     async def test_debug_context_basic(self, mock_mcp_server):
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value=None), \
              patch("src.mcp_handlers.context.get_context_session_key", return_value="test-session"), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {"tool1": None, "tool2": None}), \
-             patch("src.mcp_handlers.identity_v2.derive_session_key", new_callable=AsyncMock, return_value="derived-key"), \
-             patch("src.mcp_handlers.identity_shared._session_identities", {}), \
-             patch("src.mcp_handlers.identity_shared._uuid_prefix_index", {}):
-            from src.mcp_handlers.admin import handle_debug_request_context
+             patch("src.mcp_handlers.identity.handlers.derive_session_key", new_callable=AsyncMock, return_value="derived-key"), \
+             patch("src.mcp_handlers.identity.shared._session_identities", {}), \
+             patch("src.mcp_handlers.identity.shared._uuid_prefix_index", {}):
+            from src.mcp_handlers.admin.handlers import handle_debug_request_context
             result = await handle_debug_request_context({})
 
             data = parse_result(result)
@@ -670,7 +670,7 @@ class TestCheckCalibration:
         mock_checker.get_pending_updates.return_value = 0
 
         with patch("src.calibration.calibration_checker", mock_checker):
-            from src.mcp_handlers.calibration_handlers import handle_check_calibration
+            from src.mcp_handlers.admin.calibration import handle_check_calibration
             result = await handle_check_calibration({})
 
             data = parse_result(result)
@@ -698,7 +698,7 @@ class TestCheckCalibration:
         mock_checker.get_pending_updates.return_value = 2
 
         with patch("src.calibration.calibration_checker", mock_checker):
-            from src.mcp_handlers.calibration_handlers import handle_check_calibration
+            from src.mcp_handlers.admin.calibration import handle_check_calibration
             result = await handle_check_calibration({})
 
             data = parse_result(result)
@@ -713,7 +713,7 @@ class TestCheckCalibration:
         mock_checker.get_pending_updates.return_value = 0
 
         with patch("src.calibration.calibration_checker", mock_checker):
-            from src.mcp_handlers.calibration_handlers import handle_check_calibration
+            from src.mcp_handlers.admin.calibration import handle_check_calibration
             result = await handle_check_calibration({})
 
             data = parse_result(result)
@@ -733,7 +733,7 @@ class TestRebuildCalibration:
         mock_result = {"processed": 10, "updated": 8, "skipped": 2, "errors": 0}
         with patch("src.auto_ground_truth.collect_ground_truth_automatically",
                     new_callable=AsyncMock, return_value=mock_result):
-            from src.mcp_handlers.calibration_handlers import handle_rebuild_calibration
+            from src.mcp_handlers.admin.calibration import handle_rebuild_calibration
             result = await handle_rebuild_calibration({})
 
             data = parse_result(result)
@@ -747,7 +747,7 @@ class TestRebuildCalibration:
         mock_result = {"processed": 5, "updated": 5, "skipped": 0, "errors": 0}
         with patch("src.auto_ground_truth.collect_ground_truth_automatically",
                     new_callable=AsyncMock, return_value=mock_result):
-            from src.mcp_handlers.calibration_handlers import handle_rebuild_calibration
+            from src.mcp_handlers.admin.calibration import handle_rebuild_calibration
             result = await handle_rebuild_calibration({"dry_run": True})
 
             data = parse_result(result)
@@ -759,7 +759,7 @@ class TestRebuildCalibration:
         mock_result = {"processed": 1, "updated": 1, "skipped": 0, "errors": 0}
         with patch("src.auto_ground_truth.collect_ground_truth_automatically",
                     new_callable=AsyncMock, return_value=mock_result):
-            from src.mcp_handlers.calibration_handlers import handle_rebuild_calibration
+            from src.mcp_handlers.admin.calibration import handle_rebuild_calibration
             result = await handle_rebuild_calibration({"dry_run": "true"})
 
             data = parse_result(result)
@@ -770,7 +770,7 @@ class TestRebuildCalibration:
         with patch("src.auto_ground_truth.collect_ground_truth_automatically",
                     new_callable=AsyncMock,
                     side_effect=RuntimeError("no data")):
-            from src.mcp_handlers.calibration_handlers import handle_rebuild_calibration
+            from src.mcp_handlers.admin.calibration import handle_rebuild_calibration
             result = await handle_rebuild_calibration({})
 
             data = parse_result(result)
@@ -782,7 +782,7 @@ class TestRebuildCalibration:
         mock_result = {"processed": 3, "updated": 3, "skipped": 0, "errors": 0}
         with patch("src.auto_ground_truth.collect_ground_truth_automatically",
                     new_callable=AsyncMock, return_value=mock_result) as mock_fn:
-            from src.mcp_handlers.calibration_handlers import handle_rebuild_calibration
+            from src.mcp_handlers.admin.calibration import handle_rebuild_calibration
             result = await handle_rebuild_calibration({
                 "min_age_hours": 2.0,
                 "max_decisions": 50,
@@ -807,7 +807,7 @@ class TestUpdateCalibrationGroundTruth:
         mock_checker.get_pending_updates.return_value = 1
 
         with patch("src.calibration.calibration_checker", mock_checker):
-            from src.mcp_handlers.calibration_handlers import handle_update_calibration_ground_truth
+            from src.mcp_handlers.admin.calibration import handle_update_calibration_ground_truth
             result = await handle_update_calibration_ground_truth({
                 "confidence": 0.8,
                 "predicted_correct": True,
@@ -822,7 +822,7 @@ class TestUpdateCalibrationGroundTruth:
 
     @pytest.mark.asyncio
     async def test_direct_mode_missing_params(self, patch_context_agent_id):
-        from src.mcp_handlers.calibration_handlers import handle_update_calibration_ground_truth
+        from src.mcp_handlers.admin.calibration import handle_update_calibration_ground_truth
         result = await handle_update_calibration_ground_truth({
             "confidence": 0.8,
             # missing predicted_correct and actual_correct
@@ -834,7 +834,7 @@ class TestUpdateCalibrationGroundTruth:
 
     @pytest.mark.asyncio
     async def test_timestamp_mode_missing_actual_correct(self, patch_context_agent_id):
-        from src.mcp_handlers.calibration_handlers import handle_update_calibration_ground_truth
+        from src.mcp_handlers.admin.calibration import handle_update_calibration_ground_truth
         result = await handle_update_calibration_ground_truth({
             "timestamp": "2026-01-01T00:00:00",
             # missing actual_correct
@@ -850,7 +850,7 @@ class TestUpdateCalibrationGroundTruth:
 
         with patch("src.calibration.calibration_checker", MagicMock()), \
              patch("src.audit_log.AuditLogger", return_value=mock_audit):
-            from src.mcp_handlers.calibration_handlers import handle_update_calibration_ground_truth
+            from src.mcp_handlers.admin.calibration import handle_update_calibration_ground_truth
             result = await handle_update_calibration_ground_truth({
                 "timestamp": "2026-01-01T00:00:00",
                 "actual_correct": True,
@@ -871,7 +871,7 @@ class TestUpdateCalibrationGroundTruth:
 
         with patch("src.calibration.calibration_checker", mock_checker), \
              patch("src.audit_log.AuditLogger", return_value=mock_audit):
-            from src.mcp_handlers.calibration_handlers import handle_update_calibration_ground_truth
+            from src.mcp_handlers.admin.calibration import handle_update_calibration_ground_truth
             result = await handle_update_calibration_ground_truth({
                 "timestamp": "2026-01-01T00:00:00",
                 "actual_correct": True,
@@ -884,7 +884,7 @@ class TestUpdateCalibrationGroundTruth:
 
     @pytest.mark.asyncio
     async def test_timestamp_mode_invalid_format(self, patch_context_agent_id):
-        from src.mcp_handlers.calibration_handlers import handle_update_calibration_ground_truth
+        from src.mcp_handlers.admin.calibration import handle_update_calibration_ground_truth
         result = await handle_update_calibration_ground_truth({
             "timestamp": 12345,  # not a string
             "actual_correct": True,
@@ -909,7 +909,7 @@ class TestGetTelemetryMetrics:
 
         with patch("src.telemetry.TelemetryCollector", return_value=mock_telemetry), \
              patch("src.perf_monitor.snapshot", return_value={"avg_ms": 5}):
-            from src.mcp_handlers.admin import handle_get_telemetry_metrics
+            from src.mcp_handlers.admin.handlers import handle_get_telemetry_metrics
             result = await handle_get_telemetry_metrics({})
 
             data = parse_result(result)
@@ -928,7 +928,7 @@ class TestGetTelemetryMetrics:
 
         with patch("src.telemetry.TelemetryCollector", return_value=mock_telemetry), \
              patch("src.perf_monitor.snapshot", return_value={}):
-            from src.mcp_handlers.admin import handle_get_telemetry_metrics
+            from src.mcp_handlers.admin.handlers import handle_get_telemetry_metrics
             result = await handle_get_telemetry_metrics({
                 "include_calibration": True,
                 "agent_id": "agent-1",
@@ -946,7 +946,7 @@ class TestGetTelemetryMetrics:
         mock_telemetry.get_skip_rate_metrics.side_effect = RuntimeError("telemetry broken")
 
         with patch("src.telemetry.TelemetryCollector", return_value=mock_telemetry):
-            from src.mcp_handlers.admin import handle_get_telemetry_metrics
+            from src.mcp_handlers.admin.handlers import handle_get_telemetry_metrics
             result = await handle_get_telemetry_metrics({})
 
             data = parse_result(result)
@@ -963,11 +963,11 @@ class TestBackfillCalibration:
     async def test_backfill_success(self, patch_context_agent_id):
         mock_result = {"processed": 5, "updated": 3, "errors": 0, "sessions": []}
         with patch(
-            "src.mcp_handlers.dialectic.backfill_calibration_from_historical_sessions",
+            "src.mcp_handlers.dialectic.handlers.backfill_calibration_from_historical_sessions",
             new_callable=AsyncMock,
             return_value=mock_result
         ):
-            from src.mcp_handlers.calibration_handlers import handle_backfill_calibration_from_dialectic
+            from src.mcp_handlers.admin.calibration import handle_backfill_calibration_from_dialectic
             result = await handle_backfill_calibration_from_dialectic({})
 
             data = parse_result(result)
@@ -978,11 +978,11 @@ class TestBackfillCalibration:
     @pytest.mark.asyncio
     async def test_backfill_error(self, patch_context_agent_id):
         with patch(
-            "src.mcp_handlers.dialectic.backfill_calibration_from_historical_sessions",
+            "src.mcp_handlers.dialectic.handlers.backfill_calibration_from_historical_sessions",
             new_callable=AsyncMock,
             side_effect=RuntimeError("DB down")
         ):
-            from src.mcp_handlers.calibration_handlers import handle_backfill_calibration_from_dialectic
+            from src.mcp_handlers.admin.calibration import handle_backfill_calibration_from_dialectic
             result = await handle_backfill_calibration_from_dialectic({})
 
             data = parse_result(result)
@@ -1010,11 +1010,11 @@ class TestCheckContinuityHealth:
         mock_graph.query = AsyncMock(return_value=[])
 
         # Patch both the module-level and the shared.get_mcp_server (re-imported inside handler)
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph",
+             patch("src.mcp_handlers.knowledge.handlers.get_knowledge_graph",
                    new_callable=AsyncMock, return_value=mock_graph):
-            from src.mcp_handlers.admin import handle_check_continuity_health
+            from src.mcp_handlers.admin.handlers import handle_check_continuity_health
             result = await handle_check_continuity_health({})
 
             data = parse_result(result)
@@ -1035,11 +1035,11 @@ class TestCheckContinuityHealth:
         })
         mock_graph.query = AsyncMock(return_value=[mock_discovery])
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph",
+             patch("src.mcp_handlers.knowledge.handlers.get_knowledge_graph",
                    new_callable=AsyncMock, return_value=mock_graph):
-            from src.mcp_handlers.admin import handle_check_continuity_health
+            from src.mcp_handlers.admin.handlers import handle_check_continuity_health
             result = await handle_check_continuity_health({"deep_check": True})
 
             data = parse_result(result)
@@ -1058,12 +1058,12 @@ class TestCheckContinuityHealth:
         })
         mock_graph.query = AsyncMock(return_value=[])
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph",
+             patch("src.mcp_handlers.knowledge.handlers.get_knowledge_graph",
                    new_callable=AsyncMock, return_value=mock_graph), \
-             patch("src.mcp_handlers.identity_shared._get_lineage", return_value=["agent-1"]):
-            from src.mcp_handlers.admin import handle_check_continuity_health
+             patch("src.mcp_handlers.identity.shared._get_lineage", return_value=["agent-1"]):
+            from src.mcp_handlers.admin.handlers import handle_check_continuity_health
             result = await handle_check_continuity_health({"agent_id": "agent-1"})
 
             data = parse_result(result)
@@ -1073,11 +1073,11 @@ class TestCheckContinuityHealth:
     @pytest.mark.asyncio
     async def test_continuity_health_error(self, mock_mcp_server, patch_context_agent_id):
         # Patch shared.get_mcp_server too since it's re-imported inside the handler
-        with patch("src.mcp_handlers.admin.get_mcp_server",
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server",
                     side_effect=RuntimeError("server down")), \
              patch("src.mcp_handlers.shared.get_mcp_server",
                     side_effect=RuntimeError("server down")):
-            from src.mcp_handlers.admin import handle_check_continuity_health
+            from src.mcp_handlers.admin.handlers import handle_check_continuity_health
             result = await handle_check_continuity_health({})
 
             data = parse_result(result)
@@ -1093,11 +1093,11 @@ class TestCheckContinuityHealth:
         })
         mock_graph.query = AsyncMock(return_value=[])
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph",
+             patch("src.mcp_handlers.knowledge.handlers.get_knowledge_graph",
                    new_callable=AsyncMock, return_value=mock_graph):
-            from src.mcp_handlers.admin import handle_check_continuity_health
+            from src.mcp_handlers.admin.handlers import handle_check_continuity_health
             result = await handle_check_continuity_health({})
 
             data = parse_result(result)
@@ -1111,7 +1111,7 @@ class TestCheckContinuityHealth:
 class TestWorkspaceHelpers:
 
     def test_get_workspace_last_agent_file(self):
-        from src.mcp_handlers.admin import get_workspace_last_agent_file
+        from src.mcp_handlers.admin.handlers import get_workspace_last_agent_file
         server = MagicMock()
         server.project_root = "/tmp/test_project"
 
@@ -1119,7 +1119,7 @@ class TestWorkspaceHelpers:
         assert result == Path("/tmp/test_project/data/.last_active_agent")
 
     def test_get_workspace_last_agent_found(self, tmp_path):
-        from src.mcp_handlers.admin import get_workspace_last_agent
+        from src.mcp_handlers.admin.handlers import get_workspace_last_agent
 
         server = MagicMock()
         server.project_root = str(tmp_path)
@@ -1134,7 +1134,7 @@ class TestWorkspaceHelpers:
         assert result == "agent-123"
 
     def test_get_workspace_last_agent_not_found(self, tmp_path):
-        from src.mcp_handlers.admin import get_workspace_last_agent
+        from src.mcp_handlers.admin.handlers import get_workspace_last_agent
 
         server = MagicMock()
         server.project_root = str(tmp_path)
@@ -1144,7 +1144,7 @@ class TestWorkspaceHelpers:
         assert result is None
 
     def test_get_workspace_last_agent_file_missing(self, tmp_path):
-        from src.mcp_handlers.admin import get_workspace_last_agent
+        from src.mcp_handlers.admin.handlers import get_workspace_last_agent
 
         server = MagicMock()
         server.project_root = str(tmp_path)
@@ -1155,7 +1155,7 @@ class TestWorkspaceHelpers:
 
     def test_get_workspace_last_agent_stale(self, tmp_path):
         """Agent ID in file no longer exists in metadata."""
-        from src.mcp_handlers.admin import get_workspace_last_agent
+        from src.mcp_handlers.admin.handlers import get_workspace_last_agent
 
         server = MagicMock()
         server.project_root = str(tmp_path)
@@ -1169,7 +1169,7 @@ class TestWorkspaceHelpers:
         assert result is None
 
     def test_set_workspace_last_agent(self, tmp_path):
-        from src.mcp_handlers.admin import set_workspace_last_agent
+        from src.mcp_handlers.admin.handlers import set_workspace_last_agent
 
         server = MagicMock()
         server.project_root = str(tmp_path)
@@ -1180,7 +1180,7 @@ class TestWorkspaceHelpers:
         assert written == "agent-abc"
 
     def test_set_workspace_last_agent_creates_dir(self, tmp_path):
-        from src.mcp_handlers.admin import set_workspace_last_agent
+        from src.mcp_handlers.admin.handlers import set_workspace_last_agent
 
         server = MagicMock()
         server.project_root = str(tmp_path)
@@ -1192,7 +1192,7 @@ class TestWorkspaceHelpers:
 
     def test_set_workspace_last_agent_error_suppressed(self):
         """set_workspace_last_agent suppresses errors."""
-        from src.mcp_handlers.admin import set_workspace_last_agent
+        from src.mcp_handlers.admin.handlers import set_workspace_last_agent
 
         server = MagicMock()
         server.project_root = "/nonexistent/path/that/will/fail"
@@ -1212,9 +1212,9 @@ class TestListTools:
         """Test list_tools in lite mode (default)."""
         mock_mcp_server.SERVER_VERSION = "test-1.0.0"
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "onboard": None,
                  "process_agent_update": None,
@@ -1240,7 +1240,7 @@ class TestListTools:
              patch("src.mcp_handlers.decorators.get_tool_description", return_value=""), \
              patch("src.tool_schemas.get_tool_definitions", return_value=[]):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": True})
 
             data = parse_result(result)
@@ -1253,9 +1253,9 @@ class TestListTools:
         """Test list_tools in full mode (lite=False) covers lines 1595-1851."""
         mock_mcp_server.SERVER_VERSION = "test-1.0.0"
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "onboard": None,
                  "process_agent_update": None,
@@ -1281,7 +1281,7 @@ class TestListTools:
              patch("src.mcp_handlers.decorators.get_tool_description", return_value=""), \
              patch("src.tool_schemas.get_tool_definitions", return_value=[]):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": False})
 
             data = parse_result(result)
@@ -1309,9 +1309,9 @@ class TestListTools:
             }
         }
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "onboard": None,
                  "process_agent_update": None,
@@ -1338,7 +1338,7 @@ class TestListTools:
              patch("src.tool_schemas.get_tool_definitions", return_value=[]), \
              patch("src.tool_usage_tracker.get_tool_usage_tracker", return_value=mock_tracker):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
 
             # Test full mode with progressive
             result = await handle_list_tools({"lite": False, "progressive": True})
@@ -1361,9 +1361,9 @@ class TestListTools:
             }
         }
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "onboard": None,
                  "process_agent_update": None,
@@ -1385,7 +1385,7 @@ class TestListTools:
              patch("src.tool_schemas.get_tool_definitions", return_value=[]), \
              patch("src.tool_usage_tracker.get_tool_usage_tracker", return_value=mock_tracker):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": True, "progressive": True})
 
             data = parse_result(result)
@@ -1397,9 +1397,9 @@ class TestListTools:
         """Test list_tools with essential_only=True covers lines 1388-1394."""
         mock_mcp_server.SERVER_VERSION = "test-1.0.0"
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "onboard": None,
                  "process_agent_update": None,
@@ -1419,7 +1419,7 @@ class TestListTools:
              patch("src.mcp_handlers.decorators.get_tool_description", return_value=""), \
              patch("src.tool_schemas.get_tool_definitions", return_value=[]):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": False, "essential_only": True})
 
             data = parse_result(result)
@@ -1434,9 +1434,9 @@ class TestListTools:
         """Test list_tools with include_advanced=False covers line 1392."""
         mock_mcp_server.SERVER_VERSION = "test-1.0.0"
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "onboard": None,
                  "health_check": None,
@@ -1454,7 +1454,7 @@ class TestListTools:
              patch("src.mcp_handlers.decorators.get_tool_description", return_value=""), \
              patch("src.tool_schemas.get_tool_definitions", return_value=[]):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": False, "include_advanced": False})
 
             data = parse_result(result)
@@ -1467,9 +1467,9 @@ class TestListTools:
         """Test list_tools with tier filter covers line 1394."""
         mock_mcp_server.SERVER_VERSION = "test-1.0.0"
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "onboard": None,
                  "health_check": None,
@@ -1487,7 +1487,7 @@ class TestListTools:
              patch("src.mcp_handlers.decorators.get_tool_description", return_value=""), \
              patch("src.tool_schemas.get_tool_definitions", return_value=[]):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": False, "tier": "common"})
 
             data = parse_result(result)
@@ -1505,9 +1505,9 @@ class TestListTools:
         mock_tool_schema.name = "custom_tool"
         mock_tool_schema.description = "Schema description\nSecond line"
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "custom_tool": None,
                  "no_desc_tool": None,
@@ -1524,7 +1524,7 @@ class TestListTools:
              patch("src.mcp_handlers.decorators.get_tool_description", return_value=""), \
              patch("src.tool_schemas.get_tool_definitions", return_value=[mock_tool_schema]):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": False})
 
             data = parse_result(result)
@@ -1540,9 +1540,9 @@ class TestListTools:
         """Test deprecated tools are hidden covers line 1388."""
         mock_mcp_server.SERVER_VERSION = "test-1.0.0"
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "onboard": None,
                  "old_deprecated": None,
@@ -1559,7 +1559,7 @@ class TestListTools:
              patch("src.mcp_handlers.decorators.get_tool_description", return_value=""), \
              patch("src.tool_schemas.get_tool_definitions", return_value=[]):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": False})
 
             data = parse_result(result)
@@ -1571,9 +1571,9 @@ class TestListTools:
         """Test unknown category fallback covers lines 1432-1433."""
         mock_mcp_server.SERVER_VERSION = "test-1.0.0"
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "special_tool": None,
              }), \
@@ -1589,7 +1589,7 @@ class TestListTools:
              patch("src.mcp_handlers.decorators.get_tool_description", return_value="Test tool"), \
              patch("src.tool_schemas.get_tool_definitions", return_value=[]):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": False})
 
             data = parse_result(result)
@@ -1600,9 +1600,9 @@ class TestListTools:
         """Test new agent gets first_time hint covers lines 1522-1523."""
         mock_mcp_server.SERVER_VERSION = "test-1.0.0"
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {
                  "onboard": None,
                  "list_tools": None,
@@ -1620,7 +1620,7 @@ class TestListTools:
              patch("src.tool_schemas.get_tool_definitions", return_value=[]), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value=None):
 
-            from src.mcp_handlers.tool_introspection import handle_list_tools
+            from src.mcp_handlers.introspection.tool_introspection import handle_list_tools
             result = await handle_list_tools({"lite": True})
 
             data = parse_result(result)
@@ -1652,12 +1652,12 @@ class TestGetServerInfoPsutil:
         mock_current.create_time.return_value = 100.0
         mock_current.status.return_value = "running"
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {}), \
              patch("psutil.process_iter", return_value=[mock_proc]), \
              patch("psutil.Process", return_value=mock_current), \
              patch("time.time", return_value=200.0):
-            from src.mcp_handlers.admin import handle_get_server_info
+            from src.mcp_handlers.admin.handlers import handle_get_server_info
             result = await handle_get_server_info({})
 
             data = parse_result(result)
@@ -1678,12 +1678,12 @@ class TestGetServerInfoPsutil:
         mock_current.create_time.return_value = 100.0
         mock_current.status.return_value = "running"
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {}), \
              patch("psutil.process_iter", side_effect=Exception("process enumeration failed")), \
              patch("psutil.Process", return_value=mock_current), \
              patch("time.time", return_value=200.0):
-            from src.mcp_handlers.admin import handle_get_server_info
+            from src.mcp_handlers.admin.handlers import handle_get_server_info
             result = await handle_get_server_info({})
 
             data = parse_result(result)
@@ -1700,12 +1700,12 @@ class TestGetServerInfoPsutil:
         mock_current.create_time.return_value = 100.0
         mock_current.status.return_value = "running"
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {}), \
              patch("psutil.process_iter", return_value=[]), \
              patch("psutil.Process", return_value=mock_current), \
              patch("time.time", return_value=200.0):
-            from src.mcp_handlers.admin import handle_get_server_info
+            from src.mcp_handlers.admin.handlers import handle_get_server_info
             result = await handle_get_server_info({})
 
             data = parse_result(result)
@@ -1719,12 +1719,12 @@ class TestGetServerInfoPsutil:
         import psutil
         mock_mcp_server.PSUTIL_AVAILABLE = True
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {}), \
              patch("psutil.process_iter", return_value=[]), \
              patch("psutil.Process", side_effect=psutil.NoSuchProcess(99999)), \
              patch("time.time", return_value=200.0):
-            from src.mcp_handlers.admin import handle_get_server_info
+            from src.mcp_handlers.admin.handlers import handle_get_server_info
             result = await handle_get_server_info({})
 
             data = parse_result(result)
@@ -1749,13 +1749,13 @@ class TestGetServerInfoPsutil:
         mock_current.status.return_value = "running"
 
         # Force unknown transport
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {}), \
              patch("psutil.process_iter", return_value=[mock_proc]), \
              patch("psutil.Process", return_value=mock_current), \
              patch("time.time", return_value=200.0), \
              patch.object(sys, "argv", ["python", "something_else.py"]):
-            from src.mcp_handlers.admin import handle_get_server_info
+            from src.mcp_handlers.admin.handlers import handle_get_server_info
             result = await handle_get_server_info({})
 
             data = parse_result(result)
@@ -1782,7 +1782,7 @@ class TestHealthCheckEdgeCases:
         mock_cal = MagicMock()
         mock_cal.get_pending_updates.return_value = 0
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker", mock_cal), \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -1801,7 +1801,7 @@ class TestHealthCheckEdgeCases:
             mock_kg_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_kg.return_value = mock_kg_instance
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -1822,7 +1822,7 @@ class TestHealthCheckEdgeCases:
         mock_audit.log_file = MagicMock()
         mock_audit.log_file.exists.return_value = True
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker", mock_cal), \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -1841,7 +1841,7 @@ class TestHealthCheckEdgeCases:
             mock_kg_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_kg.return_value = mock_kg_instance
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -1862,7 +1862,7 @@ class TestHealthCheckEdgeCases:
         mock_audit.log_file = MagicMock()
         mock_audit.log_file.exists.return_value = True
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker", mock_cal), \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -1881,7 +1881,7 @@ class TestHealthCheckEdgeCases:
             mock_kg_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_kg.return_value = mock_kg_instance
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -1898,7 +1898,7 @@ class TestHealthCheckEdgeCases:
         mock_audit.log_file = MagicMock()
         mock_audit.log_file.exists.return_value = True
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker", mock_cal), \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -1917,7 +1917,7 @@ class TestHealthCheckEdgeCases:
             mock_kg_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_kg.return_value = mock_kg_instance
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -1938,7 +1938,7 @@ class TestHealthCheckEdgeCases:
         mock_db.health_check = AsyncMock(return_value={"status": "healthy"})
         mock_db.init = AsyncMock()
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker", mock_cal), \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -1957,7 +1957,7 @@ class TestHealthCheckEdgeCases:
             mock_kg_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_kg.return_value = mock_kg_instance
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -1978,7 +1978,7 @@ class TestHealthCheckEdgeCases:
         mock_db.health_check = AsyncMock(return_value={"status": "healthy"})
         mock_db.init = AsyncMock()
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker", mock_cal), \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -1997,7 +1997,7 @@ class TestHealthCheckEdgeCases:
             mock_kg_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_kg.return_value = mock_kg_instance
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -2019,7 +2019,7 @@ class TestHealthCheckEdgeCases:
         mock_db.health_check = AsyncMock(return_value={"status": "healthy"})
         mock_db.init = AsyncMock()
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker", mock_cal), \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -2035,7 +2035,7 @@ class TestHealthCheckEdgeCases:
                    new_callable=AsyncMock,
                    side_effect=RuntimeError("KG unavailable")):
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -2057,7 +2057,7 @@ class TestHealthCheckEdgeCases:
         mock_db.health_check = AsyncMock(return_value={"status": "healthy"})
         mock_db.init = AsyncMock()
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.calibration.calibration_checker", mock_cal), \
              patch("src.telemetry.telemetry_collector", MagicMock()), \
              patch("src.audit_log.audit_logger", mock_audit), \
@@ -2076,7 +2076,7 @@ class TestHealthCheckEdgeCases:
             mock_kg_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_kg.return_value = mock_kg_instance
 
-            from src.mcp_handlers.admin import handle_health_check
+            from src.mcp_handlers.admin.handlers import handle_health_check
             result = await handle_health_check({})
 
             data = parse_result(result)
@@ -2111,7 +2111,7 @@ class TestDescribeToolAdditional:
              patch("src.mcp_handlers.validators.PARAM_ALIASES", {"process_agent_update": {"text": "response_text"}}), \
              patch("src.tool_modes.TOOL_TIERS", {"essential": {"process_agent_update"}, "common": set(), "advanced": set()}), \
              patch("src.tool_modes.TOOL_OPERATIONS", {"process_agent_update": "write"}):
-            from src.mcp_handlers.tool_introspection import handle_describe_tool
+            from src.mcp_handlers.introspection.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({
                 "tool_name": "process_agent_update",
                 "lite": True
@@ -2143,7 +2143,7 @@ class TestDescribeToolAdditional:
         with patch("src.tool_schemas.get_tool_definitions", return_value=[mock_tool]), \
              patch("src.tool_schemas.get_pydantic_schemas", return_value={}), \
              patch("src.mcp_handlers.validators.PARAM_ALIASES", {"custom_tool": {"text": "param1"}}):
-            from src.mcp_handlers.tool_introspection import handle_describe_tool
+            from src.mcp_handlers.introspection.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({
                 "tool_name": "custom_tool",
                 "lite": True
@@ -2163,7 +2163,7 @@ class TestDescribeToolAdditional:
         mock_tool.inputSchema = {"type": "object", "properties": {"agent_id": {"type": "string"}}}
 
         with patch("src.tool_schemas.get_tool_definitions", return_value=[mock_tool]):
-            from src.mcp_handlers.tool_introspection import handle_describe_tool
+            from src.mcp_handlers.introspection.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({
                 "tool_name": "health_check",
                 "lite": False
@@ -2184,7 +2184,7 @@ class TestDescribeToolAdditional:
         mock_tool.inputSchema = {"type": "object"}
 
         with patch("src.tool_schemas.get_tool_definitions", return_value=[mock_tool]):
-            from src.mcp_handlers.tool_introspection import handle_describe_tool
+            from src.mcp_handlers.introspection.tool_introspection import handle_describe_tool
             result = await handle_describe_tool({
                 "tool_name": "health_check",
                 "lite": False,
@@ -2213,7 +2213,7 @@ class TestTelemetryMetricsAdditional:
 
         with patch("src.telemetry.TelemetryCollector", return_value=mock_telemetry), \
              patch("src.perf_monitor.snapshot", side_effect=ImportError("perf not available")):
-            from src.mcp_handlers.admin import handle_get_telemetry_metrics
+            from src.mcp_handlers.admin.handlers import handle_get_telemetry_metrics
             result = await handle_get_telemetry_metrics({})
 
             data = parse_result(result)
@@ -2243,7 +2243,7 @@ class TestUpdateCalibrationGroundTruthAdditional:
             mock_checker.get_pending_updates.return_value = 0
 
             with patch("src.calibration.calibration_checker", mock_checker):
-                from src.mcp_handlers.calibration_handlers import handle_update_calibration_ground_truth
+                from src.mcp_handlers.admin.calibration import handle_update_calibration_ground_truth
                 result = await handle_update_calibration_ground_truth({
                     "timestamp": "not-a-valid-timestamp",
                     "actual_correct": True,
@@ -2259,7 +2259,7 @@ class TestUpdateCalibrationGroundTruthAdditional:
         mock_checker.update_ground_truth.side_effect = RuntimeError("calibration broken")
 
         with patch("src.calibration.calibration_checker", mock_checker):
-            from src.mcp_handlers.calibration_handlers import handle_update_calibration_ground_truth
+            from src.mcp_handlers.admin.calibration import handle_update_calibration_ground_truth
             result = await handle_update_calibration_ground_truth({
                 "confidence": 0.8,
                 "predicted_correct": True,
@@ -2287,14 +2287,14 @@ class TestDebugRequestContextAdditional:
             "abcdef12": "uuid-abcdef1234567890"
         }
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value="uuid-abc"), \
              patch("src.mcp_handlers.context.get_context_session_key", return_value="test-key"), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {"tool1": None}), \
-             patch("src.mcp_handlers.identity_v2.derive_session_key", new_callable=AsyncMock, return_value="derived"), \
-             patch("src.mcp_handlers.identity_shared._session_identities", session_identities), \
-             patch("src.mcp_handlers.identity_shared._uuid_prefix_index", uuid_prefix_index):
-            from src.mcp_handlers.admin import handle_debug_request_context
+             patch("src.mcp_handlers.identity.handlers.derive_session_key", new_callable=AsyncMock, return_value="derived"), \
+             patch("src.mcp_handlers.identity.shared._session_identities", session_identities), \
+             patch("src.mcp_handlers.identity.shared._uuid_prefix_index", uuid_prefix_index):
+            from src.mcp_handlers.admin.handlers import handle_debug_request_context
             result = await handle_debug_request_context({})
 
             data = parse_result(result)
@@ -2310,13 +2310,13 @@ class TestDebugRequestContextAdditional:
             def items(self):
                 raise AttributeError("broken")
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_mcp_server), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value=None), \
              patch("src.mcp_handlers.context.get_context_session_key", return_value=None), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {}), \
-             patch("src.mcp_handlers.identity_v2.derive_session_key", new_callable=AsyncMock, return_value="key"), \
-             patch("src.mcp_handlers.identity_shared._session_identities", BrokenDict()):
-            from src.mcp_handlers.admin import handle_debug_request_context
+             patch("src.mcp_handlers.identity.handlers.derive_session_key", new_callable=AsyncMock, return_value="key"), \
+             patch("src.mcp_handlers.identity.shared._session_identities", BrokenDict()):
+            from src.mcp_handlers.admin.handlers import handle_debug_request_context
             result = await handle_debug_request_context({})
 
             data = parse_result(result)
@@ -2333,13 +2333,13 @@ class TestGetConnectionStatusAdditional:
     @pytest.mark.asyncio
     async def test_connection_status_no_tools(self):
         """Test tools_available=False when TOOL_HANDLERS is empty."""
-        from src.mcp_handlers.admin import handle_get_connection_status
+        from src.mcp_handlers.admin.handlers import handle_get_connection_status
 
         mock_server = MagicMock()
         mock_server.agent_metadata = {}
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_server), \
-             patch("src.mcp_handlers.admin.mcp_server", mock_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_server), \
+             patch("src.mcp_handlers.admin.handlers.mcp_server", mock_server), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value=None), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {}):
             result = await handle_get_connection_status({})
@@ -2361,10 +2361,10 @@ class TestGetConnectionStatusAdditional:
         meta.label = "MyAgent"
         mock_server.agent_metadata = {"uuid-xyz": meta}
 
-        with patch("src.mcp_handlers.admin.mcp_server", mock_server), \
+        with patch("src.mcp_handlers.admin.handlers.mcp_server", mock_server), \
              patch("src.mcp_handlers.TOOL_HANDLERS", {"tool1": None}), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value="uuid-xyz"):
-            from src.mcp_handlers.admin import handle_get_connection_status
+            from src.mcp_handlers.admin.handlers import handle_get_connection_status
             result = await handle_get_connection_status({})
 
             data = parse_result(result)
@@ -2385,7 +2385,7 @@ class TestWorkspaceHelpersAdditional:
 
     def test_get_workspace_last_agent_exception(self):
         """Test get_workspace_last_agent exception is suppressed (lines 266-267)."""
-        from src.mcp_handlers.admin import get_workspace_last_agent
+        from src.mcp_handlers.admin.handlers import get_workspace_last_agent
 
         server = MagicMock()
         # Make project_root cause an exception via Path
@@ -2414,11 +2414,11 @@ class TestContinuityHealthAdditional:
         })
         mock_graph.query = AsyncMock(return_value=[mock_discovery])
 
-        with patch("src.mcp_handlers.admin.get_mcp_server", return_value=mock_mcp_server), \
+        with patch("src.mcp_handlers.admin.handlers.get_mcp_server", return_value=mock_mcp_server), \
              patch("src.mcp_handlers.shared.get_mcp_server", return_value=mock_mcp_server), \
-             patch("src.mcp_handlers.knowledge_graph.get_knowledge_graph",
+             patch("src.mcp_handlers.knowledge.handlers.get_knowledge_graph",
                    new_callable=AsyncMock, return_value=mock_graph):
-            from src.mcp_handlers.admin import handle_check_continuity_health
+            from src.mcp_handlers.admin.handlers import handle_check_continuity_health
             result = await handle_check_continuity_health({"deep_check": True})
 
             data = parse_result(result)

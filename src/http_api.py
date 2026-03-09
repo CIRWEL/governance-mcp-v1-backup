@@ -102,7 +102,7 @@ async def _extract_client_session_id(request) -> str:
     Falls back to legacy logic if signals unavailable.
     """
     from src.mcp_handlers.context import SessionSignals
-    from src.mcp_handlers.identity_v2 import derive_session_key, ua_hash_from_header
+    from src.mcp_handlers.identity.handlers import derive_session_key, ua_hash_from_header
 
     # Build SessionSignals from request headers
     ua = request.headers.get("user-agent", "")
@@ -580,7 +580,7 @@ async def http_metrics(request):
         # Dialectic sessions
         try:
             from src.dialectic_db import DialecticDB
-            from src.mcp_handlers.dialectic_session import ACTIVE_SESSIONS
+            from src.mcp_handlers.dialectic.session import ACTIVE_SESSIONS
             import asyncio
             loop = asyncio.get_running_loop()
             # Use in-memory ACTIVE_SESSIONS dict (faster than DB query)

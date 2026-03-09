@@ -132,23 +132,23 @@ class TestResolveDialecticBackend:
     """Tests for _resolve_dialectic_backend()."""
 
     def test_explicit_json_backend(self):
-        with patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_BACKEND", "json"):
-            from src.mcp_handlers.dialectic_session import _resolve_dialectic_backend
+        with patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_BACKEND", "json"):
+            from src.mcp_handlers.dialectic.session import _resolve_dialectic_backend
             assert _resolve_dialectic_backend() == "json"
 
     def test_explicit_postgres_backend(self):
-        with patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_BACKEND", "postgres"):
-            from src.mcp_handlers.dialectic_session import _resolve_dialectic_backend
+        with patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_BACKEND", "postgres"):
+            from src.mcp_handlers.dialectic.session import _resolve_dialectic_backend
             assert _resolve_dialectic_backend() == "postgres"
 
     def test_auto_backend_defaults_to_postgres(self):
-        with patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_BACKEND", "auto"):
-            from src.mcp_handlers.dialectic_session import _resolve_dialectic_backend
+        with patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_BACKEND", "auto"):
+            from src.mcp_handlers.dialectic.session import _resolve_dialectic_backend
             assert _resolve_dialectic_backend() == "postgres"
 
     def test_unknown_backend_defaults_to_postgres(self):
-        with patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_BACKEND", "unknown_value"):
-            from src.mcp_handlers.dialectic_session import _resolve_dialectic_backend
+        with patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_BACKEND", "unknown_value"):
+            from src.mcp_handlers.dialectic.session import _resolve_dialectic_backend
             assert _resolve_dialectic_backend() == "postgres"
 
 
@@ -160,7 +160,7 @@ class TestReconstructSessionFromDict:
     """Tests for _reconstruct_session_from_dict()."""
 
     def test_basic_reconstruction(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         session_id = "test_session_123"
         data = _make_session_dict(session_id=session_id)
@@ -175,7 +175,7 @@ class TestReconstructSessionFromDict:
         assert session.session_type == "recovery"
 
     def test_reconstruction_with_transcript(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         transcript = [
             _make_transcript_entry(
@@ -209,7 +209,7 @@ class TestReconstructSessionFromDict:
         assert session.synthesis_round == 1
 
     def test_reconstruction_with_resolution(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         resolution = _make_resolution_dict()
         data = _make_session_dict(
@@ -226,7 +226,7 @@ class TestReconstructSessionFromDict:
         assert session.phase == DialecticPhase.RESOLVED
 
     def test_reconstruction_with_no_resolution(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         data = _make_session_dict(phase="thesis", resolution=None)
         session = _reconstruct_session_from_dict("sess_3", data)
@@ -235,7 +235,7 @@ class TestReconstructSessionFromDict:
         assert session.resolution is None
 
     def test_reconstruction_invalid_phase_defaults_to_thesis(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         data = _make_session_dict(phase="invalid_phase")
         session = _reconstruct_session_from_dict("sess_4", data)
@@ -244,7 +244,7 @@ class TestReconstructSessionFromDict:
         assert session.phase == DialecticPhase.THESIS
 
     def test_reconstruction_with_string_created_at(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         now = datetime.now()
         data = _make_session_dict(created_at=now.isoformat())
@@ -254,7 +254,7 @@ class TestReconstructSessionFromDict:
         assert isinstance(session.created_at, datetime)
 
     def test_reconstruction_with_datetime_created_at(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         now = datetime.now()
         data = _make_session_dict()
@@ -265,7 +265,7 @@ class TestReconstructSessionFromDict:
         assert session.created_at == now
 
     def test_reconstruction_with_missing_created_at(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         data = _make_session_dict()
         data["created_at"] = None
@@ -275,7 +275,7 @@ class TestReconstructSessionFromDict:
         # Should use the DialecticSession default (datetime.now() from constructor)
 
     def test_reconstruction_exploration_session_timeouts(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         data = _make_session_dict(session_type="exploration", topic="Test exploration")
         session = _reconstruct_session_from_dict("sess_8", data)
@@ -288,7 +288,7 @@ class TestReconstructSessionFromDict:
         assert session._max_total_time == timedelta(hours=72)
 
     def test_reconstruction_recovery_session_timeouts(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         data = _make_session_dict(session_type="recovery")
         session = _reconstruct_session_from_dict("sess_9", data)
@@ -300,7 +300,7 @@ class TestReconstructSessionFromDict:
 
     def test_reconstruction_with_messages_key_instead_of_transcript(self):
         """SQLite backend uses 'messages' key instead of 'transcript'."""
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         messages = [
             {
@@ -321,7 +321,7 @@ class TestReconstructSessionFromDict:
         assert session.transcript[0].phase == "thesis"
 
     def test_reconstruction_with_none_optional_fields(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         data = _make_session_dict()
         data["paused_agent_state"] = None
@@ -338,7 +338,7 @@ class TestReconstructSessionFromDict:
 
     def test_reconstruction_error_returns_none(self):
         """Reconstruction should return None if an error occurs internally."""
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         # Provide data that causes an internal error (e.g., resolution with bad structure)
         data = _make_session_dict()
@@ -348,7 +348,7 @@ class TestReconstructSessionFromDict:
         assert session is None
 
     def test_reconstruction_with_all_phases(self):
-        from src.mcp_handlers.dialectic_session import _reconstruct_session_from_dict
+        from src.mcp_handlers.dialectic.session import _reconstruct_session_from_dict
 
         for phase_value in ["thesis", "antithesis", "synthesis", "resolved", "escalated", "failed"]:
             data = _make_session_dict(phase=phase_value)
@@ -366,13 +366,13 @@ class TestSaveSession:
 
     @pytest.mark.asyncio
     async def test_save_session_writes_json(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session
+        from src.mcp_handlers.dialectic.session import save_session
 
         session = _make_session()
         storage_dir = tmp_path / "dialectic_sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
             await save_session(session)
 
         session_file = storage_dir / f"{session.session_id}.json"
@@ -387,39 +387,39 @@ class TestSaveSession:
 
     @pytest.mark.asyncio
     async def test_save_session_skips_when_snapshots_disabled(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session
+        from src.mcp_handlers.dialectic.session import save_session
 
         session = _make_session()
         storage_dir = tmp_path / "dialectic_sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", False):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", False):
             await save_session(session)
 
         assert not storage_dir.exists() or not list(storage_dir.glob("*.json"))
 
     @pytest.mark.asyncio
     async def test_save_session_creates_directory(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session
+        from src.mcp_handlers.dialectic.session import save_session
 
         session = _make_session()
         storage_dir = tmp_path / "deep" / "nested" / "path"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
             await save_session(session)
 
         assert storage_dir.exists()
 
     @pytest.mark.asyncio
     async def test_save_session_file_not_empty(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session
+        from src.mcp_handlers.dialectic.session import save_session
 
         session = _make_session()
         storage_dir = tmp_path / "sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
             await save_session(session)
 
         session_file = storage_dir / f"{session.session_id}.json"
@@ -427,7 +427,7 @@ class TestSaveSession:
 
     @pytest.mark.asyncio
     async def test_save_session_with_transcript(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session
+        from src.mcp_handlers.dialectic.session import save_session
 
         session = _make_session(phase=DialecticPhase.ANTITHESIS)
         thesis = DialecticMessage(
@@ -442,8 +442,8 @@ class TestSaveSession:
 
         storage_dir = tmp_path / "sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
             await save_session(session)
 
         session_file = storage_dir / f"{session.session_id}.json"
@@ -457,13 +457,13 @@ class TestSaveSession:
     @pytest.mark.asyncio
     async def test_save_session_error_logged_not_raised(self, tmp_path):
         """When the underlying write fails, save_session logs error but does not raise."""
-        from src.mcp_handlers.dialectic_session import save_session
+        from src.mcp_handlers.dialectic.session import save_session
 
         session = _make_session()
         storage_dir = tmp_path / "sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
             with patch("asyncio.get_running_loop") as mock_loop:
                 mock_loop.return_value.run_in_executor = AsyncMock(
                     side_effect=IOError("Disk full")
@@ -481,14 +481,14 @@ class TestLoadSession:
 
     @pytest.mark.asyncio
     async def test_load_session_from_json(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session, load_session
+        from src.mcp_handlers.dialectic.session import save_session, load_session
 
         session = _make_session()
         storage_dir = tmp_path / "sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
-             patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
+             patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
             await save_session(session)
             loaded = await load_session(session.session_id)
 
@@ -498,28 +498,28 @@ class TestLoadSession:
 
     @pytest.mark.asyncio
     async def test_load_session_nonexistent_returns_none(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import load_session
+        from src.mcp_handlers.dialectic.session import load_session
 
         storage_dir = tmp_path / "sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
             loaded = await load_session("nonexistent_session_id")
 
         assert loaded is None
 
     @pytest.mark.asyncio
     async def test_load_session_from_postgres_backend(self):
-        from src.mcp_handlers.dialectic_session import load_session
+        from src.mcp_handlers.dialectic.session import load_session
 
         session_data = _make_session_dict(session_id="pg_session_1")
         session_data["messages"] = [
             _make_transcript_entry(phase="thesis", agent_id="agent_a")
         ]
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-             patch("src.mcp_handlers.dialectic_session.pg_get_session", new_callable=AsyncMock, return_value=session_data):
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+             patch("src.mcp_handlers.dialectic.session.pg_get_session", new_callable=AsyncMock, return_value=session_data):
             loaded = await load_session("pg_session_1")
 
         assert loaded is not None
@@ -528,7 +528,7 @@ class TestLoadSession:
     @pytest.mark.asyncio
     async def test_load_session_postgres_normalizes_messages_key(self):
         """Postgres returns 'messages' key which should be normalized to 'transcript'."""
-        from src.mcp_handlers.dialectic_session import load_session
+        from src.mcp_handlers.dialectic.session import load_session
 
         session_data = _make_session_dict(session_id="pg_norm_1")
         # Replace transcript with messages (as postgres does)
@@ -537,8 +537,8 @@ class TestLoadSession:
             _make_transcript_entry(phase="thesis", agent_id="agent_a")
         ]
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-             patch("src.mcp_handlers.dialectic_session.pg_get_session", new_callable=AsyncMock, return_value=session_data):
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+             patch("src.mcp_handlers.dialectic.session.pg_get_session", new_callable=AsyncMock, return_value=session_data):
             loaded = await load_session("pg_norm_1")
 
         assert loaded is not None
@@ -547,20 +547,20 @@ class TestLoadSession:
     @pytest.mark.asyncio
     async def test_load_session_postgres_failure_falls_back_to_json(self, tmp_path):
         """When Postgres fails, load_session falls back to JSON files."""
-        from src.mcp_handlers.dialectic_session import load_session, save_session
+        from src.mcp_handlers.dialectic.session import load_session, save_session
 
         session = _make_session()
         storage_dir = tmp_path / "sessions"
 
         # First save to JSON
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
             await save_session(session)
 
         # Then try to load with postgres failing
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-             patch("src.mcp_handlers.dialectic_session.pg_get_session", new_callable=AsyncMock, side_effect=Exception("DB down")):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+             patch("src.mcp_handlers.dialectic.session.pg_get_session", new_callable=AsyncMock, side_effect=Exception("DB down")):
             loaded = await load_session(session.session_id)
 
         assert loaded is not None
@@ -569,18 +569,18 @@ class TestLoadSession:
     @pytest.mark.asyncio
     async def test_load_session_postgres_returns_none_falls_back_to_json(self, tmp_path):
         """When Postgres returns None for a session, fall back to JSON."""
-        from src.mcp_handlers.dialectic_session import load_session, save_session
+        from src.mcp_handlers.dialectic.session import load_session, save_session
 
         session = _make_session()
         storage_dir = tmp_path / "sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
             await save_session(session)
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-             patch("src.mcp_handlers.dialectic_session.pg_get_session", new_callable=AsyncMock, return_value=None):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+             patch("src.mcp_handlers.dialectic.session.pg_get_session", new_callable=AsyncMock, return_value=None):
             loaded = await load_session(session.session_id)
 
         assert loaded is not None
@@ -588,15 +588,15 @@ class TestLoadSession:
 
     @pytest.mark.asyncio
     async def test_load_session_corrupt_json_returns_none(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import load_session
+        from src.mcp_handlers.dialectic.session import load_session
 
         storage_dir = tmp_path / "sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
         session_file = storage_dir / "corrupt_sess.json"
         session_file.write_text("{invalid json")
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
             loaded = await load_session("corrupt_sess")
 
         assert loaded is None
@@ -604,7 +604,7 @@ class TestLoadSession:
     @pytest.mark.asyncio
     async def test_load_session_sets_defaults_from_postgres(self):
         """Test that load_session properly sets defaults for postgres data."""
-        from src.mcp_handlers.dialectic_session import load_session
+        from src.mcp_handlers.dialectic.session import load_session
 
         session_data = {
             "session_id": "pg_defaults_1",
@@ -616,8 +616,8 @@ class TestLoadSession:
         }
         # Deliberately omit session_type, max_synthesis_rounds, synthesis_round
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-             patch("src.mcp_handlers.dialectic_session.pg_get_session", new_callable=AsyncMock, return_value=session_data):
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+             patch("src.mcp_handlers.dialectic.session.pg_get_session", new_callable=AsyncMock, return_value=session_data):
             loaded = await load_session("pg_defaults_1")
 
         assert loaded is not None
@@ -635,7 +635,7 @@ class TestLoadAllSessions:
 
     @pytest.mark.asyncio
     async def test_load_all_sessions_from_json(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             load_all_sessions,
             save_session,
             ACTIVE_SESSIONS,
@@ -647,8 +647,8 @@ class TestLoadAllSessions:
         s1 = _make_session(phase=DialecticPhase.THESIS)
         s2 = _make_session(paused_agent_id="agent_c", phase=DialecticPhase.ANTITHESIS)
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
             await save_session(s1)
             await save_session(s2)
 
@@ -657,8 +657,8 @@ class TestLoadAllSessions:
         ACTIVE_SESSIONS.clear()
 
         try:
-            with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-                 patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+            with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+                 patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
                 count = await load_all_sessions()
 
             assert count == 2
@@ -670,7 +670,7 @@ class TestLoadAllSessions:
 
     @pytest.mark.asyncio
     async def test_load_all_sessions_skips_resolved(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             load_all_sessions,
             save_session,
             ACTIVE_SESSIONS,
@@ -685,8 +685,8 @@ class TestLoadAllSessions:
             phase=DialecticPhase.RESOLVED,
         )
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True):
             await save_session(active_session)
             await save_session(resolved_session)
 
@@ -694,8 +694,8 @@ class TestLoadAllSessions:
         ACTIVE_SESSIONS.clear()
 
         try:
-            with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-                 patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+            with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+                 patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
                 count = await load_all_sessions()
 
             assert count == 1
@@ -707,7 +707,7 @@ class TestLoadAllSessions:
 
     @pytest.mark.asyncio
     async def test_load_all_sessions_from_postgres(self):
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             load_all_sessions,
             ACTIVE_SESSIONS,
         )
@@ -731,9 +731,9 @@ class TestLoadAllSessions:
         ACTIVE_SESSIONS.clear()
 
         try:
-            with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-                 patch("src.mcp_handlers.dialectic_session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data), \
-                 patch("src.mcp_handlers.dialectic_session.pg_get_session", side_effect=mock_pg_get_session):
+            with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+                 patch("src.mcp_handlers.dialectic.session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data), \
+                 patch("src.mcp_handlers.dialectic.session.pg_get_session", side_effect=mock_pg_get_session):
                 count = await load_all_sessions()
 
             assert count == 2
@@ -745,7 +745,7 @@ class TestLoadAllSessions:
 
     @pytest.mark.asyncio
     async def test_load_all_sessions_skips_already_loaded(self):
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             load_all_sessions,
             ACTIVE_SESSIONS,
         )
@@ -769,9 +769,9 @@ class TestLoadAllSessions:
         ACTIVE_SESSIONS["already_loaded"] = existing_session
 
         try:
-            with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-                 patch("src.mcp_handlers.dialectic_session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data), \
-                 patch("src.mcp_handlers.dialectic_session.pg_get_session", side_effect=mock_pg_get_session):
+            with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+                 patch("src.mcp_handlers.dialectic.session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data), \
+                 patch("src.mcp_handlers.dialectic.session.pg_get_session", side_effect=mock_pg_get_session):
                 count = await load_all_sessions()
 
             assert count == 1  # Only new_sess loaded, already_loaded skipped
@@ -781,7 +781,7 @@ class TestLoadAllSessions:
 
     @pytest.mark.asyncio
     async def test_load_all_sessions_postgres_skips_resolved(self):
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             load_all_sessions,
             ACTIVE_SESSIONS,
         )
@@ -795,9 +795,9 @@ class TestLoadAllSessions:
         ACTIVE_SESSIONS.clear()
 
         try:
-            with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-                 patch("src.mcp_handlers.dialectic_session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data), \
-                 patch("src.mcp_handlers.dialectic_session.pg_get_session", new_callable=AsyncMock, return_value=full_resolved):
+            with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+                 patch("src.mcp_handlers.dialectic.session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data), \
+                 patch("src.mcp_handlers.dialectic.session.pg_get_session", new_callable=AsyncMock, return_value=full_resolved):
                 count = await load_all_sessions()
 
             assert count == 0
@@ -808,7 +808,7 @@ class TestLoadAllSessions:
 
     @pytest.mark.asyncio
     async def test_load_all_sessions_empty_directory(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             load_all_sessions,
             ACTIVE_SESSIONS,
         )
@@ -820,8 +820,8 @@ class TestLoadAllSessions:
         ACTIVE_SESSIONS.clear()
 
         try:
-            with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-                 patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+            with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+                 patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
                 count = await load_all_sessions()
 
             assert count == 0
@@ -831,7 +831,7 @@ class TestLoadAllSessions:
 
     @pytest.mark.asyncio
     async def test_load_all_sessions_postgres_no_session_id_skipped(self):
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             load_all_sessions,
             ACTIVE_SESSIONS,
         )
@@ -845,8 +845,8 @@ class TestLoadAllSessions:
         ACTIVE_SESSIONS.clear()
 
         try:
-            with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-                 patch("src.mcp_handlers.dialectic_session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data):
+            with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+                 patch("src.mcp_handlers.dialectic.session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data):
                 count = await load_all_sessions()
 
             assert count == 0
@@ -856,7 +856,7 @@ class TestLoadAllSessions:
 
     @pytest.mark.asyncio
     async def test_load_all_sessions_postgres_get_session_returns_none_skipped(self):
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             load_all_sessions,
             ACTIVE_SESSIONS,
         )
@@ -869,9 +869,9 @@ class TestLoadAllSessions:
         ACTIVE_SESSIONS.clear()
 
         try:
-            with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
-                 patch("src.mcp_handlers.dialectic_session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data), \
-                 patch("src.mcp_handlers.dialectic_session.pg_get_session", new_callable=AsyncMock, return_value=None):
+            with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
+                 patch("src.mcp_handlers.dialectic.session.pg_get_active_sessions", new_callable=AsyncMock, return_value=active_session_data), \
+                 patch("src.mcp_handlers.dialectic.session.pg_get_session", new_callable=AsyncMock, return_value=None):
                 count = await load_all_sessions()
 
             assert count == 0
@@ -881,7 +881,7 @@ class TestLoadAllSessions:
 
     @pytest.mark.asyncio
     async def test_load_all_sessions_io_error_returns_zero(self):
-        from src.mcp_handlers.dialectic_session import (
+        from src.mcp_handlers.dialectic.session import (
             load_all_sessions,
             ACTIVE_SESSIONS,
         )
@@ -890,7 +890,7 @@ class TestLoadAllSessions:
         ACTIVE_SESSIONS.clear()
 
         try:
-            with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"), \
+            with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"), \
                  patch("asyncio.get_running_loop") as mock_loop:
                 mock_loop.return_value.run_in_executor = AsyncMock(
                     side_effect=IOError("Permission denied")
@@ -912,16 +912,16 @@ class TestLoadSessionAsDict:
 
     @pytest.mark.asyncio
     async def test_returns_none_for_json_backend(self):
-        from src.mcp_handlers.dialectic_session import load_session_as_dict
+        from src.mcp_handlers.dialectic.session import load_session_as_dict
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
             result = await load_session_as_dict("any_session")
 
         assert result is None
 
     @pytest.mark.asyncio
     async def test_returns_session_dict_from_postgres(self):
-        from src.mcp_handlers.dialectic_session import load_session_as_dict
+        from src.mcp_handlers.dialectic.session import load_session_as_dict
 
         now = datetime.now()
 
@@ -963,7 +963,7 @@ class TestLoadSessionAsDict:
         mock_db._pool = mock_pool
         mock_db._ensure_pool = AsyncMock()
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, return_value=mock_db):
             result = await load_session_as_dict("fast_sess_1")
 
@@ -980,7 +980,7 @@ class TestLoadSessionAsDict:
 
     @pytest.mark.asyncio
     async def test_returns_none_when_session_not_found_in_postgres(self):
-        from src.mcp_handlers.dialectic_session import load_session_as_dict
+        from src.mcp_handlers.dialectic.session import load_session_as_dict
 
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(return_value=None)
@@ -994,7 +994,7 @@ class TestLoadSessionAsDict:
         mock_db._pool = mock_pool
         mock_db._ensure_pool = AsyncMock()
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, return_value=mock_db):
             result = await load_session_as_dict("nonexistent_sess")
 
@@ -1002,9 +1002,9 @@ class TestLoadSessionAsDict:
 
     @pytest.mark.asyncio
     async def test_returns_none_on_exception(self):
-        from src.mcp_handlers.dialectic_session import load_session_as_dict
+        from src.mcp_handlers.dialectic.session import load_session_as_dict
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, side_effect=Exception("DB error")):
             result = await load_session_as_dict("error_sess")
 
@@ -1012,7 +1012,7 @@ class TestLoadSessionAsDict:
 
     @pytest.mark.asyncio
     async def test_handles_resolution_json_string(self):
-        from src.mcp_handlers.dialectic_session import load_session_as_dict
+        from src.mcp_handlers.dialectic.session import load_session_as_dict
 
         now = datetime.now()
         resolution = _make_resolution_dict()
@@ -1042,7 +1042,7 @@ class TestLoadSessionAsDict:
         mock_db._pool = mock_pool
         mock_db._ensure_pool = AsyncMock()
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, return_value=mock_db):
             result = await load_session_as_dict("res_str_sess")
 
@@ -1052,7 +1052,7 @@ class TestLoadSessionAsDict:
 
     @pytest.mark.asyncio
     async def test_handles_resolution_json_dict(self):
-        from src.mcp_handlers.dialectic_session import load_session_as_dict
+        from src.mcp_handlers.dialectic.session import load_session_as_dict
 
         now = datetime.now()
         resolution = _make_resolution_dict()
@@ -1082,7 +1082,7 @@ class TestLoadSessionAsDict:
         mock_db._pool = mock_pool
         mock_db._ensure_pool = AsyncMock()
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, return_value=mock_db):
             result = await load_session_as_dict("res_dict_sess")
 
@@ -1092,7 +1092,7 @@ class TestLoadSessionAsDict:
 
     @pytest.mark.asyncio
     async def test_handles_agrees_field(self):
-        from src.mcp_handlers.dialectic_session import load_session_as_dict
+        from src.mcp_handlers.dialectic.session import load_session_as_dict
 
         now = datetime.now()
 
@@ -1134,7 +1134,7 @@ class TestLoadSessionAsDict:
         mock_db._pool = mock_pool
         mock_db._ensure_pool = AsyncMock()
 
-        with patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="postgres"), \
+        with patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="postgres"), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, return_value=mock_db):
             result = await load_session_as_dict("agrees_sess")
 
@@ -1152,7 +1152,7 @@ class TestVerifyDataConsistency:
 
     @pytest.mark.asyncio
     async def test_consistency_returns_true(self):
-        from src.mcp_handlers.dialectic_session import verify_data_consistency
+        from src.mcp_handlers.dialectic.session import verify_data_consistency
         result = await verify_data_consistency()
         assert result["consistent"] is True
 
@@ -1162,7 +1162,7 @@ class TestRunStartupConsolidation:
 
     @pytest.mark.asyncio
     async def test_consolidation_returns_zero(self):
-        from src.mcp_handlers.dialectic_session import run_startup_consolidation
+        from src.mcp_handlers.dialectic.session import run_startup_consolidation
         result = await run_startup_consolidation()
         assert result["exported"] == 0
 
@@ -1176,7 +1176,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_from_json_fallback(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         storage_dir = tmp_path / "sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
@@ -1191,7 +1191,7 @@ class TestListAllSessions:
                 json.dump(data, f)
 
         # Simulate postgres failure to trigger JSON fallback
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, side_effect=Exception("DB down")):
             result = await list_all_sessions()
 
@@ -1199,7 +1199,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_json_fallback_with_agent_filter(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         storage_dir = tmp_path / "sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
@@ -1213,7 +1213,7 @@ class TestListAllSessions:
             with open(storage_dir / f"{sid}.json", "w") as f:
                 json.dump(data, f)
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, side_effect=Exception("DB down")):
             result = await list_all_sessions(agent_id="target_agent")
 
@@ -1225,7 +1225,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_json_fallback_with_status_filter(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         storage_dir = tmp_path / "sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
@@ -1238,7 +1238,7 @@ class TestListAllSessions:
             with open(storage_dir / f"{sid}.json", "w") as f:
                 json.dump(data, f)
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, side_effect=Exception("DB down")):
             result = await list_all_sessions(status="resolved")
 
@@ -1247,7 +1247,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_json_fallback_with_limit(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         storage_dir = tmp_path / "sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
@@ -1258,7 +1258,7 @@ class TestListAllSessions:
             with open(storage_dir / f"limit_sess_{i}.json", "w") as f:
                 json.dump(data, f)
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, side_effect=Exception("DB down")):
             result = await list_all_sessions(limit=2)
 
@@ -1266,7 +1266,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_json_fallback_with_transcript(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         storage_dir = tmp_path / "sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
@@ -1276,7 +1276,7 @@ class TestListAllSessions:
         with open(storage_dir / "transcript_sess.json", "w") as f:
             json.dump(data, f)
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, side_effect=Exception("DB down")):
             result = await list_all_sessions(include_transcript=True)
 
@@ -1286,7 +1286,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_json_fallback_without_transcript(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         storage_dir = tmp_path / "sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
@@ -1296,7 +1296,7 @@ class TestListAllSessions:
         with open(storage_dir / "no_transcript_sess.json", "w") as f:
             json.dump(data, f)
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, side_effect=Exception("DB down")):
             result = await list_all_sessions(include_transcript=False)
 
@@ -1305,7 +1305,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_from_postgres(self):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         now = datetime.now()
 
@@ -1346,7 +1346,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_postgres_with_resolution_string(self):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         now = datetime.now()
         resolution = _make_resolution_dict()
@@ -1387,7 +1387,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_postgres_with_resolution_dict(self):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         now = datetime.now()
         resolution = _make_resolution_dict()
@@ -1428,7 +1428,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_postgres_with_agent_filter(self):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         now = datetime.now()
 
@@ -1469,12 +1469,12 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_empty_json_fallback(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         storage_dir = tmp_path / "empty_sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, side_effect=Exception("DB down")):
             result = await list_all_sessions()
 
@@ -1482,7 +1482,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_json_fallback_corrupt_file_skipped(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         storage_dir = tmp_path / "sessions"
         storage_dir.mkdir(parents=True, exist_ok=True)
@@ -1494,7 +1494,7 @@ class TestListAllSessions:
         with open(storage_dir / "corrupt_1.json", "w") as f:
             f.write("{broken json")
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
              patch("src.dialectic_db.get_dialectic_db", new_callable=AsyncMock, side_effect=Exception("DB down")):
             result = await list_all_sessions()
 
@@ -1503,7 +1503,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_postgres_with_include_transcript(self):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         now = datetime.now()
 
@@ -1572,7 +1572,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_postgres_null_created_at(self):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         mock_rows = [
             {
@@ -1609,7 +1609,7 @@ class TestListAllSessions:
 
     @pytest.mark.asyncio
     async def test_list_sessions_postgres_status_filter(self):
-        from src.mcp_handlers.dialectic_session import list_all_sessions
+        from src.mcp_handlers.dialectic.session import list_all_sessions
 
         now = datetime.now()
 
@@ -1657,15 +1657,15 @@ class TestActiveSessionsState:
     """Tests for ACTIVE_SESSIONS module-level dict management."""
 
     def test_active_sessions_is_dict(self):
-        from src.mcp_handlers.dialectic_session import ACTIVE_SESSIONS
+        from src.mcp_handlers.dialectic.session import ACTIVE_SESSIONS
         assert isinstance(ACTIVE_SESSIONS, dict)
 
     def test_session_metadata_cache_is_dict(self):
-        from src.mcp_handlers.dialectic_session import _SESSION_METADATA_CACHE
+        from src.mcp_handlers.dialectic.session import _SESSION_METADATA_CACHE
         assert isinstance(_SESSION_METADATA_CACHE, dict)
 
     def test_cache_ttl_is_positive(self):
-        from src.mcp_handlers.dialectic_session import _CACHE_TTL
+        from src.mcp_handlers.dialectic.session import _CACHE_TTL
         assert _CACHE_TTL > 0
 
 
@@ -1677,16 +1677,16 @@ class TestModuleLevelConstants:
     """Tests for module-level constants and their defaults."""
 
     def test_session_storage_dir_is_path(self):
-        from src.mcp_handlers.dialectic_session import SESSION_STORAGE_DIR
+        from src.mcp_handlers.dialectic.session import SESSION_STORAGE_DIR
         assert isinstance(SESSION_STORAGE_DIR, Path)
 
     def test_backend_env_var_default(self):
         """The UNITARES_DIALECTIC_BACKEND variable should have a valid value."""
-        from src.mcp_handlers.dialectic_session import UNITARES_DIALECTIC_BACKEND
+        from src.mcp_handlers.dialectic.session import UNITARES_DIALECTIC_BACKEND
         assert isinstance(UNITARES_DIALECTIC_BACKEND, str)
 
     def test_write_json_snapshot_is_bool(self):
-        from src.mcp_handlers.dialectic_session import UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT
+        from src.mcp_handlers.dialectic.session import UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT
         assert isinstance(UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT, bool)
 
 
@@ -1699,14 +1699,14 @@ class TestSaveLoadRoundTrip:
 
     @pytest.mark.asyncio
     async def test_round_trip_basic(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session, load_session
+        from src.mcp_handlers.dialectic.session import save_session, load_session
 
         session = _make_session()
         storage_dir = tmp_path / "sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
-             patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
+             patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
             await save_session(session)
             loaded = await load_session(session.session_id)
 
@@ -1719,7 +1719,7 @@ class TestSaveLoadRoundTrip:
 
     @pytest.mark.asyncio
     async def test_round_trip_with_full_transcript(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session, load_session
+        from src.mcp_handlers.dialectic.session import save_session, load_session
 
         session = _make_session(phase=DialecticPhase.SYNTHESIS)
         thesis = DialecticMessage(
@@ -1743,9 +1743,9 @@ class TestSaveLoadRoundTrip:
 
         storage_dir = tmp_path / "sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
-             patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
+             patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
             await save_session(session)
             loaded = await load_session(session.session_id)
 
@@ -1759,7 +1759,7 @@ class TestSaveLoadRoundTrip:
 
     @pytest.mark.asyncio
     async def test_round_trip_exploration_session(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session, load_session
+        from src.mcp_handlers.dialectic.session import save_session, load_session
 
         session = _make_session(
             session_type="exploration",
@@ -1768,9 +1768,9 @@ class TestSaveLoadRoundTrip:
 
         storage_dir = tmp_path / "sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
-             patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
+             patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
             await save_session(session)
             loaded = await load_session(session.session_id)
 
@@ -1781,7 +1781,7 @@ class TestSaveLoadRoundTrip:
 
     @pytest.mark.asyncio
     async def test_round_trip_with_resolution(self, tmp_path):
-        from src.mcp_handlers.dialectic_session import save_session, load_session
+        from src.mcp_handlers.dialectic.session import save_session, load_session
 
         session = _make_session(phase=DialecticPhase.RESOLVED)
         session.resolution = Resolution(
@@ -1796,9 +1796,9 @@ class TestSaveLoadRoundTrip:
 
         storage_dir = tmp_path / "sessions"
 
-        with patch("src.mcp_handlers.dialectic_session.SESSION_STORAGE_DIR", storage_dir), \
-             patch("src.mcp_handlers.dialectic_session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
-             patch("src.mcp_handlers.dialectic_session._resolve_dialectic_backend", return_value="json"):
+        with patch("src.mcp_handlers.dialectic.session.SESSION_STORAGE_DIR", storage_dir), \
+             patch("src.mcp_handlers.dialectic.session.UNITARES_DIALECTIC_WRITE_JSON_SNAPSHOT", True), \
+             patch("src.mcp_handlers.dialectic.session._resolve_dialectic_backend", return_value="json"):
             await save_session(session)
             loaded = await load_session(session.session_id)
 

@@ -182,7 +182,7 @@ def _build_mock_server(
 # The observability module captures `mcp_server` at import-time via
 #   `from .shared import get_mcp_server; mcp_server = get_mcp_server()`
 # So we must patch the module-level `mcp_server` attribute.
-_OBS_MOD = "src.mcp_handlers.observability"
+_OBS_MOD = "src.mcp_handlers.observability.handlers"
 _PATCH_SERVER = f"{_OBS_MOD}.mcp_server"
 _PATCH_CTX = "src.mcp_handlers.context.get_context_agent_id"
 # require_registered_agent (used by compare_me_to_similar) calls get_mcp_server()
@@ -205,7 +205,7 @@ class TestHandleObserveAgent:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value="other-caller-uuid"):
-            from src.mcp_handlers.observability import handle_observe_agent
+            from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"target_agent_id": uuid})
 
         data = _parse(result)
@@ -222,7 +222,7 @@ class TestHandleObserveAgent:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value="other-caller-uuid"):
-            from src.mcp_handlers.observability import handle_observe_agent
+            from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({
                 "target_agent_id": uuid,
                 "analyze_patterns": False,
@@ -243,7 +243,7 @@ class TestHandleObserveAgent:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_observe_agent
+            from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({})
 
         data = _parse(result)
@@ -258,7 +258,7 @@ class TestHandleObserveAgent:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value="different-caller-uuid-0000-000000000000"):
-            from src.mcp_handlers.observability import handle_observe_agent
+            from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"agent_id": uuid})
 
         data = _parse(result)
@@ -273,7 +273,7 @@ class TestHandleObserveAgent:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=caller_uuid):
-            from src.mcp_handlers.observability import handle_observe_agent
+            from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"agent_id": caller_uuid})
 
         data = _parse(result)
@@ -288,7 +288,7 @@ class TestHandleObserveAgent:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value="caller-uuid"):
-            from src.mcp_handlers.observability import handle_observe_agent
+            from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"target_agent_id": uuid})
 
         data = _parse(result)
@@ -304,11 +304,11 @@ class TestHandleObserveAgent:
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value="caller-uuid"), \
              patch(
-                 "src.mcp_handlers.identity_v2._find_agent_by_label",
+                 "src.mcp_handlers.identity.handlers._find_agent_by_label",
                  new_callable=AsyncMock,
                  return_value=uuid,
              ):
-            from src.mcp_handlers.observability import handle_observe_agent
+            from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"target_agent_id": "Lumen"})
 
         data = _parse(result)
@@ -323,11 +323,11 @@ class TestHandleObserveAgent:
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value="caller-uuid"), \
              patch(
-                 "src.mcp_handlers.identity_v2._find_agent_by_label",
+                 "src.mcp_handlers.identity.handlers._find_agent_by_label",
                  new_callable=AsyncMock,
                  return_value=None,
              ):
-            from src.mcp_handlers.observability import handle_observe_agent
+            from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"target_agent_id": "NoSuchAgent"})
 
         data = _parse(result)
@@ -351,7 +351,7 @@ class TestHandleCompareAgents:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_compare_agents
+            from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": [id1, id2]})
 
         data = _parse(result)
@@ -369,7 +369,7 @@ class TestHandleCompareAgents:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_compare_agents
+            from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": ["only-one"]})
 
         data = _parse(result)
@@ -383,7 +383,7 @@ class TestHandleCompareAgents:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_compare_agents
+            from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": []})
 
         data = _parse(result)
@@ -396,7 +396,7 @@ class TestHandleCompareAgents:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_compare_agents
+            from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({})
 
         data = _parse(result)
@@ -409,7 +409,7 @@ class TestHandleCompareAgents:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_compare_agents
+            from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({
                 "agent_ids": [
                     "aaaaaaaa-bbbb-cccc-dddd-111111111111",
@@ -430,7 +430,7 @@ class TestHandleCompareAgents:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_compare_agents
+            from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({
                 "agent_ids": [id1, id2],
                 "compare_metrics": ["coherence", "E"],
@@ -465,7 +465,7 @@ class TestHandleCompareAgents:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_compare_agents
+            from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": [id1, id2, id3]})
 
         data = _parse(result)
@@ -482,11 +482,11 @@ class TestHandleCompareAgents:
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None), \
              patch(
-                 "src.mcp_handlers.identity_v2._find_agent_by_label",
+                 "src.mcp_handlers.identity.handlers._find_agent_by_label",
                  new_callable=AsyncMock,
                  return_value=uuid,
              ):
-            from src.mcp_handlers.observability import handle_compare_agents
+            from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": ["Lumen", id2]})
 
         data = _parse(result)
@@ -574,7 +574,7 @@ class TestHandleCompareMeToSimilar:
         server = self._setup_server_with_similar(my_uuid, others)
 
         with self._patches(server, my_uuid):
-            from src.mcp_handlers.observability import handle_compare_me_to_similar
+            from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
         data = _parse(result)
@@ -595,7 +595,7 @@ class TestHandleCompareMeToSimilar:
         server = self._setup_server_with_similar(my_uuid, others)
 
         with self._patches(server, my_uuid):
-            from src.mcp_handlers.observability import handle_compare_me_to_similar
+            from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
         data = _parse(result)
@@ -613,7 +613,7 @@ class TestHandleCompareMeToSimilar:
         server = self._setup_server_with_similar(my_uuid, others=None)
 
         with self._patches(server, my_uuid):
-            from src.mcp_handlers.observability import handle_compare_me_to_similar
+            from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
         data = _parse(result)
@@ -628,7 +628,7 @@ class TestHandleCompareMeToSimilar:
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_GET_MCP_SERVER, return_value=server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_compare_me_to_similar
+            from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({})
 
         data = _parse(result)
@@ -648,7 +648,7 @@ class TestHandleCompareMeToSimilar:
         server = self._setup_server_with_similar(my_uuid, others)
 
         with self._patches(server, my_uuid):
-            from src.mcp_handlers.observability import handle_compare_me_to_similar
+            from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             # Very wide threshold should include the agent
             result = await handle_compare_me_to_similar({
                 "agent_id": my_uuid,
@@ -677,7 +677,7 @@ class TestHandleCompareMeToSimilar:
         server = self._setup_server_with_similar(my_uuid, others)
 
         with self._patches(server, my_uuid):
-            from src.mcp_handlers.observability import handle_compare_me_to_similar
+            from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
         data = _parse(result)
@@ -699,7 +699,7 @@ class TestHandleCompareMeToSimilar:
         server = self._setup_server_with_similar(my_uuid, others)
 
         with self._patches(server, my_uuid):
-            from src.mcp_handlers.observability import handle_compare_me_to_similar
+            from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
         data = _parse(result)
@@ -726,7 +726,7 @@ class TestHandleDetectAnomalies:
                  "src.pattern_analysis.analyze_agent_patterns",
                  return_value={"anomalies": []},
              ):
-            from src.mcp_handlers.observability import handle_detect_anomalies
+            from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({})
 
         data = _parse(result)
@@ -753,7 +753,7 @@ class TestHandleDetectAnomalies:
                  "src.pattern_analysis.analyze_agent_patterns",
                  return_value=anomaly_data,
              ):
-            from src.mcp_handlers.observability import handle_detect_anomalies
+            from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({
                 "anomaly_types": ["risk_spike", "coherence_drop"],
                 "min_severity": "medium",
@@ -779,7 +779,7 @@ class TestHandleDetectAnomalies:
                  "src.pattern_analysis.analyze_agent_patterns",
                  return_value={"anomalies": []},
              ):
-            from src.mcp_handlers.observability import handle_detect_anomalies
+            from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({"agent_ids": [id1]})
 
         data = _parse(result)
@@ -792,7 +792,7 @@ class TestHandleDetectAnomalies:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_detect_anomalies
+            from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({})
 
         data = _parse(result)
@@ -818,7 +818,7 @@ class TestHandleDetectAnomalies:
                  "src.pattern_analysis.analyze_agent_patterns",
                  return_value=anomaly_data,
              ):
-            from src.mcp_handlers.observability import handle_detect_anomalies
+            from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({
                 "anomaly_types": ["risk_spike"],
                 "min_severity": "low",
@@ -850,7 +850,7 @@ class TestHandleDetectAnomalies:
                  "src.pattern_analysis.analyze_agent_patterns",
                  return_value=anomaly_data,
              ):
-            from src.mcp_handlers.observability import handle_detect_anomalies
+            from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({
                 "min_severity": "low",
             })
@@ -880,7 +880,7 @@ class TestHandleDetectAnomalies:
              patch("src.governance_monitor.UNITARESMonitor") as MockMonitor:
             mock_instance = _make_monitor(id1)
             MockMonitor.return_value = mock_instance
-            from src.mcp_handlers.observability import handle_detect_anomalies
+            from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({"agent_ids": [id1]})
 
         data = _parse(result)
@@ -907,7 +907,7 @@ class TestHandleDetectAnomalies:
                  "src.pattern_analysis.analyze_agent_patterns",
                  side_effect=_patched_analyze,
              ):
-            from src.mcp_handlers.observability import handle_detect_anomalies
+            from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({"agent_ids": [id1, id2]})
 
         data = _parse(result)
@@ -930,7 +930,7 @@ class TestHandleAggregateMetrics:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_aggregate_metrics
+            from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
         data = _parse(result)
@@ -950,7 +950,7 @@ class TestHandleAggregateMetrics:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_aggregate_metrics
+            from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
         data = _parse(result)
@@ -970,7 +970,7 @@ class TestHandleAggregateMetrics:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_aggregate_metrics
+            from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({"agent_ids": [id1]})
 
         data = _parse(result)
@@ -986,7 +986,7 @@ class TestHandleAggregateMetrics:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_aggregate_metrics
+            from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
         data = _parse(result)
@@ -1001,7 +1001,7 @@ class TestHandleAggregateMetrics:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_aggregate_metrics
+            from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({
                 "include_health_breakdown": False,
             })
@@ -1018,7 +1018,7 @@ class TestHandleAggregateMetrics:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_aggregate_metrics
+            from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
         data = _parse(result)
@@ -1039,7 +1039,7 @@ class TestHandleAggregateMetrics:
              patch("src.governance_monitor.UNITARESMonitor") as MockMonitor:
             mock_instance = _make_monitor(id1)
             MockMonitor.return_value = mock_instance
-            from src.mcp_handlers.observability import handle_aggregate_metrics
+            from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({"agent_ids": [id1]})
 
         data = _parse(result)
@@ -1063,7 +1063,7 @@ class TestHandleAggregateMetrics:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_aggregate_metrics
+            from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({"agent_ids": [id1]})
 
         data = _parse(result)
@@ -1089,7 +1089,7 @@ class TestHandleAggregateMetrics:
 
         with patch(_PATCH_SERVER, server), \
              patch(_PATCH_CTX, return_value=None):
-            from src.mcp_handlers.observability import handle_aggregate_metrics
+            from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
         data = _parse(result)

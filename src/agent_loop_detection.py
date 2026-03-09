@@ -451,8 +451,8 @@ async def _auto_initiate_dialectic_recovery(agent_id: str, reason: str) -> None:
     await asyncio.sleep(2)
 
     try:
-        from src.mcp_handlers.dialectic import handle_request_dialectic_review
-        from src.mcp_handlers.dialectic_reviewer import select_reviewer
+        from src.mcp_handlers.dialectic.handlers import handle_request_dialectic_review
+        from src.mcp_handlers.dialectic.reviewer import select_reviewer
 
         logger.info(f"Auto-initiating dialectic recovery for paused agent '{agent_id}'")
 

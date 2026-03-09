@@ -29,21 +29,21 @@ class TestExtractBaseFingerprint:
 
     def test_ip_ua_hash_two_parts(self):
         """Standard HTTP fingerprint: IP:UA_hash → extract UA hash only."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         result = _extract_base_fingerprint("34.162.136.91:abc123")
         assert result == "ua:abc123"
 
     def test_ip_ua_hash_with_random_suffix(self):
         """HTTP fingerprint with random suffix: IP:UA_hash:random → UA hash only."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         result = _extract_base_fingerprint("34.162.136.91:abc123:deadbeef")
         assert result == "ua:abc123"
 
     def test_ip_ua_hash_multiple_suffixes(self):
         """Multiple suffixes should all be stripped, only UA hash kept."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         result = _extract_base_fingerprint("34.162.136.91:abc123:dead:beef")
         assert result == "ua:abc123"
@@ -54,7 +54,7 @@ class TestExtractBaseFingerprint:
         This is the core fix for Claude.ai attribution fragmentation —
         the proxy pool rotates IPs but the UA string is stable.
         """
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         fp1 = _extract_base_fingerprint("160.79.106.108:d20c2f")
         fp2 = _extract_base_fingerprint("160.79.106.126:d20c2f")
@@ -63,35 +63,35 @@ class TestExtractBaseFingerprint:
 
     def test_mcp_session_key_returns_none(self):
         """MCP session keys already have stable identity — skip pinning."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         assert _extract_base_fingerprint("mcp:some-session-id") is None
 
     def test_stdio_key_returns_none(self):
         """stdio keys are stable by default — skip pinning."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         assert _extract_base_fingerprint("stdio:12345") is None
 
     def test_agent_session_id_returns_none(self):
         """agent- keys already provide stable identity — skip pinning."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         assert _extract_base_fingerprint("agent-5e728ecb1234") is None
 
     def test_empty_string_returns_none(self):
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         assert _extract_base_fingerprint("") is None
 
     def test_none_returns_none(self):
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         assert _extract_base_fingerprint(None) is None
 
     def test_single_part_returns_as_is(self):
         """Single-part key (unusual) should be returned as-is."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         assert _extract_base_fingerprint("somekey") == "somekey"
 
@@ -106,7 +106,7 @@ class TestUaHashFromHeader:
 
     def test_basic_ua_string(self):
         """Standard User-Agent string should produce a ua: prefixed hash."""
-        from src.mcp_handlers.identity_v2 import ua_hash_from_header
+        from src.mcp_handlers.identity.handlers import ua_hash_from_header
 
         result = ua_hash_from_header("Mozilla/5.0 (compatible; Claude/1.0)")
         assert result is not None
@@ -114,23 +114,23 @@ class TestUaHashFromHeader:
         assert len(result) == 9  # "ua:" + 6 hex chars
 
     def test_empty_string_returns_none(self):
-        from src.mcp_handlers.identity_v2 import ua_hash_from_header
+        from src.mcp_handlers.identity.handlers import ua_hash_from_header
         assert ua_hash_from_header("") is None
 
     def test_none_returns_none(self):
-        from src.mcp_handlers.identity_v2 import ua_hash_from_header
+        from src.mcp_handlers.identity.handlers import ua_hash_from_header
         assert ua_hash_from_header(None) is None
 
     def test_same_ua_produces_same_hash(self):
         """Deterministic: same input → same output."""
-        from src.mcp_handlers.identity_v2 import ua_hash_from_header
+        from src.mcp_handlers.identity.handlers import ua_hash_from_header
 
         ua = "python-httpx/0.27.0"
         assert ua_hash_from_header(ua) == ua_hash_from_header(ua)
 
     def test_different_ua_produces_different_hash(self):
         """Different User-Agent strings should produce different hashes."""
-        from src.mcp_handlers.identity_v2 import ua_hash_from_header
+        from src.mcp_handlers.identity.handlers import ua_hash_from_header
 
         h1 = ua_hash_from_header("Mozilla/5.0 Chrome/120")
         h2 = ua_hash_from_header("python-httpx/0.27.0")
@@ -143,7 +143,7 @@ class TestUaHashFromHeader:
         This test verifies the contract that prevents fingerprint divergence.
         """
         import hashlib
-        from src.mcp_handlers.identity_v2 import ua_hash_from_header, _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import ua_hash_from_header, _extract_base_fingerprint
 
         # The actual User-Agent string as seen in HTTP headers
         raw_ua = "python-httpx/0.27.0"
@@ -175,7 +175,7 @@ class TestSharedPinOperations:
     @pytest.mark.asyncio
     async def test_set_and_lookup_roundtrip(self):
         """Pin set by set_onboard_pin() should be retrievable by lookup_onboard_pin()."""
-        from src.mcp_handlers.identity_v2 import set_onboard_pin, lookup_onboard_pin
+        from src.mcp_handlers.identity.handlers import set_onboard_pin, lookup_onboard_pin
 
         agent_uuid = "7f7d20a3-1234-5678-9abc-def012345678"
         stable_session_id = f"agent-{agent_uuid[:12]}"
@@ -208,7 +208,7 @@ class TestSharedPinOperations:
     @pytest.mark.asyncio
     async def test_set_pin_with_none_fingerprint(self):
         """set_onboard_pin() with None fingerprint should return False."""
-        from src.mcp_handlers.identity_v2 import set_onboard_pin
+        from src.mcp_handlers.identity.handlers import set_onboard_pin
 
         result = await set_onboard_pin(None, "some-uuid", "agent-12345")
         assert result is False
@@ -216,7 +216,7 @@ class TestSharedPinOperations:
     @pytest.mark.asyncio
     async def test_lookup_pin_with_none_fingerprint(self):
         """lookup_onboard_pin() with None fingerprint should return None."""
-        from src.mcp_handlers.identity_v2 import lookup_onboard_pin
+        from src.mcp_handlers.identity.handlers import lookup_onboard_pin
 
         result = await lookup_onboard_pin(None)
         assert result is None
@@ -224,7 +224,7 @@ class TestSharedPinOperations:
     @pytest.mark.asyncio
     async def test_lookup_miss_returns_none(self):
         """lookup_onboard_pin() returns None when no pin exists."""
-        from src.mcp_handlers.identity_v2 import lookup_onboard_pin
+        from src.mcp_handlers.identity.handlers import lookup_onboard_pin
 
         mock_redis = AsyncMock()
         mock_redis.get = AsyncMock(return_value=None)
@@ -239,7 +239,7 @@ class TestSharedPinOperations:
     @pytest.mark.asyncio
     async def test_lookup_refreshes_ttl_by_default(self):
         """lookup_onboard_pin() should refresh TTL on successful lookup."""
-        from src.mcp_handlers.identity_v2 import lookup_onboard_pin, _PIN_TTL
+        from src.mcp_handlers.identity.handlers import lookup_onboard_pin, _PIN_TTL
 
         pin_data = json.dumps({
             "agent_uuid": "test-uuid",
@@ -261,7 +261,7 @@ class TestSharedPinOperations:
     @pytest.mark.asyncio
     async def test_lookup_skip_ttl_refresh(self):
         """lookup_onboard_pin(refresh_ttl=False) should NOT refresh TTL."""
-        from src.mcp_handlers.identity_v2 import lookup_onboard_pin
+        from src.mcp_handlers.identity.handlers import lookup_onboard_pin
 
         pin_data = json.dumps({
             "agent_uuid": "test-uuid",
@@ -283,7 +283,7 @@ class TestSharedPinOperations:
     @pytest.mark.asyncio
     async def test_set_pin_redis_unavailable(self):
         """set_onboard_pin() should return False when Redis is unavailable."""
-        from src.mcp_handlers.identity_v2 import set_onboard_pin
+        from src.mcp_handlers.identity.handlers import set_onboard_pin
 
         async def get_redis_mock():
             return None
@@ -295,7 +295,7 @@ class TestSharedPinOperations:
     @pytest.mark.asyncio
     async def test_lookup_pin_redis_unavailable(self):
         """lookup_onboard_pin() should return None when Redis is unavailable."""
-        from src.mcp_handlers.identity_v2 import lookup_onboard_pin
+        from src.mcp_handlers.identity.handlers import lookup_onboard_pin
 
         async def get_redis_mock():
             return None
@@ -307,7 +307,7 @@ class TestSharedPinOperations:
     @pytest.mark.asyncio
     async def test_set_pin_correct_ttl(self):
         """set_onboard_pin() should use _PIN_TTL constant (1800s)."""
-        from src.mcp_handlers.identity_v2 import set_onboard_pin, _PIN_TTL
+        from src.mcp_handlers.identity.handlers import set_onboard_pin, _PIN_TTL
 
         mock_redis = AsyncMock()
         mock_redis.setex = AsyncMock()
@@ -332,7 +332,7 @@ class TestOnboardPinSetting:
     @pytest.mark.asyncio
     async def test_onboard_sets_redis_pin(self):
         """After onboard, a recent_onboard:{base_fp} Redis key should be set."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint, set_onboard_pin
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint, set_onboard_pin
 
         mock_redis = AsyncMock()
         mock_redis.setex = AsyncMock()
@@ -358,7 +358,7 @@ class TestOnboardPinSetting:
 
     def test_pin_not_set_for_stdio(self):
         """stdio transports should not set a pin."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         base_fp = _extract_base_fingerprint("stdio:12345")
         assert base_fp is None  # No pin should be set
@@ -370,7 +370,7 @@ class TestDispatchPinLookup:
     @pytest.mark.asyncio
     async def test_pin_injects_client_session_id(self):
         """When no client_session_id in args, pin should inject one."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint, lookup_onboard_pin
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint, lookup_onboard_pin
 
         agent_uuid = "7f7d20a3-1234-5678-9abc-def012345678"
         stable_session_id = f"agent-{agent_uuid[:12]}"
@@ -417,7 +417,7 @@ class TestDispatchPinLookup:
     @pytest.mark.asyncio
     async def test_pin_miss_falls_through(self):
         """When no pin exists in Redis, arguments should remain unchanged."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint, lookup_onboard_pin
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint, lookup_onboard_pin
 
         mock_redis = AsyncMock()
         mock_redis.get = AsyncMock(return_value=None)
@@ -439,7 +439,7 @@ class TestDispatchPinLookup:
     @pytest.mark.asyncio
     async def test_pin_lookup_with_random_suffix_still_matches(self):
         """Transport key with random suffix should match pin set with base key."""
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         onboard_key = "34.162.136.91:abc123"
         base_fp_onboard = _extract_base_fingerprint(onboard_key)
@@ -457,7 +457,7 @@ class TestDispatchPinLookup:
         This is the core scenario: onboard happens from IP .108, subsequent
         calls come from .126, .91, etc. — but all have same UA hash.
         """
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
 
         onboard_key = "160.79.106.108:d20c2f:claude"
         base_fp_onboard = _extract_base_fingerprint(onboard_key)

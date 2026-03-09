@@ -229,7 +229,7 @@ async def stuck_agent_recovery_task():
         try:
             await asyncio.sleep(interval_seconds)
 
-            from src.mcp_handlers.lifecycle import handle_detect_stuck_agents
+            from src.mcp_handlers.lifecycle.handlers import handle_detect_stuck_agents
 
             result = await handle_detect_stuck_agents({
                 "max_age_minutes": 30.0,
@@ -356,7 +356,7 @@ def start_all_background_tasks(connection_tracker, set_ready):
     asyncio.create_task(server_warmup_task(set_ready))
 
     try:
-        from src.mcp_handlers.pi_orchestration import eisv_sync_task
+        from src.mcp_handlers.observability.pi_orchestration import eisv_sync_task
         asyncio.create_task(eisv_sync_task(interval_minutes=5.0))
         logger.info("[EISV_SYNC] Started periodic Pi EISV sync")
     except Exception as e:

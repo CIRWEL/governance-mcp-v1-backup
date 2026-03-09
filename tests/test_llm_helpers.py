@@ -11,7 +11,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.mcp_handlers.llm_delegation import _get_default_model
+from src.mcp_handlers.support.llm_delegation import _get_default_model
 
 
 # ============================================================================

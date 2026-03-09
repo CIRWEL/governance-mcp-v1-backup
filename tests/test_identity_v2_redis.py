@@ -80,12 +80,12 @@ def patch_identity_deps(session_cache, mock_db, fake_redis):
         return fake_redis
 
     # Reset the module-level _redis_cache so _get_redis() re-initializes
-    with patch("src.mcp_handlers.identity_persistence._redis_cache", None), \
+    with patch("src.mcp_handlers.identity.persistence._redis_cache", None), \
          patch("src.cache.get_session_cache", return_value=session_cache), \
          patch("src.cache.session_cache.get_redis", new=_get_fake_raw), \
          patch("src.cache.redis_client.get_redis", new=_get_fake_raw), \
-         patch("src.mcp_handlers.identity_resolution.get_db", return_value=mock_db), \
-         patch("src.mcp_handlers.identity_persistence.get_db", return_value=mock_db):
+         patch("src.mcp_handlers.identity.resolution.get_db", return_value=mock_db), \
+         patch("src.mcp_handlers.identity.persistence.get_db", return_value=mock_db):
         yield
 
 
@@ -97,7 +97,7 @@ class TestGenerateAgentId:
 
     @pytest.fixture(autouse=True)
     def import_fn(self):
-        from src.mcp_handlers.identity_v2 import _generate_agent_id
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
         self.generate = _generate_agent_id
 
     def test_with_model_type(self):
@@ -134,7 +134,7 @@ class TestDeriveSessionKey:
 
     @pytest.fixture(autouse=True)
     def import_fn(self):
-        from src.mcp_handlers.identity_v2 import derive_session_key
+        from src.mcp_handlers.identity.handlers import derive_session_key
         self.derive = derive_session_key
 
     @pytest.mark.asyncio
@@ -177,7 +177,7 @@ class TestResolveCreateNew:
 
     @pytest.mark.asyncio
     async def test_creates_new_agent_lazy(self, patch_identity_deps, mock_db):
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         result = await resolve_session_identity(
             session_key="test-session-1",
@@ -194,7 +194,7 @@ class TestResolveCreateNew:
 
     @pytest.mark.asyncio
     async def test_creates_new_agent_persisted(self, patch_identity_deps, mock_db):
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         # Make get_identity return a mock so create_session works
         mock_identity = SimpleNamespace(identity_id="ident-1", metadata={})
@@ -214,7 +214,7 @@ class TestResolveCreateNew:
 
     @pytest.mark.asyncio
     async def test_new_agent_gets_uuid(self, patch_identity_deps):
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         result = await resolve_session_identity(session_key="test-session-3")
 
@@ -232,7 +232,7 @@ class TestResolveRedisHit:
 
     @pytest.mark.asyncio
     async def test_returns_from_redis_cache(self, patch_identity_deps, session_cache, mock_db):
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         # First call creates a new agent
         first = await resolve_session_identity(
@@ -256,7 +256,7 @@ class TestResolveRedisHit:
 
     @pytest.mark.asyncio
     async def test_redis_cache_stores_uuid_format(self, patch_identity_deps, session_cache, fake_redis):
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         result = await resolve_session_identity(
             session_key="uuid-format-test",
@@ -279,14 +279,14 @@ class TestSessionKeyValidation:
 
     @pytest.mark.asyncio
     async def test_empty_session_key_raises(self, patch_identity_deps):
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         with pytest.raises(ValueError, match="session_key is required"):
             await resolve_session_identity(session_key="")
 
     @pytest.mark.asyncio
     async def test_long_session_key_truncated(self, patch_identity_deps):
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         long_key = "a" * 500
         result = await resolve_session_identity(session_key=long_key)
@@ -295,7 +295,7 @@ class TestSessionKeyValidation:
 
     @pytest.mark.asyncio
     async def test_special_chars_sanitized(self, patch_identity_deps):
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         # Key with SQL injection attempt
         result = await resolve_session_identity(session_key="user'; DROP TABLE agents;--")
@@ -310,7 +310,7 @@ class TestForceNew:
 
     @pytest.mark.asyncio
     async def test_force_new_skips_cache(self, patch_identity_deps, session_cache):
-        from src.mcp_handlers.identity_v2 import resolve_session_identity
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
 
         # Create initial binding
         first = await resolve_session_identity(session_key="force-test")
@@ -343,11 +343,11 @@ class TestCacheSession:
         # _cache_session calls _get_redis() which does local import from src.cache
         # Then for display_agent_id path, it also does local import from src.cache.redis_client
         with patch("src.cache.session_cache.get_redis", new=_get_fake_redis), \
-             patch("src.mcp_handlers.identity_persistence._redis_cache", None), \
+             patch("src.mcp_handlers.identity.persistence._redis_cache", None), \
              patch("src.cache.get_session_cache", return_value=sc), \
              patch("src.cache.redis_client.get_redis", new=_get_fake_redis):
 
-            from src.mcp_handlers.identity_v2 import _cache_session
+            from src.mcp_handlers.identity.handlers import _cache_session
 
             await _cache_session("sess-1", "uuid-1234", display_agent_id="Claude_Opus_20260205")
 
@@ -360,10 +360,10 @@ class TestCacheSession:
     @pytest.mark.asyncio
     async def test_cache_without_display_id_uses_bind(self, session_cache, fake_redis):
         """Without display_agent_id, uses SessionCache.bind()."""
-        with patch("src.mcp_handlers.identity_persistence._redis_cache", None), \
+        with patch("src.mcp_handlers.identity.persistence._redis_cache", None), \
              patch("src.cache.get_session_cache", return_value=session_cache):
 
-            from src.mcp_handlers.identity_v2 import _cache_session
+            from src.mcp_handlers.identity.handlers import _cache_session
 
             await _cache_session("sess-2", "uuid-5678")
 
@@ -381,7 +381,7 @@ class TestExtractBaseFingerprint:
 
     @pytest.fixture(autouse=True)
     def import_fn(self):
-        from src.mcp_handlers.identity_v2 import _extract_base_fingerprint
+        from src.mcp_handlers.identity.handlers import _extract_base_fingerprint
         self.extract = _extract_base_fingerprint
 
     def test_mcp_key_returns_none(self):
@@ -423,8 +423,8 @@ class TestAgentExistsInPostgres:
         mock_db = AsyncMock()
         mock_db.get_identity.return_value = SimpleNamespace(identity_id="i1", metadata={})
 
-        with patch("src.mcp_handlers.identity_persistence.get_db", return_value=mock_db):
-            from src.mcp_handlers.identity_v2 import _agent_exists_in_postgres
+        with patch("src.mcp_handlers.identity.persistence.get_db", return_value=mock_db):
+            from src.mcp_handlers.identity.handlers import _agent_exists_in_postgres
             assert await _agent_exists_in_postgres("uuid-1") is True
 
     @pytest.mark.asyncio
@@ -432,8 +432,8 @@ class TestAgentExistsInPostgres:
         mock_db = AsyncMock()
         mock_db.get_identity.return_value = None
 
-        with patch("src.mcp_handlers.identity_persistence.get_db", return_value=mock_db):
-            from src.mcp_handlers.identity_v2 import _agent_exists_in_postgres
+        with patch("src.mcp_handlers.identity.persistence.get_db", return_value=mock_db):
+            from src.mcp_handlers.identity.handlers import _agent_exists_in_postgres
             assert await _agent_exists_in_postgres("uuid-2") is False
 
     @pytest.mark.asyncio
@@ -441,8 +441,8 @@ class TestAgentExistsInPostgres:
         mock_db = AsyncMock()
         mock_db.get_identity.side_effect = Exception("DB down")
 
-        with patch("src.mcp_handlers.identity_persistence.get_db", return_value=mock_db):
-            from src.mcp_handlers.identity_v2 import _agent_exists_in_postgres
+        with patch("src.mcp_handlers.identity.persistence.get_db", return_value=mock_db):
+            from src.mcp_handlers.identity.handlers import _agent_exists_in_postgres
             assert await _agent_exists_in_postgres("uuid-3") is False
 
 

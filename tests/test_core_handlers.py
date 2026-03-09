@@ -776,8 +776,8 @@ class TestProcessAgentUpdate:
         stack.enter_context(patch("src.mcp_handlers.core.mcp_server", patches_dict["mcp_server"]))
         stack.enter_context(patch("src.mcp_handlers.context.get_context_agent_id", return_value=patches_dict["ctx_agent_id"]))
         stack.enter_context(patch("src.mcp_handlers.context.get_context_session_key", return_value=patches_dict["ctx_session_key"]))
-        stack.enter_context(patch("src.mcp_handlers.identity_v2.ensure_agent_persisted", new_callable=AsyncMock, return_value=False))
-        stack.enter_context(patch("src.mcp_handlers.update_phases.agent_storage", patches_dict["storage"]))
+        stack.enter_context(patch("src.mcp_handlers.identity.handlers.ensure_agent_persisted", new_callable=AsyncMock, return_value=False))
+        stack.enter_context(patch("src.mcp_handlers.updates.phases.agent_storage", patches_dict["storage"]))
         return stack
 
     @pytest.mark.asyncio
@@ -803,7 +803,7 @@ class TestProcessAgentUpdate:
         with patch("src.mcp_handlers.core.mcp_server", mock_server), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value=agent_uuid), \
              patch("src.mcp_handlers.context.get_context_session_key", return_value="session-1"), \
-             patch("src.mcp_handlers.identity_v2.ensure_agent_persisted", new_callable=AsyncMock, return_value=False):
+             patch("src.mcp_handlers.identity.handlers.ensure_agent_persisted", new_callable=AsyncMock, return_value=False):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({"response_text": "test"})
@@ -821,7 +821,7 @@ class TestProcessAgentUpdate:
         with patch("src.mcp_handlers.core.mcp_server", mock_server), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value=agent_uuid), \
              patch("src.mcp_handlers.context.get_context_session_key", return_value="session-1"), \
-             patch("src.mcp_handlers.identity_v2.ensure_agent_persisted", new_callable=AsyncMock, return_value=False):
+             patch("src.mcp_handlers.identity.handlers.ensure_agent_persisted", new_callable=AsyncMock, return_value=False):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({"response_text": "test"})
@@ -860,7 +860,7 @@ class TestProcessAgentUpdate:
         mock_error = _make_error_text_content("complexity out of range")
 
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.update_phases.validate_complexity", return_value=(None, mock_error)):
+             patch("src.mcp_handlers.updates.phases.validate_complexity", return_value=(None, mock_error)):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -883,7 +883,7 @@ class TestProcessAgentUpdate:
         mock_error = _make_error_text_content("confidence invalid")
 
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.update_phases.validate_confidence", return_value=(None, mock_error)):
+             patch("src.mcp_handlers.updates.phases.validate_confidence", return_value=(None, mock_error)):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -904,7 +904,7 @@ class TestProcessAgentUpdate:
         mock_error = _make_error_text_content("ethical_drift invalid")
 
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.update_phases.validate_ethical_drift", return_value=(None, mock_error)):
+             patch("src.mcp_handlers.updates.phases.validate_ethical_drift", return_value=(None, mock_error)):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -925,7 +925,7 @@ class TestProcessAgentUpdate:
         mock_error = _make_error_text_content("response_text too long")
 
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.update_phases.validate_response_text", return_value=(None, mock_error)):
+             patch("src.mcp_handlers.updates.phases.validate_response_text", return_value=(None, mock_error)):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -1174,11 +1174,11 @@ class TestGetSystemHistory:
         """Happy path: returns history in JSON format."""
         mock_server.get_or_create_monitor.return_value = mock_monitor
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=("agent-1", None)), \
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value="agent-1"):
 
-            from src.mcp_handlers.export import handle_get_system_history
+            from src.mcp_handlers.introspection.export import handle_get_system_history
             result = await handle_get_system_history({"format": "json"})
 
             data = _parse(result)
@@ -1192,11 +1192,11 @@ class TestGetSystemHistory:
         empty_monitor = _make_monitor(E_history=[], timestamp_history=[])
         mock_server.get_or_create_monitor.return_value = empty_monitor
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=("agent-1", None)), \
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value="agent-1"):
 
-            from src.mcp_handlers.export import handle_get_system_history
+            from src.mcp_handlers.introspection.export import handle_get_system_history
             result = await handle_get_system_history({})
 
             data = _parse(result)
@@ -1207,11 +1207,11 @@ class TestGetSystemHistory:
         """Without registered agent and no context, returns error."""
         error_tc = _make_error_text_content("not registered")
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=(None, error_tc)), \
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=(None, error_tc)), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value=None):
 
-            from src.mcp_handlers.export import handle_get_system_history
+            from src.mcp_handlers.introspection.export import handle_get_system_history
             result = await handle_get_system_history({})
             data = _parse(result)
             assert "not registered" in json.dumps(data)
@@ -1221,10 +1221,10 @@ class TestGetSystemHistory:
         """Uses context agent_id when no explicit agent_id."""
         mock_server.get_or_create_monitor.return_value = mock_monitor
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value="ctx-agent-1"):
 
-            from src.mcp_handlers.export import handle_get_system_history
+            from src.mcp_handlers.introspection.export import handle_get_system_history
             result = await handle_get_system_history({})
 
             data = _parse(result)
@@ -1235,10 +1235,10 @@ class TestGetSystemHistory:
         """Explicit agent_id in arguments takes precedence over context."""
         mock_server.get_or_create_monitor.return_value = mock_monitor
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
              patch("src.mcp_handlers.context.get_context_agent_id", return_value="ctx-agent"):
 
-            from src.mcp_handlers.export import handle_get_system_history
+            from src.mcp_handlers.introspection.export import handle_get_system_history
             result = await handle_get_system_history({"agent_id": "explicit-agent"})
 
             data = _parse(result)
@@ -1268,10 +1268,10 @@ class TestExportToFile:
         """Without registered agent returns error."""
         error_tc = _make_error_text_content("not registered")
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=(None, error_tc)):
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=(None, error_tc)):
 
-            from src.mcp_handlers.export import handle_export_to_file
+            from src.mcp_handlers.introspection.export import handle_export_to_file
             result = await handle_export_to_file({})
             data = _parse(result)
             assert "not registered" in json.dumps(data)
@@ -1282,10 +1282,10 @@ class TestExportToFile:
         mock_server.get_or_create_monitor.return_value = mock_monitor
         mock_server.project_root = str(tmp_path)
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.export import handle_export_to_file
+            from src.mcp_handlers.introspection.export import handle_export_to_file
             result = await handle_export_to_file({
                 "format": "json",
                 "filename": "test_export",
@@ -1303,10 +1303,10 @@ class TestExportToFile:
         mock_server.get_or_create_monitor.return_value = mock_monitor
         mock_server.project_root = str(tmp_path)
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.export import handle_export_to_file
+            from src.mcp_handlers.introspection.export import handle_export_to_file
             result = await handle_export_to_file({
                 "format": "csv",
                 "filename": "test_csv",
@@ -1323,10 +1323,10 @@ class TestExportToFile:
         mock_server.get_or_create_monitor.return_value = mock_monitor
         mock_server.project_root = str(tmp_path)
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.export import handle_export_to_file
+            from src.mcp_handlers.introspection.export import handle_export_to_file
             result = await handle_export_to_file({
                 "format": "json",
                 "complete_package": True,
@@ -1344,10 +1344,10 @@ class TestExportToFile:
         mock_server.agent_metadata = {"agent-1": meta}
         mock_server.get_or_create_monitor.return_value = mock_monitor
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.export import handle_export_to_file
+            from src.mcp_handlers.introspection.export import handle_export_to_file
             result = await handle_export_to_file({
                 "format": "csv",
                 "complete_package": True,
@@ -1363,10 +1363,10 @@ class TestExportToFile:
         # Set project_root to a non-writable path
         mock_server.project_root = "/nonexistent/path/that/does/not/exist"
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.export import handle_export_to_file
+            from src.mcp_handlers.introspection.export import handle_export_to_file
             result = await handle_export_to_file({
                 "format": "json",
                 "filename": "will_fail",
@@ -1381,10 +1381,10 @@ class TestExportToFile:
         mock_server.get_or_create_monitor.return_value = mock_monitor
         mock_server.project_root = str(tmp_path)
 
-        with patch("src.mcp_handlers.export.mcp_server", mock_server), \
-             patch("src.mcp_handlers.export.require_registered_agent", return_value=("agent-1", None)):
+        with patch("src.mcp_handlers.introspection.export.mcp_server", mock_server), \
+             patch("src.mcp_handlers.introspection.export.require_registered_agent", return_value=("agent-1", None)):
 
-            from src.mcp_handlers.export import handle_export_to_file
+            from src.mcp_handlers.introspection.export import handle_export_to_file
             result = await handle_export_to_file({"format": "json"})
 
             data = _parse(result)
@@ -1409,10 +1409,10 @@ class TestMarkResponseComplete:
         """Without registered agent returns error."""
         error_tc = _make_error_text_content("not registered")
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=(None, error_tc)):
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=(None, error_tc)):
 
-            from src.mcp_handlers.lifecycle import handle_mark_response_complete
+            from src.mcp_handlers.lifecycle.handlers import handle_mark_response_complete
             result = await handle_mark_response_complete({})
             data = _parse(result)
             assert "not registered" in json.dumps(data)
@@ -1423,11 +1423,11 @@ class TestMarkResponseComplete:
         meta = _make_metadata()
         mock_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=False):
 
-            from src.mcp_handlers.lifecycle import handle_mark_response_complete
+            from src.mcp_handlers.lifecycle.handlers import handle_mark_response_complete
             result = await handle_mark_response_complete({})
             data = _parse(result)
             assert "error" in data or "auth" in json.dumps(data).lower()
@@ -1438,14 +1438,14 @@ class TestMarkResponseComplete:
         meta = _make_metadata()
         mock_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
-             patch("src.mcp_handlers.lifecycle.agent_storage", MagicMock(
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage", MagicMock(
                  update_agent=AsyncMock(),
              )):
 
-            from src.mcp_handlers.lifecycle import handle_mark_response_complete
+            from src.mcp_handlers.lifecycle.handlers import handle_mark_response_complete
             result = await handle_mark_response_complete({})
             data = _parse(result)
             assert data.get("status") == "waiting_input"
@@ -1458,14 +1458,14 @@ class TestMarkResponseComplete:
         meta = _make_metadata()
         mock_server.agent_metadata = {"agent-1": meta}
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
-             patch("src.mcp_handlers.lifecycle.agent_storage", MagicMock(
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage", MagicMock(
                  update_agent=AsyncMock(),
              )):
 
-            from src.mcp_handlers.lifecycle import handle_mark_response_complete
+            from src.mcp_handlers.lifecycle.handlers import handle_mark_response_complete
             result = await handle_mark_response_complete({"summary": "Done with tests"})
 
             meta.add_lifecycle_event.assert_called_once_with(
@@ -1481,12 +1481,12 @@ class TestMarkResponseComplete:
         failing_storage = MagicMock()
         failing_storage.update_agent = AsyncMock(side_effect=Exception("PG down"))
 
-        with patch("src.mcp_handlers.lifecycle.mcp_server", mock_server), \
-             patch("src.mcp_handlers.lifecycle.require_registered_agent", return_value=("agent-1", None)), \
+        with patch("src.mcp_handlers.lifecycle.handlers.mcp_server", mock_server), \
+             patch("src.mcp_handlers.lifecycle.handlers.require_registered_agent", return_value=("agent-1", None)), \
              patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True), \
-             patch("src.mcp_handlers.lifecycle.agent_storage", failing_storage):
+             patch("src.mcp_handlers.lifecycle.handlers.agent_storage", failing_storage):
 
-            from src.mcp_handlers.lifecycle import handle_mark_response_complete
+            from src.mcp_handlers.lifecycle.handlers import handle_mark_response_complete
             result = await handle_mark_response_complete({})
             data = _parse(result)
             # Should still succeed (PG failure is non-blocking)
@@ -1860,8 +1860,8 @@ class TestProcessAgentUpdateExtended:
         stack.enter_context(patch("src.mcp_handlers.core.mcp_server", patches_dict["mcp_server"]))
         stack.enter_context(patch("src.mcp_handlers.context.get_context_agent_id", return_value=patches_dict["ctx_agent_id"]))
         stack.enter_context(patch("src.mcp_handlers.context.get_context_session_key", return_value=patches_dict["ctx_session_key"]))
-        stack.enter_context(patch("src.mcp_handlers.identity_v2.ensure_agent_persisted", new_callable=AsyncMock, return_value=False))
-        stack.enter_context(patch("src.mcp_handlers.update_phases.agent_storage", patches_dict["storage"]))
+        stack.enter_context(patch("src.mcp_handlers.identity.handlers.ensure_agent_persisted", new_callable=AsyncMock, return_value=False))
+        stack.enter_context(patch("src.mcp_handlers.updates.phases.agent_storage", patches_dict["storage"]))
         return stack
 
     # ------------------------------------------------------------------
@@ -1869,7 +1869,7 @@ class TestProcessAgentUpdateExtended:
     # ------------------------------------------------------------------
     def test_eisv_validation_enrichment_exists(self):
         """EISV validation enrichment is available."""
-        from src.mcp_handlers.update_enrichments import enrich_eisv_validation
+        from src.mcp_handlers.updates.enrichments import enrich_eisv_validation
         assert callable(enrich_eisv_validation)
 
     # ------------------------------------------------------------------
@@ -2047,7 +2047,7 @@ class TestProcessAgentUpdateExtended:
 
         p = self._common_patches(mock_server, agent_uuid=agent_uuid)
         with self._apply_patches(p), \
-             patch("src.mcp_handlers.identity_v2.ensure_agent_persisted", new_callable=AsyncMock, side_effect=populate_metadata):
+             patch("src.mcp_handlers.identity.handlers.ensure_agent_persisted", new_callable=AsyncMock, side_effect=populate_metadata):
 
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({
@@ -2359,7 +2359,7 @@ class TestProcessAgentUpdateExtended:
         mock_cirs.auto_emit_state_announce = MagicMock(return_value=None)
         with self._apply_patches(p), \
              patch.dict("sys.modules", {
-                 "src.mcp_handlers.cirs_protocol": mock_cirs,
+                 "src.mcp_handlers.cirs.protocol": mock_cirs,
              }):
 
             from src.mcp_handlers.core import handle_process_agent_update
@@ -2764,7 +2764,7 @@ class TestProcessAgentUpdateExtended:
         with self._apply_patches(p):
             # Patch the local import of maybe_emit_void_alert
             with patch.dict("sys.modules", {
-                "src.mcp_handlers.cirs_protocol": MagicMock(
+                "src.mcp_handlers.cirs.protocol": MagicMock(
                     maybe_emit_void_alert=MagicMock(return_value=mock_cirs_alert),
                     auto_emit_state_announce=MagicMock(return_value=None),
                 )
@@ -3152,7 +3152,7 @@ class TestProcessAgentUpdateExtended:
         p = self._common_patches(mock_server, agent_uuid=agent_uuid)
         with self._apply_patches(p), \
              patch.dict("sys.modules", {
-                 "src.mcp_handlers.dialectic": MagicMock(ACTIVE_SESSIONS={"sess-1": mock_session}),
+                 "src.mcp_handlers.dialectic.handlers": MagicMock(ACTIVE_SESSIONS={"sess-1": mock_session}),
              }):
 
             from src.mcp_handlers.core import handle_process_agent_update
@@ -3189,7 +3189,7 @@ class TestProcessAgentUpdateExtended:
         p = self._common_patches(mock_server, agent_uuid=agent_uuid)
         with self._apply_patches(p), \
              patch.dict("sys.modules", {
-                 "src.mcp_handlers.dialectic": MagicMock(ACTIVE_SESSIONS={"sess-2": mock_session}),
+                 "src.mcp_handlers.dialectic.handlers": MagicMock(ACTIVE_SESSIONS={"sess-2": mock_session}),
              }):
 
             from src.mcp_handlers.core import handle_process_agent_update

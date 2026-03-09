@@ -48,7 +48,7 @@ async def resolve_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCo
     """Extract session identity, resolve onboard pin, bind agent."""
     # Unified session key derivation via SessionSignals + derive_session_key()
     from .context import get_session_signals
-    from .identity_v2 import derive_session_key
+    from .identity.handlers import derive_session_key
 
     signals = get_session_signals()
     session_key = await derive_session_key(signals, arguments)
@@ -60,7 +60,7 @@ async def resolve_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCo
     )
 
     # Resolve identity (Redis → PostgreSQL → Name Claim → Create)
-    from .identity_v2 import resolve_session_identity
+    from .identity.handlers import resolve_session_identity
     agent_name_hint = None
     if arguments:
         # Only use name for identity lookup if resume=True is explicitly passed
@@ -116,7 +116,7 @@ async def resolve_identity(name: str, arguments: Dict[str, Any], ctx: DispatchCo
             is_uuid = len(x_agent_id_header) == 36 and x_agent_id_header.count("-") == 4
             if is_uuid:
                 try:
-                    from .identity_v2 import _agent_exists_in_postgres, _cache_session
+                    from .identity.handlers import _agent_exists_in_postgres, _cache_session
                     if await _agent_exists_in_postgres(x_agent_id_header):
                         logger.info(
                             f"[DISPATCH] X-Agent-Id recovery: rebinding session to existing "
@@ -496,7 +496,7 @@ async def track_patterns(name: str, arguments: Dict[str, Any], ctx: DispatchCont
     try:
         from src.pattern_tracker import get_pattern_tracker
         from .utils import get_bound_agent_id
-        from .pattern_helpers import record_hypothesis_if_needed, check_untested_hypotheses, mark_hypothesis_tested
+        from .support.pattern_helpers import record_hypothesis_if_needed, check_untested_hypotheses, mark_hypothesis_tested
 
         tracker = get_pattern_tracker()
         agent_id = get_bound_agent_id(arguments)

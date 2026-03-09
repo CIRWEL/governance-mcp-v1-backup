@@ -96,7 +96,7 @@ class TestCircuitBreakerIntegration:
         # The actual integration test requires more setup
 
         # Verify the check exists in the handler (logic extracted to update_phases)
-        from src.mcp_handlers import update_phases
+        from src.mcp_handlers.updates import phases as update_phases
         import inspect
 
         source = inspect.getsource(update_phases.resolve_identity_and_guards)
@@ -105,7 +105,7 @@ class TestCircuitBreakerIntegration:
     @pytest.mark.asyncio
     async def test_store_knowledge_graph_blocks_paused_agent(self, mock_paused_agent_metadata):
         """store_knowledge_graph should block paused agents."""
-        from src.mcp_handlers import knowledge_graph
+        from src.mcp_handlers.knowledge import handlers as knowledge_graph
         import inspect
 
         source = inspect.getsource(knowledge_graph.handle_store_knowledge_graph)
@@ -114,7 +114,7 @@ class TestCircuitBreakerIntegration:
     @pytest.mark.asyncio
     async def test_leave_note_blocks_paused_agent(self, mock_paused_agent_metadata):
         """leave_note should block paused agents."""
-        from src.mcp_handlers import knowledge_graph
+        from src.mcp_handlers.knowledge import handlers as knowledge_graph
         import inspect
 
         source = inspect.getsource(knowledge_graph.handle_leave_note)

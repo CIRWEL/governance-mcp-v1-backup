@@ -16,7 +16,7 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
-from src.mcp_handlers.identity_shared import (
+from src.mcp_handlers.identity.shared import (
     _register_uuid_prefix,
     _lookup_uuid_by_prefix,
     _uuid_prefix_index,
@@ -228,7 +228,7 @@ class TestRequireWritePermission:
 
     def test_allowed_when_bound(self):
         with patch(
-            "src.mcp_handlers.identity_shared.is_session_bound",
+            "src.mcp_handlers.identity.shared.is_session_bound",
             return_value=True,
         ):
             allowed, error = require_write_permission()
@@ -237,7 +237,7 @@ class TestRequireWritePermission:
 
     def test_denied_when_unbound(self):
         with patch(
-            "src.mcp_handlers.identity_shared.is_session_bound",
+            "src.mcp_handlers.identity.shared.is_session_bound",
             return_value=False,
         ):
             allowed, error = require_write_permission()

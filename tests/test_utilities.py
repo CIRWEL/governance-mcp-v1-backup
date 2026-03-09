@@ -160,7 +160,7 @@ class TestPatternHelpers:
 
     def test_detect_code_changes_non_code_tool(self):
         """Test detection returns None for non-code tools"""
-        from src.mcp_handlers.pattern_helpers import detect_code_changes
+        from src.mcp_handlers.support.pattern_helpers import detect_code_changes
 
         result = detect_code_changes("read_file", {"file_path": "test.txt"})
         assert result is None
@@ -170,7 +170,7 @@ class TestPatternHelpers:
 
     def test_detect_code_changes_search_replace(self):
         """Test detection for search_replace tool"""
-        from src.mcp_handlers.pattern_helpers import detect_code_changes
+        from src.mcp_handlers.support.pattern_helpers import detect_code_changes
 
         result = detect_code_changes("search_replace", {"file_path": "test.py"})
 
@@ -181,7 +181,7 @@ class TestPatternHelpers:
 
     def test_detect_code_changes_write_tool(self):
         """Test detection for write tool"""
-        from src.mcp_handlers.pattern_helpers import detect_code_changes
+        from src.mcp_handlers.support.pattern_helpers import detect_code_changes
 
         result = detect_code_changes("write", {"file_path": "main.js"})
 
@@ -190,7 +190,7 @@ class TestPatternHelpers:
 
     def test_detect_code_changes_non_code_file(self):
         """Test detection returns None for non-code files"""
-        from src.mcp_handlers.pattern_helpers import detect_code_changes
+        from src.mcp_handlers.support.pattern_helpers import detect_code_changes
 
         result = detect_code_changes("write", {"file_path": "readme.md"})
         assert result is None
@@ -200,7 +200,7 @@ class TestPatternHelpers:
 
     def test_detect_code_changes_multiple_files(self):
         """Test detection with multiple files (list)"""
-        from src.mcp_handlers.pattern_helpers import detect_code_changes
+        from src.mcp_handlers.support.pattern_helpers import detect_code_changes
 
         result = detect_code_changes("write", {"file_path": ["test.py", "main.js", "readme.md"]})
 
@@ -211,7 +211,7 @@ class TestPatternHelpers:
 
     def test_detect_code_changes_various_extensions(self):
         """Test detection for various code file extensions"""
-        from src.mcp_handlers.pattern_helpers import detect_code_changes
+        from src.mcp_handlers.support.pattern_helpers import detect_code_changes
 
         code_files = [
             "test.py", "app.js", "component.tsx", "main.go",
@@ -222,10 +222,10 @@ class TestPatternHelpers:
             result = detect_code_changes("write", {"file_path": code_file})
             assert result is not None, f"Should detect {code_file} as code file"
 
-    @patch('src.mcp_handlers.pattern_helpers.get_pattern_tracker')
+    @patch('src.mcp_handlers.support.pattern_helpers.get_pattern_tracker')
     def test_record_hypothesis_if_needed(self, mock_get_tracker):
         """Test recording hypothesis for code changes"""
-        from src.mcp_handlers.pattern_helpers import record_hypothesis_if_needed
+        from src.mcp_handlers.support.pattern_helpers import record_hypothesis_if_needed
 
         mock_tracker = MagicMock()
         mock_get_tracker.return_value = mock_tracker
@@ -237,10 +237,10 @@ class TestPatternHelpers:
         assert call_kwargs["agent_id"] == "agent123"
         assert "test.py" in call_kwargs["files_changed"]
 
-    @patch('src.mcp_handlers.pattern_helpers.get_pattern_tracker')
+    @patch('src.mcp_handlers.support.pattern_helpers.get_pattern_tracker')
     def test_record_hypothesis_non_code(self, mock_get_tracker):
         """Test no recording for non-code changes"""
-        from src.mcp_handlers.pattern_helpers import record_hypothesis_if_needed
+        from src.mcp_handlers.support.pattern_helpers import record_hypothesis_if_needed
 
         mock_tracker = MagicMock()
         mock_get_tracker.return_value = mock_tracker
@@ -249,10 +249,10 @@ class TestPatternHelpers:
 
         mock_tracker.record_hypothesis.assert_not_called()
 
-    @patch('src.mcp_handlers.pattern_helpers.get_pattern_tracker')
+    @patch('src.mcp_handlers.support.pattern_helpers.get_pattern_tracker')
     def test_check_untested_hypotheses(self, mock_get_tracker):
         """Test checking for untested hypotheses"""
-        from src.mcp_handlers.pattern_helpers import check_untested_hypotheses
+        from src.mcp_handlers.support.pattern_helpers import check_untested_hypotheses
 
         mock_tracker = MagicMock()
         mock_get_tracker.return_value = mock_tracker
@@ -267,10 +267,10 @@ class TestPatternHelpers:
         result = check_untested_hypotheses("agent123")
         assert result is None
 
-    @patch('src.mcp_handlers.pattern_helpers.get_pattern_tracker')
+    @patch('src.mcp_handlers.support.pattern_helpers.get_pattern_tracker')
     def test_mark_hypothesis_tested(self, mock_get_tracker):
         """Test marking hypotheses as tested"""
-        from src.mcp_handlers.pattern_helpers import mark_hypothesis_tested
+        from src.mcp_handlers.support.pattern_helpers import mark_hypothesis_tested
 
         mock_tracker = MagicMock()
         mock_get_tracker.return_value = mock_tracker
@@ -292,10 +292,10 @@ class TestPatternHelpers:
         mark_hypothesis_tested("agent123", "run_command", {"path": "tests/", "command": "pytest"})
         mock_tracker.mark_hypothesis_tested.assert_called()
 
-    @patch('src.mcp_handlers.pattern_helpers.get_pattern_tracker')
+    @patch('src.mcp_handlers.support.pattern_helpers.get_pattern_tracker')
     def test_mark_hypothesis_tested_no_file_path(self, mock_get_tracker):
         """Test that mark_hypothesis_tested does nothing without file paths"""
-        from src.mcp_handlers.pattern_helpers import mark_hypothesis_tested
+        from src.mcp_handlers.support.pattern_helpers import mark_hypothesis_tested
 
         mock_tracker = MagicMock()
         mock_get_tracker.return_value = mock_tracker

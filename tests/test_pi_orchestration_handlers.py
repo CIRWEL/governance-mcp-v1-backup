@@ -59,7 +59,7 @@ def _parse(result):
 # Module under test (import after path setup)
 # ============================================================================
 
-from src.mcp_handlers.pi_orchestration import (
+from src.mcp_handlers.observability.pi_orchestration import (
     _extract_error_message,
     _standardize_error,
     map_anima_to_eisv,
@@ -92,7 +92,7 @@ from src.mcp_handlers.pi_orchestration import (
 # so we patch at their source modules rather than on pi_orchestration itself.
 _PATCH_STREAMABLE = "mcp.client.streamable_http.streamable_http_client"
 _PATCH_SESSION = "mcp.client.session.ClientSession"
-_PATCH_HTTPX_CLIENT = "src.mcp_handlers.pi_orchestration.httpx.AsyncClient"
+_PATCH_HTTPX_CLIENT = "src.mcp_handlers.observability.pi_orchestration.httpx.AsyncClient"
 
 
 def _make_mcp_text_content(text):
@@ -129,7 +129,7 @@ def _build_transport_mocks(mock_session):
 @pytest.fixture(autouse=True)
 def _mock_audit_logger():
     """Mock audit_logger globally so no real audit I/O happens."""
-    with patch("src.mcp_handlers.pi_orchestration.audit_logger") as mock_al:
+    with patch("src.mcp_handlers.observability.pi_orchestration.audit_logger") as mock_al:
         mock_al.log_cross_device_call = MagicMock()
         mock_al.log_device_health_check = MagicMock()
         mock_al.log_eisv_sync = MagicMock()
@@ -141,7 +141,7 @@ def _mock_audit_logger():
 @pytest.fixture
 def mock_call_pi_tool():
     """Patch call_pi_tool for handler-level tests."""
-    with patch("src.mcp_handlers.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as m:
+    with patch("src.mcp_handlers.observability.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as m:
         yield m
 
 
@@ -387,7 +387,7 @@ class TestCallPiTool:
 
         with patch(_PATCH_STREAMABLE, side_effect=fail_http), \
              patch(_PATCH_HTTPX_CLIENT), \
-             patch("src.mcp_handlers.pi_orchestration.PI_RETRY_MAX_ATTEMPTS", 0):
+             patch("src.mcp_handlers.observability.pi_orchestration.PI_RETRY_MAX_ATTEMPTS", 0):
 
             result = await call_pi_tool("diagnostics", {})
             assert "error" in result
@@ -403,7 +403,7 @@ class TestCallPiTool:
 
         with patch(_PATCH_STREAMABLE, side_effect=fail_http), \
              patch(_PATCH_HTTPX_CLIENT), \
-             patch("src.mcp_handlers.pi_orchestration.PI_RETRY_MAX_ATTEMPTS", 0):
+             patch("src.mcp_handlers.observability.pi_orchestration.PI_RETRY_MAX_ATTEMPTS", 0):
 
             result = await call_pi_tool("diagnostics", {})
             assert "error" in result
@@ -422,7 +422,7 @@ class TestCallPiTool:
 
         with patch(_PATCH_STREAMABLE, side_effect=fail_always), \
              patch(_PATCH_HTTPX_CLIENT), \
-             patch("src.mcp_handlers.pi_orchestration.PI_RETRY_MAX_ATTEMPTS", 0):
+             patch("src.mcp_handlers.observability.pi_orchestration.PI_RETRY_MAX_ATTEMPTS", 0):
 
             result = await call_pi_tool("diagnostics", {})
             assert call_count[0] == len(PI_MCP_URLS)
@@ -438,7 +438,7 @@ class TestCallPiTool:
 
         with patch(_PATCH_STREAMABLE, side_effect=always_fail), \
              patch(_PATCH_HTTPX_CLIENT), \
-             patch("src.mcp_handlers.pi_orchestration.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+             patch("src.mcp_handlers.observability.pi_orchestration.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
             result = await call_pi_tool("diagnostics", {}, retry_attempt=0)
             assert "error" in result
@@ -454,7 +454,7 @@ class TestCallPiTool:
 
         with patch(_PATCH_STREAMABLE, side_effect=fail_http), \
              patch(_PATCH_HTTPX_CLIENT), \
-             patch("src.mcp_handlers.pi_orchestration.PI_RETRY_MAX_ATTEMPTS", 0):
+             patch("src.mcp_handlers.observability.pi_orchestration.PI_RETRY_MAX_ATTEMPTS", 0):
 
             await call_pi_tool("test", {"api_key": "secret123", "secret": "s", "safe": "v"})
 
@@ -1350,7 +1350,7 @@ class TestSyncEisvOnce:
             }
         }
 
-        with patch("src.mcp_handlers.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
+        with patch("src.mcp_handlers.observability.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
             mock_cpt.return_value = anima_data
 
             result = await sync_eisv_once()
@@ -1361,7 +1361,7 @@ class TestSyncEisvOnce:
 
     @pytest.mark.asyncio
     async def test_error_from_pi(self, _mock_audit_logger):
-        with patch("src.mcp_handlers.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
+        with patch("src.mcp_handlers.observability.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
             mock_cpt.return_value = {"error": "Pi down"}
 
             result = await sync_eisv_once()
@@ -1370,7 +1370,7 @@ class TestSyncEisvOnce:
 
     @pytest.mark.asyncio
     async def test_empty_anima(self, _mock_audit_logger):
-        with patch("src.mcp_handlers.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
+        with patch("src.mcp_handlers.observability.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
             mock_cpt.return_value = {"anima": {}}
 
             result = await sync_eisv_once()
@@ -1379,7 +1379,7 @@ class TestSyncEisvOnce:
 
     @pytest.mark.asyncio
     async def test_exception_caught(self, _mock_audit_logger):
-        with patch("src.mcp_handlers.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
+        with patch("src.mcp_handlers.observability.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
             mock_cpt.side_effect = RuntimeError("crash")
 
             result = await sync_eisv_once()
@@ -1388,7 +1388,7 @@ class TestSyncEisvOnce:
 
     @pytest.mark.asyncio
     async def test_with_pre_computed_eisv(self, _mock_audit_logger):
-        with patch("src.mcp_handlers.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
+        with patch("src.mcp_handlers.observability.pi_orchestration.call_pi_tool", new_callable=AsyncMock) as mock_cpt:
             mock_cpt.return_value = {
                 "anima": {"warmth": 0.5, "clarity": 0.5, "stability": 0.5, "presence": 0.5},
                 "eisv": {"E": 0.9, "I": 0.8, "S": 0.7, "V": 0.6},
@@ -1411,8 +1411,8 @@ class TestEisvSyncTask:
             call_count[0] += 1
             return {"success": True, "eisv": {"E": 0.5, "I": 0.5, "S": 0.5, "V": 0.5}}
 
-        with patch("src.mcp_handlers.pi_orchestration.sync_eisv_once", side_effect=mock_sync_once), \
-             patch("src.mcp_handlers.pi_orchestration.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("src.mcp_handlers.observability.pi_orchestration.sync_eisv_once", side_effect=mock_sync_once), \
+             patch("src.mcp_handlers.observability.pi_orchestration.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
             mock_sleep.side_effect = [None, asyncio.CancelledError()]
 
@@ -1428,8 +1428,8 @@ class TestEisvSyncTask:
             call_count[0] += 1
             return {"success": False, "error": "Pi down"}
 
-        with patch("src.mcp_handlers.pi_orchestration.sync_eisv_once", side_effect=mock_sync_once), \
-             patch("src.mcp_handlers.pi_orchestration.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("src.mcp_handlers.observability.pi_orchestration.sync_eisv_once", side_effect=mock_sync_once), \
+             patch("src.mcp_handlers.observability.pi_orchestration.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
             mock_sleep.side_effect = [None, asyncio.CancelledError()]
 
@@ -1445,8 +1445,8 @@ class TestEisvSyncTask:
             call_count[0] += 1
             raise ValueError("unexpected error")
 
-        with patch("src.mcp_handlers.pi_orchestration.sync_eisv_once", side_effect=mock_sync_once), \
-             patch("src.mcp_handlers.pi_orchestration.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("src.mcp_handlers.observability.pi_orchestration.sync_eisv_once", side_effect=mock_sync_once), \
+             patch("src.mcp_handlers.observability.pi_orchestration.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
             mock_sleep.side_effect = [None, None, asyncio.CancelledError()]
 

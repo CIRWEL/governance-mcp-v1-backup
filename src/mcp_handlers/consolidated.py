@@ -18,7 +18,7 @@ Original tools remain available for backwards compatibility.
 from .decorators import action_router
 
 # Import original handlers to delegate to
-from .knowledge_graph import (
+from .knowledge.handlers import (
     handle_store_knowledge_graph,
     handle_search_knowledge_graph,
     handle_get_knowledge_graph,
@@ -30,7 +30,7 @@ from .knowledge_graph import (
     handle_get_lifecycle_stats,
     handle_supersede_discovery,
 )
-from .lifecycle import (
+from .lifecycle.handlers import (
     handle_list_agents,
     handle_get_agent_metadata,
     handle_update_agent_metadata,
@@ -38,36 +38,36 @@ from .lifecycle import (
     handle_resume_agent,
     handle_delete_agent,
 )
-from .calibration_handlers import (
+from .admin.calibration import (
     handle_check_calibration,
     handle_update_calibration_ground_truth,
     handle_backfill_calibration_from_dialectic,
     handle_rebuild_calibration,
 )
-from .admin import (
+from .admin.handlers import (
     handle_get_telemetry_metrics,
 )
-from .config import (
+from .admin.config import (
     handle_get_thresholds,
     handle_set_thresholds,
 )
-from .export import (
+from .introspection.export import (
     handle_get_system_history,
     handle_export_to_file,
 )
-from .observability import (
+from .observability.handlers import (
     handle_observe_agent,
     handle_compare_agents,
     handle_compare_me_to_similar,
     handle_detect_anomalies,
     handle_aggregate_metrics,
 )
-from .dialectic import (
+from .dialectic.handlers import (
     handle_get_dialectic_session,
     handle_list_dialectic_sessions,
 )
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
-from .pi_orchestration import (
+from .observability.pi_orchestration import (
     handle_pi_list_tools,
     handle_pi_get_context,
     handle_pi_health,
