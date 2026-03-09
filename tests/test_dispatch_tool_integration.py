@@ -87,7 +87,7 @@ def mock_db():
 @pytest.fixture
 def mock_rate_limiter():
     """Mock rate limiter to allow all calls by default."""
-    with patch("src.mcp_handlers.middleware.get_rate_limiter") as m:
+    with patch("src.mcp_handlers.middleware.rate_limit_step.get_rate_limiter") as m:
         limiter = MagicMock()
         limiter.check_rate_limit.return_value = (True, None)
         limiter.get_stats.return_value = {}

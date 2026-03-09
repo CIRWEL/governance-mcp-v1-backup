@@ -1405,7 +1405,7 @@ class TestCheckRateLimit:
         ctx = DispatchContext()
         mock_limiter = MagicMock()
         mock_limiter.check_rate_limit.return_value = (True, None)
-        with patch("src.mcp_handlers.middleware.get_rate_limiter", return_value=mock_limiter):
+        with patch("src.mcp_handlers.middleware.rate_limit_step.get_rate_limiter", return_value=mock_limiter):
             result = await check_rate_limit("process_agent_update", {"agent_id": "a1"}, ctx)
             assert isinstance(result, tuple)
 
@@ -1415,7 +1415,7 @@ class TestCheckRateLimit:
         mock_limiter = MagicMock()
         mock_limiter.check_rate_limit.return_value = (False, "Too many requests")
         mock_limiter.get_stats.return_value = {"calls": 100}
-        with patch("src.mcp_handlers.middleware.get_rate_limiter", return_value=mock_limiter):
+        with patch("src.mcp_handlers.middleware.rate_limit_step.get_rate_limiter", return_value=mock_limiter):
             result = await check_rate_limit("process_agent_update", {"agent_id": "a1"}, ctx)
             assert isinstance(result, list)
 
