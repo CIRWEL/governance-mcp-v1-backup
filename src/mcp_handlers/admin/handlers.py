@@ -61,19 +61,19 @@ async def handle_get_server_info(arguments: Dict[str, Any]) -> Sequence[TextCont
                         if not any(('mcp_server_std.py' in str(arg) or 'mcp_server.py' in str(arg)) for arg in cmdline):
                             continue
 
-                        pid = proc.info['pid']
-                        create_time = proc.info.get('create_time', 0)
-                        uptime_seconds = time.time() - create_time
-                        uptime_minutes = int(uptime_seconds / 60)
-                        uptime_hours = int(uptime_minutes / 60)
-                        
-                        server_processes.append({
-                            "pid": pid,
-                            "is_current": pid == current_pid,
-                            "uptime_seconds": int(uptime_seconds),
-                            "uptime_formatted": f"{uptime_hours}h {uptime_minutes % 60}m",
-                            "status": proc.info.get('status', 'unknown')
-                        })
+                    pid = proc.info['pid']
+                    create_time = proc.info.get('create_time', 0)
+                    uptime_seconds = time.time() - create_time
+                    uptime_minutes = int(uptime_seconds / 60)
+                    uptime_hours = int(uptime_minutes / 60)
+
+                    server_processes.append({
+                        "pid": pid,
+                        "is_current": pid == current_pid,
+                        "uptime_seconds": int(uptime_seconds),
+                        "uptime_formatted": f"{uptime_hours}h {uptime_minutes % 60}m",
+                        "status": proc.info.get('status', 'unknown')
+                    })
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
         except Exception as e:
@@ -148,6 +148,15 @@ async def handle_check_continuity_health(arguments: Dict[str, Any]) -> Sequence[
     deep_check = arguments.get("deep_check", False)
 
     try:
+        # Refresh metadata so agents exploring get fresh agent/system info (not stale)
+        import time
+        try:
+            cache_age = time.time() - mcp_server._metadata_cache_state.get("last_load_time", 0)
+            if cache_age > mcp_server.EXPLORATION_CACHE_TTL:
+                await mcp_server.load_metadata_async(force=True)
+        except (AttributeError, TypeError):
+            pass
+
         health_report = {
             "timestamp": datetime.now().isoformat(),
             "checks": {},

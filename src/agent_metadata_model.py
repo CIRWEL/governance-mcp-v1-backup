@@ -198,6 +198,10 @@ _metadata_cache_state = {
     "dirty": False
 }
 
+# Shorter TTL for exploration tools (list_agents, check_continuity_health) so agents
+# first exploring the system get fresh agent/system info instead of stale cache.
+EXPLORATION_CACHE_TTL = 15.0
+
 # Batched metadata save state
 _metadata_batch_state = {
     "dirty": False,

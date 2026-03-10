@@ -66,11 +66,12 @@ async def handle_list_agents(arguments: ToolArgumentsDict) -> Sequence[TextConte
     LITE MODE: Use lite=true for minimal response (~1KB vs ~15KB)
     """
     try:
-        # Reload metadata from DB to pick up external changes (archival, etc.)
+        # Reload metadata from DB so agents exploring get fresh agent list (not stale)
         import time
         try:
             cache_age = time.time() - mcp_server._metadata_cache_state.get("last_load_time", 0)
-            if cache_age > 60:  # Refresh from DB at most every 60s
+            exploration_ttl = mcp_server.EXPLORATION_CACHE_TTL
+            if cache_age > exploration_ttl:
                 await mcp_server.load_metadata_async(force=True)
         except (AttributeError, TypeError):
             pass  # Mock or missing cache state — skip reload

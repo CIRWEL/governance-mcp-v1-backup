@@ -33,6 +33,7 @@ from src.agent_metadata_model import (
     _metadata_loaded_event,
     _metadata_cache_state,
     _metadata_batch_state,
+    EXPLORATION_CACHE_TTL,
 )
 
 # --- agent_process_mgmt ---
@@ -138,6 +139,7 @@ __all__ = [
     # Loading state
     "_metadata_loading_lock", "_metadata_loading", "_metadata_loaded",
     "_metadata_loaded_event", "_metadata_cache_state", "_metadata_batch_state",
+    "EXPLORATION_CACHE_TTL",
     "_metadata_backend_resolved",
     # Functions
     "_load_version", "_normalize_http_proxy_base",
