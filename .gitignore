@@ -158,3 +158,5 @@ data/telemetry/*.jsonl
 .kimi_governance_session
 sketch/
 wiggum/
+papers/
+examples/
