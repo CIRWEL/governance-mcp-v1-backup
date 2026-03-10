@@ -420,6 +420,8 @@ async def process_update_authenticated_async(
             decision_reason = result.get('decision', {}).get('reason', 'Circuit breaker triggered')
             meta.add_lifecycle_event("paused", decision_reason)
             logger.warning(f"⚠️  Circuit breaker triggered for agent '{agent_id}': {decision_reason}")
+            result["paused"] = True
+            result["circuit_breaker_triggered"] = True
 
             try:
                 auto_recovery = os.getenv("UNITARES_AUTO_DIALECTIC_RECOVERY", "1").strip().lower() not in ("0", "false", "no")
