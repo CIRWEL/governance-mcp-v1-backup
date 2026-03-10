@@ -690,7 +690,7 @@ async def handle_debug_request_context(arguments: Dict[str, Any]) -> Sequence[Te
     """
     import hashlib
     from datetime import datetime
-    from . import TOOL_HANDLERS
+    from src.mcp_handlers import TOOL_HANDLERS
     from ..context import get_context_agent_id, get_context_session_key, get_session_signals
     from ..identity.handlers import derive_session_key
 

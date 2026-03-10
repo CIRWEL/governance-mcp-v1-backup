@@ -30,7 +30,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """
     
     # Get actual registered tools from TOOL_HANDLERS registry
-    from . import TOOL_HANDLERS
+    from src.mcp_handlers import TOOL_HANDLERS
     registered_tool_names = sorted(TOOL_HANDLERS.keys())
     
     # Parse filter parameters (handle string booleans from MCP transport)
