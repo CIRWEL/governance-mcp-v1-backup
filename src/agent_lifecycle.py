@@ -85,8 +85,6 @@ async def auto_archive_orphan_agents(
         if "pioneer" in (meta.tags or []):
             continue
         label = getattr(meta, 'label', None) or getattr(meta, 'display_name', None) or ""
-        if label == "Lumen":
-            continue
         trust = getattr(meta, 'trust_tier', None)
         if trust in PROTECTED_TIERS:
             continue

@@ -1190,9 +1190,6 @@ async def _auto_archive_ephemeral_agents():
                 continue
             if meta.total_updates > 0:
                 continue
-            # Skip Lumen
-            if getattr(meta, "label", "") == "Lumen":
-                continue
             # Check age via last_update or created_at
             last = meta.last_update
             if not last:

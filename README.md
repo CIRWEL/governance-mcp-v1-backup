@@ -109,7 +109,7 @@ Deployed since December 2025. Current numbers:
 | Knowledge discoveries | 536 |
 | Test suite | 5,400+ tests, 78% coverage |
 
-One of those agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi that uses the same EISV equations to drive an autonomous drawing system. Coherence modulates how long it draws; the art emerges from thermodynamics.
+One of those agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi that uses the same EISV equations to drive an autonomous drawing system. Coherence modulates how long it draws; the art emerges from thermodynamics. For how physical sensors seed the EISV state vector, see the [anima-mcp docs](https://github.com/CIRWEL/anima-mcp#how-it-works).
 
 <p align="center">
   <img src="docs/images/dashboard.png" width="80%" alt="UNITARES web dashboard showing fleet coherence, agent status, and system health"/>

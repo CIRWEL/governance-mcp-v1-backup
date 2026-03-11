@@ -53,11 +53,11 @@ async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent
             if meta.total_updates < min_updates:
                 continue
 
-            # Always include Lumen regardless of recency
-            is_lumen = getattr(meta, "label", "") == "Lumen"
+            # Pinned agents always included regardless of recency
+            is_pinned = "pinned" in (getattr(meta, "tags", None) or [])
 
             # Filter by recency using last_update from metadata
-            if cutoff and not is_lumen and meta.last_update:
+            if cutoff and not is_pinned and meta.last_update:
                 try:
                     last_dt = datetime.fromisoformat(meta.last_update.replace("Z", "+00:00"))
                     if last_dt.tzinfo is None:
@@ -72,13 +72,14 @@ async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent
                 "id": agent_id,
                 "label": getattr(meta, "label", None),
                 "updates": meta.total_updates,
+                "pinned": is_pinned,
             }
             if eisv:
                 agent_entry["eisv"] = eisv
             agents.append(agent_entry)
 
-        # Sort: Lumen first, then by update count
-        agents.sort(key=lambda a: (0 if a.get("label") == "Lumen" else 1, -(a.get("updates") or 0)))
+        # Sort: pinned agents first, then by update count
+        agents.sort(key=lambda a: (0 if a.get("pinned") else 1, -(a.get("updates") or 0)))
 
         # Apply limit
         limit = int(arguments.get("limit", 15))

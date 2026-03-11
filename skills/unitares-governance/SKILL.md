@@ -33,8 +33,6 @@ Every agent has four dimensions, updated through check-ins:
 
 These combine into a **coherence** score and **risk** score that determine governance decisions.
 
-> **Lumen sensor mappings**: E=warmth, I=clarity, S=1−stability, V=(1−presence)×0.3. These seed the ODE initial conditions. The governance dynamics then evolve the state independently — the ODE state can diverge from the sensor observations, especially for V (signed integral [-2,2] vs unsigned observation [0,0.3]).
-
 ### Basins and Verdicts
 
 Your state sits in a basin — a region of the EISV space:
