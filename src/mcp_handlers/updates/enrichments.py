@@ -918,21 +918,26 @@ async def enrich_learning_context(ctx: UpdateContext) -> None:
                 low_conf_correct = sum(bin_stats.get(b, {}).get('actual_correct', 0) for b in low_conf_bins)
                 low_conf_accuracy = low_conf_correct / low_conf_total if low_conf_total > 0 else 0
 
-                if high_conf_accuracy < low_conf_accuracy - 0.2:
+                # Require sufficient samples in BOTH groups before comparing
+                min_per_group = 5
+                if high_conf_total < min_per_group or low_conf_total < min_per_group:
+                    cal_insight = None  # Insufficient per-group data — don't claim inversion
+                elif high_conf_accuracy < low_conf_accuracy - 0.2:
                     cal_insight = "INVERTED CALIBRATION: High confidence correlates with LOWER accuracy. Consider being more humble."
                 elif abs(high_conf_accuracy - low_conf_accuracy) < 0.1:
                     cal_insight = "Well calibrated - confidence matches outcomes"
                 else:
                     cal_insight = f"Calibration data available ({total} decisions auto-evaluated)"
 
-                learning_context["calibration"] = {
-                    "total_decisions": total,
-                    "overall_accuracy": round(overall_accuracy, 2),
-                    "high_confidence_accuracy": round(high_conf_accuracy, 2),
-                    "low_confidence_accuracy": round(low_conf_accuracy, 2),
-                    "insight": cal_insight,
-                    "source": "auto-collected from trajectory outcomes (no human input required)"
-                }
+                if cal_insight is not None:
+                    learning_context["calibration"] = {
+                        "total_decisions": total,
+                        "overall_accuracy": round(overall_accuracy, 2),
+                        "high_confidence_accuracy": round(high_conf_accuracy, 2),
+                        "low_confidence_accuracy": round(low_conf_accuracy, 2),
+                        "insight": cal_insight,
+                        "source": "auto-collected from trajectory outcomes (no human input required)"
+                    }
         except Exception as e:
             logger.debug(f"Could not fetch calibration data: {e}")
 

@@ -476,7 +476,15 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
         
         if similar_discoveries:
             response["related_discoveries"] = similar_discoveries
-        
+            # Consolidation hint: flag when the same issue keeps being rediscovered
+            open_similar = [s for s in similar if s.status == "open"]
+            if len(open_similar) >= 3:
+                unique_agents = {s.agent_id for s in open_similar}
+                response["consolidation_hint"] = (
+                    f"This issue has been found {len(open_similar)} times by {len(unique_agents)} agent(s), "
+                    f"all still open. Consider superseding older entries or resolving them."
+                )
+
         return success_response(response, arguments=arguments)
         
     except ValueError as e:
