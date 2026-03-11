@@ -192,9 +192,9 @@ class GovernanceConfig:
     TARGET_VOID_FREQ = 0.02  # 2% void events is healthy
     
     # Target coherence (for PI controller)
-    # Physics: V ∈ [-0.1, 0.1] → coherence ∈ [0.45, 0.55]
-    # Target set to achievable upper bound (V = 0.1 → coherence = 0.55)
-    TARGET_COHERENCE = 0.55  # Achievable physics ceiling (matches V=0.1)
+    # At C1=1.0: V ∈ [-0.1, 0.1] → coherence ∈ [0.45, 0.55]
+    # Target at equilibrium center — controller is satisfied at V≈0
+    TARGET_COHERENCE = 0.50
     
     # λ₁ bounds (operational range for UNITARES)
     LAMBDA1_MIN = 0.05  # Minimum ethical coupling

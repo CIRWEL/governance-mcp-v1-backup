@@ -937,16 +937,18 @@ class UNITARESMonitor:
         lambda1_skipped = False
         if self.state.update_count % 5 == 0:  # Update λ₁ every 5 cycles
             # Gate lambda1 updates based on confidence
-            # Relax threshold when coherence is declining — prevents feedback loop
-            # where low confidence blocks the controller that would fix declining coherence
+            # Relax threshold proportionally when coherence drops significantly
+            # below target — prevents feedback loop where low confidence blocks
+            # the controller that would fix declining coherence
             effective_conf_threshold = config.CONTROLLER_CONFIDENCE_THRESHOLD
             if (hasattr(self.state, 'coherence') and
-                    self.state.coherence < config.TARGET_COHERENCE and
                     hasattr(self.state, 'coherence_history') and
                     len(self.state.coherence_history) >= 3):
-                recent = list(self.state.coherence_history)[-3:]
-                if recent[-1] < recent[0]:  # declining trend
-                    effective_conf_threshold = 0.40
+                coherence_deficit = config.TARGET_COHERENCE - self.state.coherence
+                if coherence_deficit > 0.05:  # Only relax for meaningful drops
+                    # Scale relaxation: 0.05 deficit → small relax, 0.15+ → max relax
+                    relax_factor = min(1.0, (coherence_deficit - 0.05) / 0.10)
+                    effective_conf_threshold = config.CONTROLLER_CONFIDENCE_THRESHOLD - 0.15 * relax_factor
 
             if confidence >= effective_conf_threshold:
                 self.update_lambda1()
