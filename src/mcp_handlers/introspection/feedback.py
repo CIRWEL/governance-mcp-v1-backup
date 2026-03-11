@@ -66,7 +66,7 @@ def get_calibration_feedback(include_complexity: bool = True) -> Dict[str, Any]:
                             f"but achieve {overall_accuracy:.1%} accuracy. "
                             f"{'Consider being more conservative with confidence estimates' if mean_confidence > overall_accuracy + 0.2 else 'Calibration is improving'}."
                         )
-                        calibration_feedback['confidence']['note'] = 'This is system-wide data - your individual calibration may vary'
+                        calibration_feedback['confidence']['note'] = 'System-wide data from auto-collected outcomes (tests, commands, lint). Individual calibration may vary.'
                         cache['last_error'] = calibration_error
 
         if include_complexity:

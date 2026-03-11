@@ -1081,6 +1081,195 @@ class TestSetAgentLabelStructuredIdMigration:
 
 
 # ============================================================================
+# Identity Hardening: Name-claim trajectory requirement (v2.6.0)
+# ============================================================================
+
+class TestNameClaimTrajectoryRequired:
+    """Test that name claims require trajectory_signature when target has stored trajectory."""
+
+    @pytest.mark.asyncio
+    async def test_name_claim_requires_trajectory_when_stored(self):
+        """Reject name claim without signature when target has stored trajectory."""
+        from src.mcp_handlers.identity.handlers import resolve_by_name_claim
+
+        test_uuid = str(uuid.uuid4())
+        mock_db = AsyncMock()
+        mock_db.find_agent_by_label.return_value = test_uuid
+
+        mock_traj_status = {
+            "has_genesis": True,
+            "has_current": True,
+        }
+
+        with patch("src.mcp_handlers.identity.persistence.get_db", return_value=mock_db), \
+             patch("src.mcp_handlers.identity.persistence._redis_cache", False), \
+             patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value=mock_traj_status):
+            result = await resolve_by_name_claim("EstablishedAgent", "session-no-sig")
+
+        assert result is not None
+        assert result.get("rejected") is True
+        assert result["reason"] == "trajectory_required"
+
+    @pytest.mark.asyncio
+    async def test_name_claim_succeeds_with_valid_trajectory(self):
+        """Accept name claim when valid trajectory_signature is provided."""
+        from src.mcp_handlers.identity.handlers import resolve_by_name_claim
+
+        test_uuid = str(uuid.uuid4())
+        mock_db = AsyncMock()
+        mock_db.find_agent_by_label.return_value = test_uuid
+        mock_db.get_identity.return_value = SimpleNamespace(
+            identity_id="i1", metadata={"agent_id": "Agent_20260311"}
+        )
+        mock_db.get_agent_label.return_value = "EstablishedAgent"
+        mock_db.create_session = AsyncMock()
+
+        mock_traj_status = {"has_genesis": True, "has_current": True}
+        mock_verification = {"verified": True}
+
+        mock_cache = AsyncMock()
+        mock_cache.bind = AsyncMock()
+        mock_raw = AsyncMock()
+        mock_raw.setex = AsyncMock()
+        mock_raw.rpush = AsyncMock()
+        mock_raw.expire = AsyncMock()
+        async def _get_raw():
+            return mock_raw
+
+        with patch("src.mcp_handlers.identity.resolution.get_db", return_value=mock_db), \
+             patch("src.mcp_handlers.identity.persistence.get_db", return_value=mock_db), \
+             patch("src.mcp_handlers.identity.persistence._redis_cache", None), \
+             patch("src.cache.get_session_cache", return_value=mock_cache), \
+             patch("src.cache.redis_client.get_redis", new=_get_raw), \
+             patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value=mock_traj_status), \
+             patch("src.trajectory_identity.verify_trajectory_identity",
+                   new_callable=AsyncMock, return_value=mock_verification):
+            result = await resolve_by_name_claim(
+                "EstablishedAgent", "session-with-sig",
+                trajectory_signature={"preferences": [0.1, 0.2]}
+            )
+
+        assert result is not None
+        assert result.get("rejected") is not True
+        assert result["agent_uuid"] == test_uuid
+        assert result["source"] == "name_claim"
+
+    @pytest.mark.asyncio
+    async def test_name_claim_allows_without_trajectory_when_none_stored(self):
+        """Allow name claim without signature when target has no stored trajectory (backward compat)."""
+        from src.mcp_handlers.identity.handlers import resolve_by_name_claim
+
+        test_uuid = str(uuid.uuid4())
+        mock_db = AsyncMock()
+        mock_db.find_agent_by_label.return_value = test_uuid
+        mock_db.get_identity.return_value = SimpleNamespace(
+            identity_id="i1", metadata={"agent_id": "NewAgent_20260311"}
+        )
+        mock_db.get_agent_label.return_value = "NewAgent"
+        mock_db.create_session = AsyncMock()
+
+        mock_traj_status = {"has_genesis": False}
+
+        mock_cache = AsyncMock()
+        mock_cache.bind = AsyncMock()
+        mock_raw = AsyncMock()
+        mock_raw.setex = AsyncMock()
+        mock_raw.rpush = AsyncMock()
+        mock_raw.expire = AsyncMock()
+        async def _get_raw():
+            return mock_raw
+
+        with patch("src.mcp_handlers.identity.resolution.get_db", return_value=mock_db), \
+             patch("src.mcp_handlers.identity.persistence.get_db", return_value=mock_db), \
+             patch("src.mcp_handlers.identity.persistence._redis_cache", None), \
+             patch("src.cache.get_session_cache", return_value=mock_cache), \
+             patch("src.cache.redis_client.get_redis", new=_get_raw), \
+             patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value=mock_traj_status):
+            result = await resolve_by_name_claim("NewAgent", "session-no-traj")
+
+        assert result is not None
+        assert result.get("rejected") is not True
+        assert result["agent_uuid"] == test_uuid
+
+    @pytest.mark.asyncio
+    async def test_name_claim_trajectory_mismatch_rejected(self):
+        """Reject name claim when trajectory signature doesn't match stored trajectory."""
+        from src.mcp_handlers.identity.handlers import resolve_by_name_claim
+
+        test_uuid = str(uuid.uuid4())
+        mock_db = AsyncMock()
+        mock_db.find_agent_by_label.return_value = test_uuid
+
+        mock_traj_status = {"has_genesis": True, "has_current": True}
+        mock_verification = {
+            "verified": False,
+            "tiers": {"lineage": {"similarity": 0.3}},
+        }
+
+        with patch("src.mcp_handlers.identity.persistence.get_db", return_value=mock_db), \
+             patch("src.mcp_handlers.identity.persistence._redis_cache", False), \
+             patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value=mock_traj_status), \
+             patch("src.trajectory_identity.verify_trajectory_identity",
+                   new_callable=AsyncMock, return_value=mock_verification):
+            result = await resolve_by_name_claim(
+                "EstablishedAgent", "session-bad-sig",
+                trajectory_signature={"preferences": [0.9, 0.1]}
+            )
+
+        assert result is not None
+        assert result.get("rejected") is True
+        assert result["reason"] == "trajectory_mismatch"
+        assert result["lineage_similarity"] == 0.3
+
+
+class TestIdentityAuditLogging:
+
+    @pytest.mark.asyncio
+    async def test_identity_audit_logs_session_change(self):
+        """Verify audit logging is called on successful name claim."""
+        from src.mcp_handlers.identity.resolution import _audit_identity_claim
+
+        mock_audit = MagicMock()
+        mock_raw = AsyncMock()
+        mock_raw.rpush = AsyncMock()
+        mock_raw.expire = AsyncMock()
+        async def _get_raw():
+            return mock_raw
+
+        with patch("src.audit_log.AuditLogger", return_value=mock_audit), \
+             patch("src.cache.redis_client.get_redis", new=_get_raw):
+            await _audit_identity_claim("test-uuid", "session-key-123", "TestAgent")
+
+        mock_audit.log_identity_claim.assert_called_once()
+        call_kwargs = mock_audit.log_identity_claim.call_args
+        assert call_kwargs[1]["claimed_name"] == "TestAgent" or call_kwargs[0][1] == "TestAgent"
+
+    @pytest.mark.asyncio
+    async def test_identity_notification_queued_in_redis(self):
+        """Verify identity notification is pushed to Redis."""
+        from src.mcp_handlers.identity.resolution import _audit_identity_claim
+
+        mock_audit = MagicMock()
+        mock_raw = AsyncMock()
+        mock_raw.rpush = AsyncMock()
+        mock_raw.expire = AsyncMock()
+        async def _get_raw():
+            return mock_raw
+
+        with patch("src.audit_log.AuditLogger", return_value=mock_audit), \
+             patch("src.cache.redis_client.get_redis", new=_get_raw):
+            await _audit_identity_claim("test-uuid", "session-key-123", "TestAgent")
+
+        mock_raw.rpush.assert_called_once()
+        key_arg = mock_raw.rpush.call_args[0][0]
+        assert key_arg == "identity_notifications:test-uuid"
+
+
+# ============================================================================
 # Additional coverage: handle_identity_adapter structured_id regeneration (lines 1323-1345)
 # ============================================================================
 

@@ -501,6 +501,8 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
         enrich_learning_context,
         enrich_websocket_broadcast,
         enrich_thread_identity,
+        enrich_mirror_signals,
+        enrich_identity_notifications,
     )
 
     # MAGNET PATTERN: Accept fuzzy inputs (text, message, work -> response_text)
@@ -572,6 +574,8 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             await enrich_learning_context(ctx)
             await enrich_websocket_broadcast(ctx)
             enrich_thread_identity(ctx)
+            await enrich_mirror_signals(ctx)
+            await enrich_identity_notifications(ctx)
 
             # Response mode filtering
             try:
@@ -585,8 +589,8 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                     api_key_auto_retrieved=ctx.api_key_auto_retrieved,
                     task_type=ctx.task_type,
                 )
-            except Exception:
-                pass
+            except Exception as fmt_err:
+                logger.error(f"Response formatting failed: {fmt_err}", exc_info=True)
 
             # Serialize and return
             try:

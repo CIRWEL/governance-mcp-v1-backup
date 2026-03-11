@@ -79,15 +79,23 @@ def format_response(
             response_data.get("status") or
             "healthy"
         )
-        if health_status == "healthy":
+        # Auto-select mirror for disembodied agents (no sensor_data)
+        has_sensor_data = response_data.get("_has_sensor_data", False)
+        if health_status == "healthy" and not has_sensor_data:
+            response_mode = "mirror"
+        elif health_status == "healthy":
             response_mode = "minimal"
         elif health_status in ("at_risk", "critical"):
             response_mode = "standard"
         else:
             response_mode = "compact"
 
+    # MIRROR MODE: Actionable self-awareness signals
+    if response_mode == "mirror":
+        response_data = _format_mirror(response_data, saved_trust_tier)
+
     # STANDARD MODE: Human-readable interpretation
-    if response_mode in ("standard", "interpreted"):
+    elif response_mode in ("standard", "interpreted"):
         response_data = _format_standard(response_data, task_type)
 
     # MINIMAL MODE: Bare essentials
@@ -98,8 +106,8 @@ def format_response(
     elif response_mode in ("compact", "lite"):
         response_data = _format_compact(response_data, using_default_mode, saved_trust_tier)
 
-    # Strip optional context for minimal/compact (reduce noise for established agents)
-    if response_mode in ("minimal", "compact"):
+    # Strip optional context for minimal/compact/mirror (reduce noise for established agents)
+    if response_mode in ("minimal", "compact", "mirror"):
         _strip_context(response_data, is_new_agent, key_was_generated, api_key_auto_retrieved)
 
     return response_data
@@ -142,7 +150,131 @@ def _format_standard(response_data: dict, task_type: str) -> dict:
     }
     if "thread_context" in response_data:
         result["thread_context"] = response_data["thread_context"]
+    identity_notifications = response_data.get("_identity_notifications")
+    if identity_notifications:
+        result["identity_notifications"] = identity_notifications
     return result
+
+def _format_mirror(response_data: dict, saved_trust_tier: Optional[str]) -> dict:
+    """Build mirror response: a lens on the full data, not a filter that hides it."""
+    decision = response_data.get("decision", {}) if isinstance(response_data.get("decision"), dict) else {}
+    metrics = response_data.get("metrics", {}) if isinstance(response_data.get("metrics"), dict) else {}
+
+    verdict = decision.get("action", "continue")
+
+    # Collect mirror signals from enrichment-produced data
+    mirror_signals = response_data.get("_mirror_signals", [])
+
+    # 1. Confidence reliability — surface if confidence was capped or manipulated
+    conf_rel = response_data.get("confidence_reliability", {})
+    if isinstance(conf_rel, dict):
+        if conf_rel.get("source") == "external_capped" or conf_rel.get("capped"):
+            mirror_signals.append(
+                f"Your confidence was capped by the system "
+                f"(you said {conf_rel.get('external_provided', '?')}, "
+                f"system derived {conf_rel.get('derived_cap', '?')})"
+            )
+
+    # 2. Calibration insights from learning_context
+    learning_ctx = response_data.get("learning_context", {})
+    if isinstance(learning_ctx, dict):
+        cal = learning_ctx.get("calibration", {})
+        if isinstance(cal, dict) and cal.get("insight"):
+            insight = cal["insight"]
+            if "INVERTED" in insight.upper():
+                mirror_signals.insert(0, "Your confidence tends to be inverted (high conf -> lower accuracy)")
+            elif cal.get("total_decisions", 0) >= 10:
+                mirror_signals.append(
+                    f"Calibration: {cal.get('overall_accuracy', 0):.0%} accuracy over "
+                    f"{cal['total_decisions']} decisions "
+                    f"(high-conf: {cal.get('high_confidence_accuracy', '?')}, "
+                    f"low-conf: {cal.get('low_confidence_accuracy', '?')})"
+                )
+
+    # 3. Complexity divergence — check continuity (primary) and calibration_feedback (fallback)
+    continuity = response_data.get("continuity", {})
+    if isinstance(continuity, dict) and continuity.get("complexity_divergence", 0) > 0.15:
+        reported = continuity.get("self_reported_complexity", 0)
+        derived = continuity.get("derived_complexity", 0)
+        divergence = continuity.get("complexity_divergence", 0)
+        mirror_signals.append(
+            f"You reported complexity={reported:.2f} but system derives {derived:.2f} "
+            f"(divergence={divergence:.2f}) — what's driving your sense of difficulty?"
+        )
+    else:
+        # Fallback to calibration_feedback if continuity not present
+        cal_feedback = response_data.get("calibration_feedback", {})
+        if isinstance(cal_feedback, dict):
+            complexity_info = cal_feedback.get("complexity", {})
+            if isinstance(complexity_info, dict) and complexity_info.get("discrepancy", 0) > 0.3:
+                reported = complexity_info.get("reported", 0)
+                derived = complexity_info.get("derived", 0)
+                mirror_signals.append(
+                    f"You reported complexity={reported:.2f} but system estimates {derived:.2f} "
+                    f"— what's driving your sense of difficulty?"
+                )
+
+    # 4. Restorative action — surface if system is cooling down
+    restorative = response_data.get("restorative", {})
+    if isinstance(restorative, dict) and restorative.get("needs_restoration"):
+        reasons = restorative.get("reasons", [])
+        if reasons:
+            mirror_signals.append(f"Restorative action: {'; '.join(str(r) for r in reasons[:2])}")
+
+    # 5. Surface relevant KG discoveries — from mirror enrichment AND from existing enrichments
+    relevant_prior = []
+    kg_results = response_data.get("_mirror_kg_results", [])
+    # Also pull from existing relevant_discoveries enrichment
+    existing_discoveries = response_data.get("relevant_discoveries", [])
+    if isinstance(existing_discoveries, list):
+        for disc in existing_discoveries:
+            if isinstance(disc, dict):
+                kg_results.append(disc)
+    for disc in kg_results[:5]:
+        entry = {
+            "summary": disc.get("summary", "")[:200],
+            "by": disc.get("agent_id", "unknown"),
+        }
+        relevance = disc.get("relevance", disc.get("score", 0))
+        if relevance:
+            entry["relevance"] = relevance
+        relevant_prior.append(entry)
+
+    # 6. Get reflection prompt
+    reflection = response_data.get("_mirror_reflection", None)
+
+    result = {
+        "success": True,
+        "verdict": verdict,
+        "_mode": "mirror",
+        "mirror": mirror_signals if mirror_signals else ["No actionable signals — steady state"],
+    }
+
+    if relevant_prior:
+        result["relevant_prior_work"] = relevant_prior
+
+    if reflection:
+        result["reflection"] = reflection
+
+    # Include margin/edge warnings
+    margin = decision.get("margin")
+    if margin is not None:
+        if isinstance(margin, str) or (isinstance(margin, (int, float)) and margin < 0.1):
+            result["margin"] = margin
+            result["nearest_edge"] = decision.get("nearest_edge")
+
+    if saved_trust_tier:
+        result["trust_tier"] = saved_trust_tier
+    if "thread_context" in response_data:
+        result["thread_context"] = response_data["thread_context"]
+
+    # Include identity notifications if present
+    identity_notifications = response_data.get("_identity_notifications")
+    if identity_notifications:
+        result["identity_notifications"] = identity_notifications
+
+    return result
+
 
 def _format_minimal(response_data: dict, using_default_mode: bool, saved_trust_tier: Optional[str]) -> dict:
     """Build minimal response: action + EISV + margin."""
@@ -172,6 +304,9 @@ def _format_minimal(response_data: dict, using_default_mode: bool, saved_trust_t
         result["trust_tier"] = saved_trust_tier
     if "thread_context" in response_data:
         result["thread_context"] = response_data["thread_context"]
+    identity_notifications = response_data.get("_identity_notifications")
+    if identity_notifications:
+        result["identity_notifications"] = identity_notifications
 
     return result
 
@@ -231,6 +366,9 @@ def _format_compact(response_data: dict, using_default_mode: bool, saved_trust_t
         result["_tip"] = "Verbosity options: response_mode='minimal'|'compact'|'full', or set permanently via update_agent_metadata(preferences={'verbosity':'minimal'})"
     if "thread_context" in response_data:
         result["thread_context"] = response_data["thread_context"]
+    identity_notifications = response_data.get("_identity_notifications")
+    if identity_notifications:
+        result["identity_notifications"] = identity_notifications
 
     return result
 

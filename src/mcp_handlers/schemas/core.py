@@ -103,9 +103,9 @@ class ProcessAgentUpdateParams(AgentIdentityMixin):
         le=1.0,
         description="Confidence level for this update (0-1, optional)."
     )
-    response_mode: Literal["minimal", "compact", "standard", "full", "auto"] = Field(
+    response_mode: Literal["minimal", "compact", "standard", "full", "mirror", "auto"] = Field(
         default="auto",
-        description="Response verbosity mode. 'compact' or 'minimal' returns a smaller payload."
+        description="Response verbosity mode. 'mirror' returns actionable self-awareness signals instead of raw EISV. 'compact' or 'minimal' returns a smaller payload."
     )
     lite: Union[bool, str, None] = Field(
         default=None,

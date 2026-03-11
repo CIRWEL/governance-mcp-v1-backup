@@ -148,6 +148,22 @@ class AuditLogger:
         )
         self._write_entry(entry)
 
+    def log_identity_claim(self, agent_id: str, claimed_name: str,
+                          session_key: str, details: Dict = None):
+        """Log an identity claim event (name-based identity resolution)."""
+        entry = AuditEntry(
+            timestamp=datetime.now().isoformat(),
+            agent_id=agent_id,
+            event_type="identity_claim",
+            confidence=1.0,
+            details={
+                "claimed_name": claimed_name,
+                "session_key": session_key,
+                **(details or {})
+            }
+        )
+        self._write_entry(entry)
+
     def log_dialectic_nudge(self, agent_id: str, session_id: str, phase: str,
                             next_actor: Optional[str] = None,
                             idle_seconds: Optional[float] = None,

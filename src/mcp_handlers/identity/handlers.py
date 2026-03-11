@@ -105,8 +105,18 @@ async def handle_identity_v2(
     # Try name-based resolution first (PATH 2.5)
     name = arguments.get("name")
     if name:
-        name_result = await resolve_by_name_claim(name, session_key)
+        trajectory_sig = arguments.get("trajectory_signature")
+        name_result = await resolve_by_name_claim(name, session_key, trajectory_signature=trajectory_sig)
         if name_result:
+            # Handle rejection (trajectory required or mismatch)
+            if name_result.get("rejected"):
+                return {
+                    "success": False,
+                    "error": name_result.get("reason", "identity_claim_rejected"),
+                    "message": name_result.get("message", "Identity claim rejected"),
+                    "hint": "Provide trajectory_signature for identity verification, or use force_new=true to create a new identity.",
+                }
+
             agent_uuid = name_result["agent_uuid"]
             agent_id = name_result["agent_id"]
             display_name = name_result.get("label")
@@ -197,8 +207,19 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
     # If the caller provides name= and isn't forcing new, try to reconnect to existing identity
     name = arguments.get("name")
     if name and not force_new:
-        name_result = await resolve_by_name_claim(name, base_session_key)
+        trajectory_sig = arguments.get("trajectory_signature")
+        name_result = await resolve_by_name_claim(name, base_session_key, trajectory_signature=trajectory_sig)
         if name_result:
+            # Handle rejection (trajectory required or mismatch)
+            if name_result.get("rejected"):
+                return error_response(
+                    name_result.get("message", "Identity claim rejected"),
+                    recovery={
+                        "reason": name_result.get("reason"),
+                        "hint": "Provide trajectory_signature for identity verification, or use force_new=true to create a new identity.",
+                    }
+                )
+
             agent_uuid = name_result["agent_uuid"]
             agent_id = name_result["agent_id"]
             label = name_result.get("label")
@@ -566,8 +587,18 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         # Name-based reconnection ONLY if resume=True is explicitly passed
         # This prevents accidental identity collision when multiple sessions use same name
         if name and resume:
-            existing_by_name = await resolve_by_name_claim(name, base_session_key)
+            trajectory_sig = arguments.get("trajectory_signature")
+            existing_by_name = await resolve_by_name_claim(name, base_session_key, trajectory_signature=trajectory_sig)
             if existing_by_name:
+                # Handle rejection (trajectory required or mismatch)
+                if existing_by_name.get("rejected"):
+                    return error_response(
+                        existing_by_name.get("message", "Identity claim rejected"),
+                        recovery={
+                            "reason": existing_by_name.get("reason"),
+                            "hint": "Provide trajectory_signature for identity verification, or use force_new=true to create a new identity.",
+                        }
+                    )
                 existing_identity = existing_by_name
                 agent_uuid = existing_by_name["agent_uuid"]
                 agent_id = existing_by_name["agent_id"]

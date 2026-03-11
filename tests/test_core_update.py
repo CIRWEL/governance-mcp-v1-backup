@@ -430,12 +430,13 @@ class TestProcessAgentUpdate:
             })
 
             data = _parse(result)
-            # Response formatter may flatten metrics to top-level in minimal mode.
-            # Check for EISV values at top level or nested in metrics dict.
+            # Response formatter may flatten metrics to top-level in minimal mode,
+            # or return mirror mode with verdict/mirror fields.
             has_eisv = ("E" in data and "I" in data) or ("metrics" in data)
             has_decision = "action" in data or "decision" in data
-            assert data.get("success") is True
-            assert has_eisv or has_decision
+            has_mirror = "verdict" in data and "mirror" in data
+            assert data.get("success") is True or has_mirror
+            assert has_eisv or has_decision or has_mirror
 
     @pytest.mark.asyncio
     async def test_lock_timeout_returns_error(self, mock_server, mock_monitor):

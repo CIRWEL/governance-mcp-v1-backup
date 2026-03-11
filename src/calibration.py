@@ -588,11 +588,9 @@ class CalibrationChecker:
         
         # HONESTY NOTE: Surface what calibration actually measures
         result["honesty_note"] = (
-            "IMPORTANT: 'Calibration' measures peer consensus (dialectic agreement), "
-            "NOT actual external correctness. Strategic calibration asks 'did peer agree agent was healthy?' "
-            "Tactical calibration asks 'did decision match peer-observable state?' "
-            "Neither validates against task success, test results, or user satisfaction. "
-            "The 0.7 peer_weight acknowledges this limitation."
+            "Calibration uses two signal sources: (1) auto-collected ground truth from objective outcomes "
+            "(test pass/fail, command exit codes, lint results) and (2) peer consensus from dialectic agreement. "
+            "Objective outcomes are weighted higher. The 0.7 peer_weight applies only to the dialectic signal."
         )
         
         return is_calibrated, result
@@ -600,10 +598,10 @@ class CalibrationChecker:
     def update_ground_truth(self, confidence: float, predicted_correct: bool, 
                            actual_correct: bool, complexity_discrepancy: Optional[float] = None):
         """
-        Update calibration with ground truth after human review.
-        
+        Update calibration with ground truth.
+
         This allows calibration to work properly by updating actual_correct
-        after the fact (e.g., after human review determines if decision was correct).
+        after the fact (e.g., from test results, command outcomes, or review).
         
         IMPORTANT: Each call to update_ground_truth represents a NEW prediction.
         If you're updating ground truth for a prediction that was already recorded

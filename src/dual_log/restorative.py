@@ -147,15 +147,15 @@ class RestorativeBalanceMonitor:
         
         if cumulative_divergence > self.divergence_threshold:
             reasons.append(
-                f"high divergence ({cumulative_divergence:.2f} cumulative, "
-                f"threshold: {self.divergence_threshold})"
+                f"complexity divergence pattern ({cumulative_divergence:.2f} cumulative) "
+                f"-- is your sense of difficulty calibrated?"
             )
         
         if reasons:
             # Cooldown scales with severity
             base_cooldown = 30
             activity_penalty = max(0, activity_rate - self.activity_threshold) * 5
-            divergence_penalty = max(0, (cumulative_divergence - self.divergence_threshold) * 100)
+            divergence_penalty = max(0, (cumulative_divergence - self.divergence_threshold) * 30)
             cooldown = int(base_cooldown + activity_penalty + divergence_penalty)
             
             return RestorativeStatus(

@@ -18,6 +18,7 @@ from src.mcp_handlers.response_formatter import (
     format_response,
     _format_minimal,
     _format_compact,
+    _format_mirror,
     _strip_context,
 )
 
@@ -305,11 +306,18 @@ class TestFormatResponse:
         result = format_response(data, {"response_mode": "lite"})
         assert result["_mode"] == "compact"
 
-    def test_auto_mode_healthy_becomes_minimal(self):
+    def test_auto_mode_healthy_becomes_mirror_for_disembodied(self):
         data = _sample_response()
         data["health_status"] = "healthy"
         result = format_response(data, {"response_mode": "auto"})
-        assert result["_mode"] == "minimal"
+        assert result["_mode"] == "mirror"  # Disembodied (no sensor_data) -> mirror
+
+    def test_auto_mode_healthy_becomes_minimal_for_embodied(self):
+        data = _sample_response()
+        data["health_status"] = "healthy"
+        data["_has_sensor_data"] = True
+        result = format_response(data, {"response_mode": "auto"})
+        assert result["_mode"] == "minimal"  # Embodied (has sensor_data) -> minimal
 
     def test_auto_mode_at_risk_becomes_standard(self):
         """auto mode with at_risk health should become standard (needs GovernanceState)."""
@@ -391,3 +399,215 @@ class TestFormatResponse:
         meta = object()  # No preferences attribute
         result = format_response(data, {"response_mode": "minimal"}, meta=meta)
         assert result["_mode"] == "minimal"
+
+
+# ============================================================================
+# _format_mirror
+# ============================================================================
+
+class TestFormatMirror:
+
+    def test_basic_output_shape(self):
+        data = _sample_response()
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert result["_mode"] == "mirror"
+        assert result["success"] is True
+        assert "verdict" in result
+        assert "mirror" in result
+        assert isinstance(result["mirror"], list)
+
+    def test_verdict_from_decision(self):
+        data = _sample_response()
+        data["decision"]["action"] = "pause"
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert result["verdict"] == "pause"
+
+    def test_calibration_insight_inverted(self):
+        data = _sample_response()
+        data["learning_context"] = {
+            "calibration": {
+                "insight": "INVERTED CALIBRATION: High confidence correlates with LOWER accuracy.",
+                "total_decisions": 15,
+                "overall_accuracy": 0.65,
+            }
+        }
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert any("inverted" in s.lower() for s in result["mirror"])
+
+    def test_calibration_insight_normal(self):
+        data = _sample_response()
+        data["learning_context"] = {
+            "calibration": {
+                "insight": "Well calibrated",
+                "total_decisions": 20,
+                "overall_accuracy": 0.82,
+            }
+        }
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert any("82%" in s for s in result["mirror"])
+
+    def test_complexity_divergence_question(self):
+        data = _sample_response()
+        data["calibration_feedback"] = {
+            "complexity": {
+                "reported": 0.8,
+                "derived": 0.28,
+                "discrepancy": 0.52,
+            }
+        }
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert any("complexity=0.80" in s for s in result["mirror"])
+        assert any("what's driving" in s.lower() for s in result["mirror"])
+
+    def test_mirror_signals_from_enrichment(self):
+        data = _sample_response()
+        data["_mirror_signals"] = ["Your reports show low variance"]
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert "Your reports show low variance" in result["mirror"]
+
+    def test_kg_results_surfaced(self):
+        data = _sample_response()
+        data["_mirror_kg_results"] = [
+            {"summary": "Coherence issue found", "agent_id": "AlvaNoto", "relevance": 0.42}
+        ]
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert "relevant_prior_work" in result
+        assert result["relevant_prior_work"][0]["by"] == "AlvaNoto"
+
+    def test_reflection_prompt(self):
+        data = _sample_response()
+        data["_mirror_reflection"] = "What changed in your understanding?"
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert result["reflection"] == "What changed in your understanding?"
+
+    def test_trust_tier_included(self):
+        data = _sample_response()
+        result = _format_mirror(data, saved_trust_tier="established")
+        assert result["trust_tier"] == "established"
+
+    def test_thread_context_preserved(self):
+        data = _sample_response()
+        data["thread_context"] = {"thread_id": "t123", "position": 2}
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert result["thread_context"]["thread_id"] == "t123"
+
+    def test_no_signals_gives_steady_state(self):
+        data = _sample_response()
+        # No enrichment data, no calibration, no divergence, no capping, no restorative
+        data.pop("learning_context", None)
+        data.pop("calibration_feedback", None)
+        data.pop("confidence_reliability", None)
+        data.pop("continuity", None)
+        data.pop("restorative", None)
+        data.pop("relevant_discoveries", None)
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert "steady state" in result["mirror"][0].lower()
+
+    def test_margin_included_when_tight(self):
+        data = _sample_response()
+        data["decision"]["margin"] = 0.05
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert result["margin"] == 0.05
+
+    def test_margin_excluded_when_comfortable(self):
+        data = _sample_response()
+        data["decision"]["margin"] = 0.2
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert "margin" not in result
+
+    def test_identity_notifications_surfaced(self):
+        data = _sample_response()
+        data["_identity_notifications"] = [{"message": "Identity accessed from new session"}]
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert "identity_notifications" in result
+
+    def test_confidence_capping_surfaced(self):
+        data = _sample_response()
+        data["confidence_reliability"] = {
+            "source": "external_capped",
+            "external_provided": 0.9,
+            "derived_cap": 0.58,
+            "capped": True,
+        }
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert any("capped" in s.lower() for s in result["mirror"])
+        assert any("0.9" in s for s in result["mirror"])
+
+    def test_continuity_divergence_surfaced(self):
+        data = _sample_response()
+        data["continuity"] = {
+            "self_reported_complexity": 0.7,
+            "derived_complexity": 0.22,
+            "complexity_divergence": 0.48,
+        }
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert any("complexity=0.70" in s for s in result["mirror"])
+        assert any("0.22" in s for s in result["mirror"])
+
+    def test_continuity_takes_precedence_over_calibration_feedback(self):
+        data = _sample_response()
+        data["continuity"] = {
+            "self_reported_complexity": 0.7,
+            "derived_complexity": 0.22,
+            "complexity_divergence": 0.48,
+        }
+        data["calibration_feedback"] = {
+            "complexity": {"reported": 0.8, "derived": 0.28, "discrepancy": 0.52}
+        }
+        result = _format_mirror(data, saved_trust_tier=None)
+        # Should use continuity (0.7/0.22), not calibration_feedback (0.8/0.28)
+        assert any("complexity=0.70" in s for s in result["mirror"])
+
+    def test_restorative_action_surfaced(self):
+        data = _sample_response()
+        data["restorative"] = {
+            "needs_restoration": True,
+            "reasons": ["complexity divergence pattern (0.48 cumulative)"],
+        }
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert any("restorative" in s.lower() for s in result["mirror"])
+
+    def test_existing_discoveries_merged_into_prior_work(self):
+        data = _sample_response()
+        data["relevant_discoveries"] = [
+            {"summary": "Inverted U curve in calibration", "agent_id": "Alva_Noto", "score": 0.85}
+        ]
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert "relevant_prior_work" in result
+        assert result["relevant_prior_work"][0]["summary"] == "Inverted U curve in calibration"
+
+    def test_calibration_feedback_fallback_when_no_continuity(self):
+        """calibration_feedback is used when continuity data is absent."""
+        data = _sample_response()
+        data["calibration_feedback"] = {
+            "complexity": {"reported": 0.8, "derived": 0.28, "discrepancy": 0.52}
+        }
+        result = _format_mirror(data, saved_trust_tier=None)
+        assert any("complexity=0.80" in s for s in result["mirror"])
+
+
+class TestFormatResponseMirror:
+
+    def test_explicit_mirror_mode(self):
+        data = _sample_response()
+        result = format_response(data, {"response_mode": "mirror"})
+        assert result["_mode"] == "mirror"
+
+    def test_auto_selects_mirror_for_disembodied(self):
+        data = _sample_response()
+        data["health_status"] = "healthy"
+        data["_has_sensor_data"] = False
+        result = format_response(data, {"response_mode": "auto"})
+        assert result["_mode"] == "mirror"
+
+    def test_auto_selects_minimal_for_embodied(self):
+        data = _sample_response()
+        data["health_status"] = "healthy"
+        data["_has_sensor_data"] = True
+        result = format_response(data, {"response_mode": "auto"})
+        assert result["_mode"] == "minimal"
+
+    def test_strip_context_applied_for_mirror(self):
+        data = _sample_response()
+        result = format_response(data, {"response_mode": "mirror"}, is_new_agent=False)
+        assert "eisv_labels" not in result

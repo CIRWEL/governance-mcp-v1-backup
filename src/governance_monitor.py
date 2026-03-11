@@ -1273,6 +1273,8 @@ class UNITARESMonitor:
                 'source': confidence_metadata.get('source', 'unknown'),
                 'calibration_applied': confidence_metadata.get('calibration_applied', False),
                 'calibration_samples': confidence_metadata.get('calibration_samples', 0),
+                'external_provided': confidence_metadata.get('external_provided'),
+                'derived_cap': confidence_metadata.get('derived_cap'),
                 'honesty_note': confidence_metadata.get('honesty_note', 'No metadata available')
             }
         }

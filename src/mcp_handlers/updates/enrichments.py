@@ -1095,6 +1095,225 @@ async def enrich_websocket_broadcast(ctx: UpdateContext) -> None:
     except Exception as e:
         logger.debug(f"Could not broadcast EISV update: {e}")
 
+# ─── Mirror Signals ───────────────────────────────────────────────────
+
+async def enrich_mirror_signals(ctx: UpdateContext) -> None:
+    """Build actionable self-awareness signals for mirror response mode.
+
+    Produces:
+      - _mirror_signals: list of short insight strings
+      - _mirror_kg_results: relevant KG discoveries by text search
+      - _mirror_reflection: targeted reflection prompt
+      - _has_sensor_data: bool for auto-mode routing
+    """
+    try:
+        # Detect embodiment (sensor_data presence) for auto-mode routing
+        has_sensor_data = bool(ctx.arguments.get("sensor_data"))
+        if not has_sensor_data:
+            params_raw = ctx.arguments.get("parameters", [])
+            if isinstance(params_raw, list):
+                for p in params_raw:
+                    if isinstance(p, dict) and p.get("key") == "sensor_data":
+                        has_sensor_data = True
+                        break
+        ctx.response_data["_has_sensor_data"] = has_sensor_data
+
+        signals = []
+
+        # 1. Gaming / autopilot detection (low variance in recent reports)
+        signals.extend(_detect_gaming(ctx))
+
+        # 2. KG text-based search using response_text
+        kg_results = await _search_kg_by_checkin_text(ctx)
+        if kg_results:
+            ctx.response_data["_mirror_kg_results"] = kg_results
+
+        # 3. Targeted reflection prompt
+        reflection = _generate_reflection_prompt(ctx)
+        if reflection:
+            ctx.response_data["_mirror_reflection"] = reflection
+
+        if signals:
+            ctx.response_data["_mirror_signals"] = signals
+
+    except Exception as e:
+        logger.debug(f"Could not enrich mirror signals: {e}")
+
+
+def _detect_gaming(ctx: UpdateContext) -> list:
+    """Detect low-variance reporting patterns that suggest autopilot."""
+    signals = []
+    try:
+        mcp_server = ctx.mcp_server
+        if not mcp_server:
+            return signals
+
+        monitor = ctx.monitor
+        if monitor is None or not hasattr(monitor, 'state'):
+            return signals
+
+        state = monitor.state
+
+        # Check complexity history variance
+        if hasattr(state, 'complexity_history') and len(state.complexity_history) >= 5:
+            recent = list(state.complexity_history)[-5:]
+            import statistics
+            if len(set(recent)) > 1:
+                variance = statistics.variance(recent)
+                if variance < 0.005:
+                    signals.append(
+                        f"Your last {len(recent)} reports had nearly identical complexity "
+                        f"(variance={variance:.4f}). Real work varies -- are you on autopilot?"
+                    )
+            elif len(set(recent)) == 1:
+                signals.append(
+                    f"Your last {len(recent)} complexity reports were all {recent[0]:.2f}. "
+                    "Real work varies -- are you on autopilot?"
+                )
+
+        # Check confidence history variance
+        if hasattr(state, 'confidence_history') and len(state.confidence_history) >= 5:
+            recent_conf = [c for c in list(state.confidence_history)[-5:] if c is not None]
+            if len(recent_conf) >= 5:
+                import statistics
+                if len(set(recent_conf)) > 1:
+                    conf_var = statistics.variance(recent_conf)
+                    if conf_var < 0.005:
+                        signals.append(
+                            f"Your confidence reports show very low variance ({conf_var:.4f}). "
+                            "Are you calibrating each report individually?"
+                        )
+                elif len(set(recent_conf)) == 1:
+                    signals.append(
+                        f"Your last {len(recent_conf)} confidence reports were all {recent_conf[0]:.2f}. "
+                        "Consider calibrating each report individually."
+                    )
+    except Exception as e:
+        logger.debug(f"Gaming detection failed: {e}")
+    return signals
+
+
+async def _search_kg_by_checkin_text(ctx: UpdateContext) -> list:
+    """Search knowledge graph using checkin response_text for relevant discoveries."""
+    try:
+        response_text = ctx.response_text
+        if not response_text or len(response_text) < 10:
+            return []
+
+        from src.knowledge_graph import get_knowledge_graph
+        graph = await get_knowledge_graph()
+
+        # Try semantic search first, fall back to full-text
+        results = []
+        try:
+            results = await graph.semantic_search(response_text, limit=3)
+        except (AttributeError, NotImplementedError):
+            try:
+                results = await graph.full_text_search(response_text, limit=3)
+            except (AttributeError, NotImplementedError):
+                pass
+
+        if not results:
+            return []
+
+        kg_results = []
+        for item in results:
+            # semantic_search returns (DiscoveryNode, score) tuples
+            if isinstance(item, (tuple, list)) and len(item) == 2:
+                disc, score = item
+            else:
+                disc, score = item, 0
+
+            if isinstance(disc, dict):
+                entry = {
+                    "summary": disc.get("summary", "")[:200],
+                    "agent_id": disc.get("agent_id", "unknown"),
+                    "relevance": score or disc.get("relevance", disc.get("score", 0)),
+                }
+            else:
+                entry = {
+                    "summary": getattr(disc, 'summary', "")[:200],
+                    "agent_id": getattr(disc, 'agent_id', "unknown"),
+                    "relevance": score or getattr(disc, 'relevance', 0),
+                }
+            kg_results.append(entry)
+        return kg_results
+    except Exception as e:
+        logger.debug(f"KG text search failed: {e}")
+        return []
+
+
+def _generate_reflection_prompt(ctx: UpdateContext) -> str:
+    """Generate a targeted reflection prompt based on task type and context."""
+    try:
+        task_type = ctx.task_type or "mixed"
+        response_text = ctx.response_text or ""
+
+        prompts_by_type = {
+            "introspection": "You described this as introspection. What changed in your understanding?",
+            "debugging": "Debugging often reveals assumptions. What assumption did you test?",
+            "refactoring": "What structural insight drove this refactoring?",
+            "exploration": "What's the most surprising thing you found?",
+            "research": "What question do you still not have an answer to?",
+            "testing": "What case are you most worried you haven't covered?",
+            "review": "What's the one thing you'd push back on if you saw it in someone else's work?",
+            "design": "What tradeoff are you making that you haven't articulated?",
+            "feature": "What's the simplest version of this that would still be valuable?",
+            "bugfix": "Is the bug a symptom or the root cause?",
+            "deployment": "What's your rollback plan if this goes wrong?",
+        }
+
+        prompt = prompts_by_type.get(task_type)
+        if prompt:
+            return prompt
+
+        # Fallback: generate from response_text keywords
+        if response_text:
+            text_lower = response_text.lower()
+            if "stuck" in text_lower or "blocked" in text_lower:
+                return "You mentioned being stuck. What would unblock you -- a different approach or more information?"
+            if "refactor" in text_lower:
+                return "What structural insight drove this refactoring?"
+            if "test" in text_lower:
+                return "What case are you most worried you haven't covered?"
+
+        return None
+    except Exception:
+        return None
+
+
+# ─── Identity Notifications ──────────────────────────────────────────
+
+async def enrich_identity_notifications(ctx: UpdateContext) -> None:
+    """Surface pending identity notifications (e.g., session accessed from elsewhere)."""
+    try:
+        from src.cache.redis_client import get_redis
+
+        redis = await get_redis()
+        if not redis:
+            return
+
+        key = f"identity_notifications:{ctx.agent_uuid}"
+        notifications = await redis.lrange(key, 0, -1)
+        if not notifications:
+            return
+
+        parsed = []
+        for n in notifications:
+            try:
+                parsed.append(json.loads(n) if isinstance(n, (str, bytes)) else n)
+            except Exception:
+                parsed.append({"message": str(n)})
+
+        if parsed:
+            ctx.response_data["_identity_notifications"] = parsed
+            # Clear after delivery
+            await redis.delete(key)
+
+    except Exception as e:
+        logger.debug(f"Could not check identity notifications: {e}")
+
+
 # ─── Thread Identity ───────────────────────────────────────────────────
 
 def enrich_thread_identity(ctx: UpdateContext) -> None:

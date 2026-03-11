@@ -554,7 +554,10 @@ async def resolve_by_name_claim(
 
     If an agent provides its name, look up the existing identity by label
     in PostgreSQL. If found, bind this session to that identity.
-    Optional trajectory verification prevents impersonation.
+
+    HARDENED (v2.6.0): If the target identity has a stored trajectory,
+    trajectory_signature is REQUIRED — not optional. This prevents
+    impersonation of established agents.
     """
     if not agent_name or len(agent_name) < 2:
         return None
@@ -565,8 +568,38 @@ async def resolve_by_name_claim(
         logger.debug(f"[NAME_CLAIM] No agent found with label '{agent_name}'")
         return None
 
-    # Optional: trajectory verification (anti-impersonation)
-    if trajectory_signature and isinstance(trajectory_signature, dict):
+    # Check if target has a stored trajectory (established identity)
+    has_stored_trajectory = False
+    try:
+        from src.trajectory_identity import get_trajectory_status
+        traj_status = await get_trajectory_status(agent_uuid)
+        has_stored_trajectory = bool(
+            traj_status
+            and not traj_status.get("error")
+            and traj_status.get("has_genesis")
+        )
+    except Exception as e:
+        logger.debug(f"[NAME_CLAIM] Trajectory status check failed: {e}")
+
+    # If target has stored trajectory, REQUIRE trajectory_signature
+    if has_stored_trajectory:
+        if not trajectory_signature or not isinstance(trajectory_signature, dict):
+            logger.warning(
+                f"[NAME_CLAIM] Rejecting claim for '{agent_name}' — "
+                f"target has stored trajectory but no signature provided"
+            )
+            return {
+                "rejected": True,
+                "reason": "trajectory_required",
+                "agent_name": agent_name,
+                "message": (
+                    f"Identity '{agent_name}' has an established trajectory. "
+                    f"Provide trajectory_signature to verify continuity, "
+                    f"or use force_new=true for a new identity."
+                ),
+            }
+
+        # Verify trajectory
         try:
             from src.trajectory_identity import verify_trajectory_identity
             verification = await verify_trajectory_identity(agent_uuid, trajectory_signature)
@@ -577,9 +610,35 @@ async def resolve_by_name_claim(
                         f"[NAME_CLAIM] Trajectory mismatch for '{agent_name}' "
                         f"(lineage={lineage_sim:.3f}) - rejecting claim"
                     )
-                    return None
+                    return {
+                        "rejected": True,
+                        "reason": "trajectory_mismatch",
+                        "agent_name": agent_name,
+                        "lineage_similarity": lineage_sim,
+                        "message": (
+                            f"Trajectory verification failed for '{agent_name}' "
+                            f"(lineage similarity={lineage_sim:.3f}, threshold=0.6). "
+                            f"Use force_new=true to create a new identity."
+                        ),
+                    }
         except Exception as e:
-            logger.debug(f"[NAME_CLAIM] Trajectory verification skipped: {e}")
+            logger.debug(f"[NAME_CLAIM] Trajectory verification failed: {e}")
+    else:
+        # No stored trajectory — optional verification (backward compat)
+        if trajectory_signature and isinstance(trajectory_signature, dict):
+            try:
+                from src.trajectory_identity import verify_trajectory_identity
+                verification = await verify_trajectory_identity(agent_uuid, trajectory_signature)
+                if verification and not verification.get("verified", True):
+                    lineage_sim = verification.get("tiers", {}).get("lineage", {}).get("similarity", 1.0)
+                    if lineage_sim < 0.6:
+                        logger.warning(
+                            f"[NAME_CLAIM] Trajectory mismatch for '{agent_name}' "
+                            f"(lineage={lineage_sim:.3f}) - rejecting claim"
+                        )
+                        return None
+            except Exception as e:
+                logger.debug(f"[NAME_CLAIM] Trajectory verification skipped: {e}")
 
     # Fetch display metadata
     agent_id = await _get_agent_id_from_metadata(agent_uuid) or agent_uuid
@@ -601,6 +660,9 @@ async def resolve_by_name_claim(
     except Exception as e:
         logger.debug(f"[NAME_CLAIM] Session persist failed (non-fatal): {e}")
 
+    # Audit the identity claim
+    await _audit_identity_claim(agent_uuid, session_key, agent_name)
+
     logger.info(f"[NAME_CLAIM] Resolved '{agent_name}' -> {agent_uuid[:8]}... via name claim")
 
     return {
@@ -613,3 +675,44 @@ async def resolve_by_name_claim(
         "source": "name_claim",
         "resumed_by_name": True,
     }
+
+
+async def _audit_identity_claim(
+    agent_uuid: str,
+    session_key: str,
+    agent_name: str,
+) -> None:
+    """Log identity claim and queue notification if session changed."""
+    try:
+        from src.audit_log import AuditLogger
+        audit_logger = AuditLogger()
+        audit_logger.log_identity_claim(
+            agent_id=agent_uuid,
+            claimed_name=agent_name,
+            session_key=session_key[:20] + "..." if len(session_key) > 20 else session_key,
+        )
+
+        # Queue notification in Redis only if session actually changed
+        try:
+            from src.cache.redis_client import get_redis
+            redis = await get_redis()
+            if redis:
+                import json
+                # Check if this is actually a new session
+                prev_session_key = f"identity_last_session:{agent_uuid}"
+                previous = await redis.get(prev_session_key)
+                await redis.set(prev_session_key, session_key, ex=86400)
+                if previous and previous != session_key:
+                    notification = json.dumps({
+                        "type": "identity_claim",
+                        "message": f"Your identity was accessed via name claim from a different session",
+                        "session_key_prefix": session_key[:12] + "...",
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                    key = f"identity_notifications:{agent_uuid}"
+                    await redis.rpush(key, notification)
+                    await redis.expire(key, 86400)  # TTL 24h
+        except Exception as e:
+            logger.debug(f"[AUDIT] Could not queue identity notification: {e}")
+    except Exception as e:
+        logger.debug(f"[AUDIT] Identity claim audit failed: {e}")
