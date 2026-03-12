@@ -607,8 +607,8 @@ class TestEthicalDrift:
         assert baseline.baseline_coherence == 0.5
         
         baseline.update(coherence=0.7)
-        # EMA: 0.5 * 0.95 + 0.7 * 0.05 = 0.475 + 0.035 = 0.51 (with alpha=0.05)
-        assert abs(baseline.baseline_coherence - 0.51) < 0.01
+        # EMA: 0.5 * 0.9 + 0.7 * 0.1 = 0.45 + 0.07 = 0.52 (with alpha=0.1, paper value)
+        assert abs(baseline.baseline_coherence - 0.52) < 0.01
 
     def test_baseline_decision_consistency(self):
         """Decision stability tracking."""

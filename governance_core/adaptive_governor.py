@@ -39,15 +39,15 @@ class GovernorConfig:
     """
 
     # Default thresholds (starting point -- will adapt)
-    # beta_default synced with GovernanceConfig.RISK_REVISE_THRESHOLD (Mar 2026: 0.60 → 0.70)
-    tau_default: float = 0.44        # Coherence threshold (raised from 0.40, just below typical ~0.458)
-    beta_default: float = 0.70       # Risk threshold
+    # Paper Table 5: tau=0.40, beta=0.60. Production values raised for operational stability.
+    tau_default: float = 0.44        # Paper: 0.40. Raised to sit just below typical coherence ~0.458
+    beta_default: float = 0.70       # Paper: 0.60. Raised to reduce false high-risk verdicts
 
     # Hard safety bounds (cannot be overridden by adaptation)
     tau_floor: float = 0.25
     tau_ceiling: float = 0.75
     beta_floor: float = 0.20
-    beta_ceiling: float = 0.80       # Raised to match RISK_REJECT_THRESHOLD (was 0.70)
+    beta_ceiling: float = 0.80       # Paper: 0.70. Raised to match RISK_REJECT_THRESHOLD
 
     # PID gains
     K_p: float = 0.05               # Proportional -- gentle
@@ -58,10 +58,11 @@ class GovernorConfig:
     integral_max: float = 0.10
 
     # Phase reference points
-    exploration_tau_ref: float = 0.38
-    exploration_beta_ref: float = 0.55
-    integration_tau_ref: float = 0.44
-    integration_beta_ref: float = 0.70  # Synced with beta_default / RISK_REVISE_THRESHOLD
+    # Paper Table 5: exploration τ=0.35/β=0.55, integration τ=0.40/β=0.60
+    exploration_tau_ref: float = 0.38   # Paper: 0.35
+    exploration_beta_ref: float = 0.55  # Matches paper
+    integration_tau_ref: float = 0.44   # Paper: 0.40
+    integration_beta_ref: float = 0.70  # Paper: 0.60. Raised to match beta_default
 
     # Phase modulation of D-term
     exploration_d_factor: float = 0.5   # Gentler damping during exploration
@@ -84,7 +85,10 @@ class GovernorConfig:
     delta_ref_variance: float = 0.005    # Target V variance for coherence spread
 
     # Verdict thresholds (relative to adaptive tau/beta)
-    beta_approve_offset: float = -0.20  # beta_approve = beta + offset (was -0.25, now 0.70-0.20=0.50)
+    # Paper specifies two-tier (proceed/pause). Offset=0 means safe and caution
+    # collapse: C>=tau AND R<beta → safe, otherwise → high-risk. The paper
+    # (Remark 5.1) removed the middle tier because it caused oscillation.
+    beta_approve_offset: float = 0.0
 
 
 @dataclass

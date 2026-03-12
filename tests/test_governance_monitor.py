@@ -792,18 +792,17 @@ class TestProcessUpdate:
         assert 'status' in result
 
     def test_explicit_confidence(self, monitor):
-        """Explicitly provided confidence should be used (possibly capped)."""
+        """Explicitly provided confidence should be passed through uncapped."""
         agent_state = {'response_text': "Test.", 'complexity': 0.5}
         result = monitor.process_update(agent_state, confidence=0.9)
-        # Confidence should appear in metrics (may be capped by derived confidence)
         assert 'confidence' in result['metrics']
-        assert 0.0 <= result['metrics']['confidence'] <= 1.0
+        assert result['metrics']['confidence'] == 0.9  # Passed through, not capped
 
     def test_low_confidence(self, monitor):
-        """Low confidence should be valid."""
+        """Low confidence should be passed through."""
         agent_state = {'response_text': "Test.", 'complexity': 0.5}
         result = monitor.process_update(agent_state, confidence=0.1)
-        assert result['metrics']['confidence'] <= 0.5  # Capped or passed through
+        assert result['metrics']['confidence'] == 0.1  # Passed through
 
     def test_hck_metrics_present(self, monitor):
         """HCK v3.0 metrics should be in result."""

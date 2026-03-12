@@ -521,17 +521,13 @@ class TestFormatMirror:
         result = _format_mirror(data, saved_trust_tier=None)
         assert "identity_notifications" in result
 
-    def test_confidence_capping_surfaced(self):
+    def test_observed_confidence_surfaced(self):
         data = _sample_response()
         data["confidence_reliability"] = {
-            "source": "external_capped",
-            "external_provided": 0.9,
-            "derived_cap": 0.58,
-            "capped": True,
+            "source": "observed",
         }
         result = _format_mirror(data, saved_trust_tier=None)
-        assert any("capped" in s.lower() for s in result["mirror"])
-        assert any("0.9" in s for s in result["mirror"])
+        assert any("derived" in s.lower() for s in result["mirror"])
 
     def test_continuity_divergence_surfaced(self):
         data = _sample_response()

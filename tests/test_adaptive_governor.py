@@ -281,13 +281,13 @@ class TestVerdict:
 
     def test_safe_verdict(self):
         gov = AdaptiveGovernor()
-        # coherence >= tau(0.44) AND risk < beta_approve(0.70 + (-0.20) = 0.50)
+        # coherence >= tau(0.44) AND risk < beta(0.70) → safe (two-tier, no epsilon)
         assert gov.make_verdict(coherence=0.70, risk=0.20) == Verdict.SAFE
 
-    def test_caution_verdict(self):
+    def test_safe_verdict_mid_risk(self):
         gov = AdaptiveGovernor()
-        # coherence >= tau(0.44), risk between beta_approve(0.50) and beta(0.70)
-        assert gov.make_verdict(coherence=0.70, risk=0.55) == Verdict.CAUTION
+        # coherence >= tau(0.44) AND risk < beta(0.70) → still safe (no caution band)
+        assert gov.make_verdict(coherence=0.70, risk=0.55) == Verdict.SAFE
 
     def test_high_risk_verdict(self):
         gov = AdaptiveGovernor()

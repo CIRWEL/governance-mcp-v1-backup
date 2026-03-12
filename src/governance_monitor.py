@@ -897,32 +897,21 @@ class UNITARESMonitor:
         # Step 1: Update thermodynamic state with GROUNDED inputs
         self.update_dynamics(grounded_agent_state)
 
-        # Step 1b: Confidence handling - OBSERVE what happened, don't ask for reports
-        # The system already tracks tool outcomes. Just look.
+        # Step 1b: Confidence handling
+        # When agent reports confidence, use it as-is — capping created calibration
+        # circularity (derived from EISV, compared against EISV-derived health).
+        # When no confidence reported, derive from observed tool outcomes as fallback.
         if confidence is None:
             confidence, confidence_metadata = derive_confidence(
                 self.state,
-                agent_id=self.agent_id  # System looks up outcomes for this agent
-            )
-        else:
-            # External/self-reported confidence can saturate at 1.0 (many clients default to it).
-            # To keep telemetry/calibration meaningful, cap external confidence by what the system
-            # can justify from observed outcomes + EISV uncertainty penalties.
-            external_confidence = float(confidence)
-            derived_confidence, derived_metadata = derive_confidence(
-                self.state,
                 agent_id=self.agent_id
             )
-            capped_confidence = min(external_confidence, derived_confidence)
-            confidence = capped_confidence
+        else:
+            confidence = float(confidence)
             confidence_metadata = {
-                'source': 'external_capped',
-                'reliability': 'medium',
-                'honesty_note': 'External confidence was capped to system-derived confidence to prevent saturation and preserve telemetry/calibration meaning.',
-                'external_provided': external_confidence,
-                'derived_cap': derived_confidence,
-                'capped': external_confidence > derived_confidence,
-                'derived_metadata': derived_metadata,
+                'source': 'external',
+                'reliability': 'high',
+                'value': confidence,
             }
 
         # Store confidence and metadata for audit logging and transparency

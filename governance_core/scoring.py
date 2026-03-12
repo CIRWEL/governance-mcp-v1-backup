@@ -66,7 +66,7 @@ def phi_objective(
     return phi
 
 
-def verdict_from_phi(phi: float, safe_threshold: float = 0.22, caution_threshold: float = 0.0) -> str:
+def verdict_from_phi(phi: float, safe_threshold: float = 0.22, caution_threshold: float = 0.0) -> str:  # Paper: safe=0.15
     """
     Convert Φ score to verdict category.
 

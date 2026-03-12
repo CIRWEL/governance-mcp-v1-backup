@@ -165,14 +165,12 @@ def _format_mirror(response_data: dict, saved_trust_tier: Optional[str]) -> dict
     # Collect mirror signals from enrichment-produced data
     mirror_signals = response_data.get("_mirror_signals", [])
 
-    # 1. Confidence reliability — surface if confidence was capped or manipulated
+    # 1. Confidence reliability — surface source for transparency
     conf_rel = response_data.get("confidence_reliability", {})
     if isinstance(conf_rel, dict):
-        if conf_rel.get("source") == "external_capped" or conf_rel.get("capped"):
+        if conf_rel.get("source") == "observed":
             mirror_signals.append(
-                f"Your confidence was capped by the system "
-                f"(you said {conf_rel.get('external_provided', '?')}, "
-                f"system derived {conf_rel.get('derived_cap', '?')})"
+                "No confidence reported — system derived from observed tool outcomes"
             )
 
     # 2. Calibration insights from learning_context

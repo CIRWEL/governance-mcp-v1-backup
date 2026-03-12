@@ -168,7 +168,9 @@ class AgentBaseline:
     prev_complexity: Optional[float] = None
 
     # EMA smoothing factor (higher = more responsive, lower = more stable)
-    alpha: float = 0.05
+    # Paper specifies 0.1. Phase detection handles legitimate phase transitions,
+    # so the baseline should track drift within phases responsively.
+    alpha: float = 0.1
 
     # Last update timestamp
     last_updated: Optional[datetime] = None
