@@ -96,18 +96,16 @@ python src/mcp_server_std.py
 
 ## Production Validation
 
-Deployed since December 2025. Current numbers:
+Deployed since December 2025. Current system: **1,100+ registered agents**, **1,700+ knowledge discoveries**, **38 dialectic sessions**, **5,600+ tests** at 78% coverage.
+
+Validation snapshot (first 69 days):
 
 | Metric | Value |
 |--------|-------|
 | Agents monitored | 903 |
-| Deployment duration | 69 days |
 | Audit events | 198,333 |
 | EISV equilibrium | E=0.77, I=0.88, S=0.08, V=-0.03 |
 | V operating range | 100% of agents within [-0.1, 0.1] |
-| Dialectic sessions | 66 |
-| Knowledge discoveries | 536 |
-| Test suite | 5,600+ tests, 78% coverage |
 
 One of those agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi that uses the same EISV equations to drive an autonomous drawing system. Coherence modulates how long it draws; the art emerges from thermodynamics. For how physical sensors seed the EISV state vector, see the [anima-mcp docs](https://github.com/CIRWEL/anima-mcp#how-it-works).
 

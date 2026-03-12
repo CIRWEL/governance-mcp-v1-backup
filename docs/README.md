@@ -33,9 +33,9 @@
 
 ---
 
-## Tool Count: 31 Registered Tools
+## Tool Count: 33 Registered Tools
 
-31 registered tools + aliases (status, list_agents, observe_agent, checkin, etc.). See [SKILL.md](../skills/unitares-governance/SKILL.md) for the full tool reference.
+33 registered tools + aliases (status, list_agents, observe_agent, checkin, etc.). See [SKILL.md](../skills/unitares-governance/SKILL.md) for the full tool reference.
 
 ## Test Coverage
 
