@@ -755,8 +755,17 @@ class UNITARESMonitor:
             'sampling_params': {...}
         }
         """
-        # Update timestamp
-        self.last_update = datetime.now()
+        # Compute elapsed time for gap-aware decay scaling
+        now = datetime.now()
+        elapsed_seconds = (now - self.last_update).total_seconds()
+        self.last_update = now
+
+        # Scale dt proportionally to elapsed time vs expected cadence.
+        # Floor at DT (rapid updates stay at base), cap at DT_MAX (Euler stability).
+        effective_dt = max(
+            config.DT,
+            min(elapsed_seconds * (config.DT / config.DT_EXPECTED_INTERVAL), config.DT_MAX)
+        )
 
         # === DUAL-LOG GROUNDING (Patent: Dual-Log Architecture) ===
         # Process through continuity layer to get grounded metrics.
@@ -895,7 +904,7 @@ class UNITARESMonitor:
             )
 
         # Step 1: Update thermodynamic state with GROUNDED inputs
-        self.update_dynamics(grounded_agent_state)
+        self.update_dynamics(grounded_agent_state, dt=effective_dt)
 
         # Step 1b: Confidence handling
         # When agent reports confidence, use it as-is — capping created calibration
@@ -1148,34 +1157,32 @@ class UNITARESMonitor:
         except Exception:
             pass
 
-        # Fallback: trajectory health proxy (EISV-derived, documented as approximate)
-        if actual_correct is None:
-            actual_correct = float(max(0.0, min(1.0, 1.0 - float(risk_score))))
-
-        calibration_checker.record_prediction(
-            confidence=confidence,
-            predicted_correct=predicted_correct,
-            actual_correct=actual_correct
-        )
-
-        # Record for TACTICAL calibration (per-decision)
-        #
-        # Measures whether confidence predicted the outcome correctly.
-        # Uses the same actual_correct signal (tool success or trajectory health).
-        decision_action = decision['action']
-        outcome_was_good = actual_correct >= 0.6
-
-        if confidence >= 0.6:
-            immediate_outcome = outcome_was_good
-        else:
-            immediate_outcome = not outcome_was_good
-
-        if decision_action in ('proceed', 'pause'):
-            calibration_checker.record_tactical_decision(
+        # Only record calibration when we have real ground truth (tool usage data).
+        # Fallback (1 - risk_score) creates a circular dependency: risk derives from
+        # EISV, so using it as "accuracy" feeds back into S as calibration penalty,
+        # causing a death spiral for agents without tool usage data (e.g. Lumen).
+        if actual_correct is not None:
+            calibration_checker.record_prediction(
                 confidence=confidence,
-                decision=decision_action,
-                immediate_outcome=immediate_outcome
+                predicted_correct=predicted_correct,
+                actual_correct=actual_correct
             )
+
+            # Record for TACTICAL calibration (per-decision)
+            decision_action = decision['action']
+            outcome_was_good = actual_correct >= 0.6
+
+            if confidence >= 0.6:
+                immediate_outcome = outcome_was_good
+            else:
+                immediate_outcome = not outcome_was_good
+
+            if decision_action in ('proceed', 'pause'):
+                calibration_checker.record_tactical_decision(
+                    confidence=confidence,
+                    decision=decision_action,
+                    immediate_outcome=immediate_outcome
+                )
         
         # Log decision via audit logger (for accountability and transparency)
         audit_logger.log_auto_attest(

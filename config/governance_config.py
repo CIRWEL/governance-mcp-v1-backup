@@ -568,7 +568,9 @@ class GovernanceConfig:
     C_MAX = 1.0      # Maximum coherence value
     
     # Time discretization
-    DT = 0.1         # Timestep for integration (seconds)
+    DT = 0.1         # Base timestep for integration (seconds)
+    DT_EXPECTED_INTERVAL = 15.0  # Expected check-in cadence (seconds)
+    DT_MAX = 1.0     # Euler stability cap (max single-step dt)
     
     # History window for metrics
     HISTORY_WINDOW = 1000  # Keep last 1000 updates for statistics
