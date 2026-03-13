@@ -14,11 +14,13 @@ from typing import Any
 from src.logging_utils import get_logger
 
 from .context import UpdateContext
+from .pipeline import enrichment
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
 logger = get_logger(__name__)
 
 # ─── Identity Reminder ─────────────────────────────────────────────────
 
+@enrichment(order=10)
 def enrich_identity_reminder(ctx: UpdateContext) -> None:
     """Suggest agents set label/purpose during their first 3 updates."""
     try:
@@ -47,6 +49,7 @@ def enrich_identity_reminder(ctx: UpdateContext) -> None:
 
 # ─── Interpretation & Feedback ──────────────────────────────────────────
 
+@enrichment(order=20)
 async def enrich_state_interpretation(ctx: UpdateContext) -> None:
     """Map raw EISV to semantic state (health / mode / basin)."""
     try:
@@ -67,6 +70,7 @@ async def enrich_state_interpretation(ctx: UpdateContext) -> None:
     except Exception as e:
         logger.debug(f"Could not generate state interpretation: {e}")
 
+@enrichment(order=30)
 def enrich_actionable_feedback(ctx: UpdateContext) -> None:
     """Generate context-aware actionable feedback."""
     try:
@@ -94,6 +98,7 @@ def enrich_actionable_feedback(ctx: UpdateContext) -> None:
     except Exception as e:
         logger.debug(f"Could not generate actionable feedback: {e}")
 
+@enrichment(order=40)
 async def enrich_llm_coaching(ctx: UpdateContext) -> None:
     """LLM-powered coaching on guide/pause/reject verdicts only."""
     try:
@@ -141,6 +146,7 @@ async def enrich_llm_coaching(ctx: UpdateContext) -> None:
         logger.debug(f"LLM coaching enrichment skipped: {e}")
 
 
+@enrichment(order=50)
 def enrich_calibration_feedback(ctx: UpdateContext) -> None:
     """Add calibration feedback (complexity + confidence)."""
     try:
@@ -182,6 +188,7 @@ def enrich_calibration_feedback(ctx: UpdateContext) -> None:
 
 # ─── Warnings & Loop Detection ─────────────────────────────────────────
 
+@enrichment(order=60)
 def enrich_warnings(ctx: UpdateContext) -> None:
     """Collect warnings: loop cooldown, default agent_id, policy warnings."""
     try:
@@ -234,6 +241,7 @@ def enrich_warnings(ctx: UpdateContext) -> None:
 
 # ─── Metric Standardization ────────────────────────────────────────────
 
+@enrichment(order=70)
 def enrich_metric_standardization(ctx: UpdateContext) -> None:
     """Standardize metric reporting with agent_id and context."""
     try:
@@ -254,6 +262,7 @@ def enrich_metric_standardization(ctx: UpdateContext) -> None:
     except Exception as e:
         logger.debug(f"Could not standardize metrics: {e}")
 
+@enrichment(order=80)
 def enrich_health_status_toplevel(ctx: UpdateContext) -> None:
     """Ensure health_status is at top level for easy access."""
     try:
@@ -302,6 +311,7 @@ def enrich_health_status_toplevel(ctx: UpdateContext) -> None:
 
 # ─── CIRS Response Fields ──────────────────────────────────────────────
 
+@enrichment(order=90)
 def enrich_cirs_response_fields(ctx: UpdateContext) -> None:
     """Include CIRS protocol info (void alert, state announce, outcome event)."""
     try:
@@ -331,6 +341,7 @@ def enrich_cirs_response_fields(ctx: UpdateContext) -> None:
     except Exception as e:
         logger.debug(f"Could not enrich CIRS fields: {e}")
 
+@enrichment(order=100)
 def enrich_cirs_dampening_advisory(ctx: UpdateContext) -> None:
     """Surface CIRS oscillation dampening as an advisory when resonance is active."""
     try:
@@ -352,6 +363,7 @@ def enrich_cirs_dampening_advisory(ctx: UpdateContext) -> None:
     except Exception as e:
         logger.debug(f"Could not enrich CIRS dampening advisory: {e}")
 
+@enrichment(order=110)
 def enrich_detected_patterns(ctx: UpdateContext) -> None:
     """Surface pattern tracker detections (loops, time-box, untested hypotheses) as advisories."""
     try:
@@ -402,6 +414,7 @@ def enrich_detected_patterns(ctx: UpdateContext) -> None:
 
 # ─── Knowledge Surfacing ───────────────────────────────────────────────
 
+@enrichment(order=130)
 async def enrich_knowledge_surfacing(ctx: UpdateContext) -> None:
     """Surface top 3 relevant discoveries based on agent tags."""
     try:
@@ -434,6 +447,7 @@ async def enrich_knowledge_surfacing(ctx: UpdateContext) -> None:
 
 # ─── Onboarding Info ───────────────────────────────────────────────────
 
+@enrichment(order=120)
 def enrich_onboarding_info(ctx: UpdateContext) -> None:
     """Include onboarding guidance, API key hints, welcome message."""
     try:
@@ -487,6 +501,7 @@ def enrich_onboarding_info(ctx: UpdateContext) -> None:
 
 # ─── Convergence Guidance ──────────────────────────────────────────────
 
+@enrichment(order=140)
 async def enrich_convergence_guidance(ctx: UpdateContext) -> None:
     """Provide equilibrium-based convergence acceleration for new agents."""
     try:
@@ -576,6 +591,7 @@ async def enrich_convergence_guidance(ctx: UpdateContext) -> None:
 
 # ─── Anti-Stasis Perturbation ──────────────────────────────────────────
 
+@enrichment(order=150)
 async def enrich_anti_stasis_perturbation(ctx: UpdateContext) -> None:
     """Surface an open question for stable agents to prevent stasis."""
     try:
@@ -621,6 +637,7 @@ async def enrich_anti_stasis_perturbation(ctx: UpdateContext) -> None:
 
 # ─── Basin Tracking ────────────────────────────────────────────────────
 
+@enrichment(order=160)
 def enrich_basin_tracking(ctx: UpdateContext) -> None:
     """Surface v4.1 basin/convergence tracking when available."""
     try:
@@ -633,6 +650,7 @@ def enrich_basin_tracking(ctx: UpdateContext) -> None:
 
 # ─── Trajectory Identity ───────────────────────────────────────────────
 
+@enrichment(order=170)
 async def enrich_trajectory_identity(ctx: UpdateContext) -> None:
     """Compare trajectory signature if provided, or compute behavioral trajectory."""
     trajectory_signature = ctx.arguments.get("trajectory_signature")
@@ -783,6 +801,7 @@ async def enrich_trajectory_identity(ctx: UpdateContext) -> None:
 
 # ─── Saturation Diagnostics ────────────────────────────────────────────
 
+@enrichment(order=180)
 def enrich_saturation_diagnostics(ctx: UpdateContext) -> None:
     """v4.2-P saturation diagnostics — pressure gauge for I-channel."""
     try:
@@ -815,6 +834,7 @@ def enrich_saturation_diagnostics(ctx: UpdateContext) -> None:
 
 # ─── Pending Dialectic ─────────────────────────────────────────────────
 
+@enrichment(order=190)
 async def enrich_pending_dialectic(ctx: UpdateContext) -> None:
     """Notify agent of pending dialectic sessions where they owe a response."""
     try:
@@ -855,6 +875,7 @@ async def enrich_pending_dialectic(ctx: UpdateContext) -> None:
 
 # ─── EISV Validation ───────────────────────────────────────────────────
 
+@enrichment(order=200)
 def enrich_eisv_validation(ctx: UpdateContext) -> None:
     """Ensure all four EISV metrics are present (prevents selection bias)."""
     try:
@@ -868,6 +889,7 @@ def enrich_eisv_validation(ctx: UpdateContext) -> None:
 
 # ─── Learning Context ──────────────────────────────────────────────────
 
+@enrichment(order=210)
 async def enrich_learning_context(ctx: UpdateContext) -> None:
     """Surface agent's own history for in-context learning."""
     try:
@@ -1010,6 +1032,7 @@ async def enrich_learning_context(ctx: UpdateContext) -> None:
 
 # ─── WebSocket Broadcast ───────────────────────────────────────────────
 
+@enrichment(order=220)
 async def enrich_websocket_broadcast(ctx: UpdateContext) -> None:
     """Broadcast EISV update to dashboard via WebSocket."""
     try:
@@ -1127,6 +1150,7 @@ async def enrich_websocket_broadcast(ctx: UpdateContext) -> None:
 
 # ─── Mirror Signals ───────────────────────────────────────────────────
 
+@enrichment(order=240)
 async def enrich_mirror_signals(ctx: UpdateContext) -> None:
     """Build actionable self-awareness signals for mirror response mode.
 
@@ -1314,6 +1338,7 @@ def _generate_reflection_prompt(ctx: UpdateContext) -> str:
 
 # ─── Identity Notifications ──────────────────────────────────────────
 
+@enrichment(order=250)
 async def enrich_identity_notifications(ctx: UpdateContext) -> None:
     """Surface pending identity notifications (e.g., session accessed from elsewhere)."""
     try:
@@ -1346,6 +1371,7 @@ async def enrich_identity_notifications(ctx: UpdateContext) -> None:
 
 # ─── Thread Identity ───────────────────────────────────────────────────
 
+@enrichment(order=230)
 def enrich_thread_identity(ctx: UpdateContext) -> None:
     """Provide thread continuity context across sessions (honest forking)."""
     try:

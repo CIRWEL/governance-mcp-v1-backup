@@ -477,33 +477,8 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
         execute_locked_update,
         execute_post_update_effects,
     )
-    from .updates.enrichments import (
-        enrich_identity_reminder,
-        enrich_state_interpretation,
-        enrich_actionable_feedback,
-        enrich_llm_coaching,
-        enrich_calibration_feedback,
-        enrich_warnings,
-        enrich_metric_standardization,
-        enrich_health_status_toplevel,
-        enrich_cirs_response_fields,
-        enrich_cirs_dampening_advisory,
-        enrich_detected_patterns,
-        enrich_knowledge_surfacing,
-        enrich_onboarding_info,
-        enrich_convergence_guidance,
-        enrich_anti_stasis_perturbation,
-        enrich_basin_tracking,
-        enrich_trajectory_identity,
-        enrich_saturation_diagnostics,
-        enrich_pending_dialectic,
-        enrich_eisv_validation,
-        enrich_learning_context,
-        enrich_websocket_broadcast,
-        enrich_thread_identity,
-        enrich_mirror_signals,
-        enrich_identity_notifications,
-    )
+    from .updates.pipeline import run_enrichment_pipeline
+    import src.mcp_handlers.updates.enrichments  # noqa: F401 — triggers registration
 
     # MAGNET PATTERN: Accept fuzzy inputs (text, message, work -> response_text)
     arguments = apply_param_aliases("process_agent_update", arguments)
@@ -551,31 +526,7 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             ctx.response_data["eisv_labels"] = UNITARESMonitor.get_eisv_labels()
 
             # Run enrichments (each is fail-safe internally)
-            enrich_identity_reminder(ctx)
-            await enrich_state_interpretation(ctx)
-            enrich_actionable_feedback(ctx)
-            await enrich_llm_coaching(ctx)
-            enrich_calibration_feedback(ctx)
-            enrich_warnings(ctx)
-            enrich_metric_standardization(ctx)
-            enrich_health_status_toplevel(ctx)
-            enrich_cirs_response_fields(ctx)
-            enrich_cirs_dampening_advisory(ctx)
-            enrich_detected_patterns(ctx)
-            enrich_onboarding_info(ctx)
-            await enrich_knowledge_surfacing(ctx)
-            await enrich_convergence_guidance(ctx)
-            await enrich_anti_stasis_perturbation(ctx)
-            enrich_basin_tracking(ctx)
-            await enrich_trajectory_identity(ctx)
-            enrich_saturation_diagnostics(ctx)
-            await enrich_pending_dialectic(ctx)
-            enrich_eisv_validation(ctx)
-            await enrich_learning_context(ctx)
-            await enrich_websocket_broadcast(ctx)
-            enrich_thread_identity(ctx)
-            await enrich_mirror_signals(ctx)
-            await enrich_identity_notifications(ctx)
+            await run_enrichment_pipeline(ctx)
 
             # Response mode filtering
             try:
