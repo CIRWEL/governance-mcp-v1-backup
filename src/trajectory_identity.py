@@ -171,8 +171,22 @@ async def store_genesis_signature(
                 logger.debug(f"[Trajectory] Genesis immutable at tier {tier} for {agent_id[:8]}...")
                 return False
 
-            if new_confidence <= existing_confidence * 1.5:
-                # New signature isn't sufficiently better — keep existing
+            # Also reseed if lineage is below tier-2 threshold (0.7) — stale genesis
+            # traps agents in "emerging" forever. Compare current to genesis to check.
+            # Only check when signatures have comparable data (attractor/beliefs);
+            # similarity() returns 0.5 for empty data, which isn't a real signal.
+            lineage_low = False
+            try:
+                g = TrajectorySignature.from_dict(existing_genesis)
+                has_comparable_data = (g.attractor is not None or g.beliefs.get("values"))
+                if has_comparable_data:
+                    lineage_sim = signature.similarity(g)
+                    lineage_low = lineage_sim < 0.7
+            except Exception:
+                pass
+
+            if not lineage_low and new_confidence <= existing_confidence * 1.5:
+                # New signature isn't sufficiently better and lineage is fine — keep existing
                 logger.debug(f"[Trajectory] Genesis reseed skipped: {new_confidence:.2f} <= {existing_confidence:.2f}*1.5")
                 return False
 
@@ -251,9 +265,15 @@ async def update_current_signature(
                     result["lineage_similarity"] = 1.0
                     result["is_anomaly"] = False
                     result.pop("warning", None)
-                    # Refresh metadata after reseed
+                    # Refresh metadata after reseed, preserving trajectory_current
+                    # (store_genesis_signature only writes genesis, not current)
+                    current_sig = metadata.get("trajectory_current")
+                    updated_at = metadata.get("trajectory_updated_at")
                     identity = await db.get_identity(agent_id)
                     metadata = identity.metadata or {}
+                    if current_sig:
+                        metadata["trajectory_current"] = current_sig
+                        metadata["trajectory_updated_at"] = updated_at
         else:
             # No genesis - store this as genesis
             await store_genesis_signature(agent_id, signature)

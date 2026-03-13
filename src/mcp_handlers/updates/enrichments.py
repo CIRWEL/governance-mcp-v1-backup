@@ -680,6 +680,24 @@ async def enrich_trajectory_identity(ctx: UpdateContext) -> None:
     if not trajectory_signature or not isinstance(trajectory_signature, dict):
         return
 
+    # Override observation_count with governance lifetime count for ALL agents
+    # (including embodied agents that provide their own trajectory_signature).
+    # The anima-mcp observation_count tracks internal cycles, not governance check-ins.
+    try:
+        lifetime_updates = 0
+        monitor = ctx.monitor
+        if monitor:
+            lifetime_updates = getattr(monitor.state, 'update_count', 0)
+        if ctx.meta and hasattr(ctx.meta, 'total_updates'):
+            lifetime_updates = max(lifetime_updates, ctx.meta.total_updates)
+        if lifetime_updates > trajectory_signature.get("observation_count", 0):
+            trajectory_signature["observation_count"] = lifetime_updates
+            # Recompute identity_confidence with governance lifetime count
+            stability = trajectory_signature.get("stability_score", 0.5)
+            trajectory_signature["identity_confidence"] = min(1.0, lifetime_updates / 200.0) * stability
+    except Exception:
+        pass  # Non-critical: use original values
+
     try:
         from src.trajectory_identity import TrajectorySignature, update_current_signature
         sig = TrajectorySignature.from_dict(trajectory_signature)

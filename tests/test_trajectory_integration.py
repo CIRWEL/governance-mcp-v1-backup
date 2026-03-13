@@ -332,7 +332,9 @@ class TestUpdateCurrentSignature:
                     "recovery": {"tau_estimate": 5.0},
                     "stability_score": 0.2,
                     "observation_count": 10,
-                }
+                },
+                # Tier 2: genesis is immutable, so anomaly is detected, not auto-resolved
+                "trust_tier": {"tier": 2, "name": "established"},
             }
 
             mock_db_instance = AsyncMock()
