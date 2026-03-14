@@ -103,10 +103,9 @@ class TestGenerateAgentId:
         result = _generate_agent_id(client_hint="Cursor")
         assert result.startswith("cursor_")
 
-    def test_model_type_takes_priority(self):
+    def test_third_party_client_prefixed(self):
         result = _generate_agent_id(model_type="claude-opus-4-5", client_hint="cursor")
-        assert "Claude_Opus_4_5" in result
-        assert "cursor" not in result
+        assert "Cursor_Claude_Opus_4_5" in result
 
     def test_fallback_mcp(self):
         result = _generate_agent_id()

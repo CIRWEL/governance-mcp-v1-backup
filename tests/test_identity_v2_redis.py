@@ -113,9 +113,9 @@ class TestGenerateAgentId:
         result = self.generate()
         assert result.startswith("mcp_")
 
-    def test_model_takes_priority(self):
+    def test_third_party_client_prefixed(self):
         result = self.generate(model_type="gemini-pro", client_hint="cursor")
-        assert result.startswith("Gemini_Pro_")
+        assert result.startswith("Cursor_Gemini_Pro_")
 
     def test_empty_client_hint_uses_fallback(self):
         result = self.generate(client_hint="")

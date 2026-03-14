@@ -38,14 +38,47 @@ logger = get_logger(__name__)
 # AGENT ID GENERATION (model+date format)
 # =============================================================================
 
+def _client_differs_from_model(client_hint: str, model_type: str) -> bool:
+    """True if the client is a third-party wrapper, not native to the model vendor.
+
+    Prevents e.g. Cursor using Claude from being labeled as 'Claude_Opus_20260313'
+    instead of 'Cursor_Claude_Opus_20260313'.
+    """
+    hint = client_hint.lower()
+    model = model_type.lower()
+
+    if hint in ("unknown", ""):
+        return False
+
+    # Claude/Anthropic models: native clients contain "claude" or "anthropic"
+    if "claude" in model or "anthropic" in model:
+        return "claude" not in hint and "anthropic" not in hint
+
+    # Gemini models: native clients contain "gemini" or "google"
+    if "gemini" in model or "google" in model:
+        return "gemini" not in hint and "google" not in hint
+
+    # GPT/OpenAI models: native clients contain "chatgpt" or "openai"
+    if "gpt" in model or "openai" in model:
+        return "chatgpt" not in hint and "openai" not in hint
+
+    return False
+
+
 def _generate_agent_id(model_type: Optional[str] = None, client_hint: Optional[str] = None) -> str:
     """
     Generate agent_id in model+client+date format.
 
+    When a third-party client uses a model from a different vendor,
+    the client is prefixed to prevent identity confusion:
+        ("claude-opus-4-5", "cursor") -> "Cursor_Claude_Opus_4_5_20251227"
+        ("claude-opus-4-5", "claude_desktop") -> "Claude_Opus_4_5_20251227"
+
     Priority:
-    1. model_type (e.g., "claude-opus-4-5") -> "Claude_Opus_4_5_20251227"
-    2. client_hint (e.g., "cursor") -> "cursor_20251227"
-    3. fallback -> "mcp_20251227"
+    1. model_type with third-party client -> "Client_Model_20251227"
+    2. model_type alone -> "Model_20251227"
+    3. client_hint -> "client_20251227"
+    4. fallback -> "mcp_20251227"
 
     Args:
         model_type: Model identifier (e.g., "claude-opus-4-5", "gemini-pro")
@@ -62,6 +95,13 @@ def _generate_agent_id(model_type: Optional[str] = None, client_hint: Optional[s
         # Capitalize first letter of each word, replace separators with underscore
         model = model.replace("-", " ").replace(".", " ").replace("_", " ")
         model = "_".join(word.capitalize() for word in model.split())
+
+        # Third-party clients get prefixed to prevent identity confusion
+        if client_hint and _client_differs_from_model(client_hint, model_type):
+            client = client_hint.strip().replace("_", " ").replace("-", " ")
+            client = "_".join(word.capitalize() for word in client.split())
+            return f"{client}_{model}_{timestamp}"
+
         return f"{model}_{timestamp}"
     elif client_hint and client_hint not in ("unknown", ""):
         # Use client as fallback identifier

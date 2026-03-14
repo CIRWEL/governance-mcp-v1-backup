@@ -88,15 +88,36 @@ class TestGenerateAgentId:
         result = _generate_agent_id(model_type=None, client_hint="unknown")
         assert result == f"mcp_{today}"
 
-    def test_model_type_takes_precedence(self):
-        """Model type should take precedence over client_hint."""
+    def test_third_party_client_prefixed(self):
+        """Third-party client using a model should be prefixed to prevent identity confusion."""
         from src.mcp_handlers.identity.handlers import _generate_agent_id
 
         today = datetime.now().strftime("%Y%m%d")
 
-        # Both provided - model_type wins
+        # Cursor using Claude → prefixed with Cursor
         result = _generate_agent_id(model_type="claude", client_hint="cursor")
-        assert result == f"Claude_{today}"
+        assert result == f"Cursor_Claude_{today}"
+
+        result = _generate_agent_id(model_type="claude-opus-4-5", client_hint="cursor")
+        assert result == f"Cursor_Claude_Opus_4_5_{today}"
+
+        # VSCode using Claude → prefixed
+        result = _generate_agent_id(model_type="claude-sonnet-4", client_hint="vscode")
+        assert result == f"Vscode_Claude_Sonnet_4_{today}"
+
+    def test_native_client_not_prefixed(self):
+        """Native clients (same vendor as model) should NOT be prefixed."""
+        from src.mcp_handlers.identity.handlers import _generate_agent_id
+
+        today = datetime.now().strftime("%Y%m%d")
+
+        # Claude Desktop using Claude → no prefix
+        result = _generate_agent_id(model_type="claude-opus-4-5", client_hint="claude_desktop")
+        assert result == f"Claude_Opus_4_5_{today}"
+
+        # Claude Code using Claude → no prefix
+        result = _generate_agent_id(model_type="claude-opus-4-5", client_hint="claude_code")
+        assert result == f"Claude_Opus_4_5_{today}"
 
 
 class TestResolveSessionIdentityAgentId:
