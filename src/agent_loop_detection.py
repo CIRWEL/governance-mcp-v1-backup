@@ -519,6 +519,7 @@ async def _auto_initiate_dialectic_recovery(agent_id: str, reason: str) -> None:
                         meta.loop_cooldown_until = None
                         meta.loop_detected_at = None
                         meta.recent_update_timestamps = []
+                        meta.recent_decisions = []
                         meta.add_lifecycle_event(
                             "auto_resumed_dialectic",
                             f"LLM dialectic recommended RESUME: {content.get('message', '')[:100]}"

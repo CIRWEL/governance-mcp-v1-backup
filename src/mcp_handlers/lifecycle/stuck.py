@@ -402,6 +402,10 @@ async def _try_recover_agent(stuck: dict, note_cooldown_minutes: float) -> list:
 
             if meta.status in ["paused", "waiting_input"]:
                 meta.status = "active"
+                meta.paused_at = None
+                # Clear loop detector state to prevent immediate re-pause
+                from .self_recovery import clear_loop_detector_state
+                clear_loop_detector_state(meta)
                 results.append({"agent_id": agent_id, "action": "auto_resumed", "reason": stuck["reason"]})
             elif meta.status == "active":
                 results.extend(await _handle_safe_active_agent(

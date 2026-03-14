@@ -295,7 +295,7 @@ async def handle_check_recovery_options(arguments: Dict[str, Any]) -> Sequence[T
     if eligible:
         recommendations = [
             "You're eligible for self-recovery",
-            "Call self_recovery_review with a genuine reflection",
+            "Call self_recovery(action='review') with a genuine reflection",
             "Include specific conditions you'll follow",
         ]
     else:
@@ -657,6 +657,7 @@ async def handle_operator_resume_agent(arguments: Dict[str, Any]) -> Sequence[Te
     previous_status = target_meta.status
     target_meta.status = "active"
     target_meta.paused_at = None
+    clear_loop_detector_state(target_meta)
     target_meta.add_lifecycle_event(
         "operator_resumed",
         f"Resumed by operator {caller_uuid}: {reason}"

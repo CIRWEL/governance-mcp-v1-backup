@@ -103,6 +103,9 @@ async def handle_direct_resume_if_safe(arguments: Dict[str, Any]) -> Sequence[Te
     # Resume agent
     meta.status = "active"
     meta.paused_at = None
+    # Clear loop detector state to prevent immediate re-pause
+    from .self_recovery import clear_loop_detector_state
+    clear_loop_detector_state(meta)
     meta.add_lifecycle_event("resumed", f"Direct resume: {reason}. Conditions: {conditions}")
 
     # PostgreSQL: Update status (single source of truth)

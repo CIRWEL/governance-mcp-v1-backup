@@ -925,6 +925,9 @@ async def handle_resume_agent(arguments: Dict[str, Any]) -> Sequence[TextContent
 
     meta.status = "active"
     meta.paused_at = None
+    # Clear loop detector state to prevent immediate re-pause
+    from .self_recovery import clear_loop_detector_state
+    clear_loop_detector_state(meta)
     meta.add_lifecycle_event("resumed" if not is_stuck_unstick else "unstuck", reason)
 
     # PostgreSQL: Update status and refresh last_update to clear stuck detection
@@ -1559,7 +1562,7 @@ async def handle_self_recovery_review(arguments: Dict[str, Any]) -> Sequence[Tex
             "next_steps": [
                 "Review the guidance above",
                 "Add to your reflection if you have new insights",
-                "Try again with self_recovery_review() when ready",
+                "Try again with self_recovery(action='review') when ready",
                 "Or wait for metrics to improve naturally"
             ]
         })
