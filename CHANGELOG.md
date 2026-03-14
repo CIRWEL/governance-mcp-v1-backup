@@ -74,8 +74,15 @@ Additional refactors:
 - **LazyMCPServer singleton** — deduplicated `_LazyMCPServer` into `shared.lazy_mcp_server`, Pydantic runtime validation, `ConnectionTracker` extraction
 - Deleted dead code, organized scripts, decoupled transport, split `admin.py`
 
+### Changed — Agent-Facing Response Trimming
+
+- **`health_check` lite mode** (default `lite=true`) — returns only component status without nested info/stats blocks, reducing context window usage. Use `lite=false` for full diagnostic detail.
+- **KG `health_check()` lightweight** — runs 3 COUNT queries instead of full `get_stats()` census. Eliminates per-agent/per-tag breakdowns from every health check. `get_stats()` unchanged for admin use.
+- **Uninitialized agent verdict** — agents with zero check-ins now get `verdict: 'uninitialized'` with `guidance: 'Call process_agent_update to activate governance'` instead of a generic `caution` verdict.
+
 ### Fixed
 
+- **Health check CI timeout flake** — mocked Pi connectivity in all health_check tests to prevent real network calls timing out in GitHub Actions.
 - **`compute_equilibrium()` linear mode bug** — was using logistic quadratic formula regardless of I-dynamics mode, returning I*=1.0 instead of correct I*=A/γ_I≈0.85. Now checks `get_i_dynamics_mode()` and uses correct formula. Also includes `beta_complexity * complexity` term in S* and computes E* = αI*/(α + βₑS*) instead of E* ≈ I*.
 - **Inverted `is_bad` default** and unguarded NaN in outcome scores
 - **Coherence margin always "tight"** — str/float coercion and recovery tau noise fixes
