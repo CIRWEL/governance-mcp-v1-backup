@@ -1470,8 +1470,8 @@ async def handle_answer_question(arguments: Dict[str, Any]) -> Sequence[TextCont
                 details={"recent_questions": question_summaries},
                 recovery={
                     "action": "Try a different search term or use store_knowledge_graph with response_to",
-                    "related_tools": ["search_knowledge_graph"],
-                    "workflow": "1. search_knowledge_graph(discovery_type='question') 2. Use the discovery_id in response_to"
+                    "related_tools": ["knowledge"],
+                    "workflow": "1. knowledge(action='search', discovery_type='question', status='open') 2. Use the discovery_id in response_to"
                 }
             )]
 

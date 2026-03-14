@@ -199,7 +199,7 @@ _TOOL_ALIASES: Dict[str, ToolAlias] = {
         old_name="find_similar_discoveries_graph",
         new_name="search_knowledge_graph",
         reason="consolidated",
-        migration_note="Use search_knowledge_graph(semantic=true) for similarity search"
+        migration_note="Use knowledge(action='search', semantic=true) for similarity search"
     ),
     "get_related_discoveries_graph": ToolAlias(
         old_name="get_related_discoveries_graph",

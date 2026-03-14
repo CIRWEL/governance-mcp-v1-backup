@@ -222,7 +222,7 @@ async def handle_onboarding_and_resume(ctx: UpdateContext) -> Optional[Sequence[
                 elif question_count > 0:
                     ctx.onboarding_guidance["open_questions"] = {
                         "message": f"There are {question_count} open question(s) in the knowledge graph.",
-                        "suggestion": "Use search_knowledge_graph with discovery_type='question' and status='open' to find them.",
+                        "suggestion": "Use knowledge(action='search', discovery_type='question', status='open') to find them.",
                         "tool": "reply_to_question"
                     }
         except Exception as e:
