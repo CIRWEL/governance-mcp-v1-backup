@@ -33,9 +33,11 @@
 
 ---
 
-## Tool Count: 33 Registered Tools
+## Tools
 
-33 registered tools + aliases (status, list_agents, observe_agent, checkin, etc.). See [SKILL.md](../skills/unitares-governance/SKILL.md) for the full tool reference.
+8 consolidated tools (44 actions) + 30 standalone tools + 60 aliases. Consolidated tools group related operations under a single entry point with an `action` parameter (e.g., `knowledge(action='search')`, `pi(action='say')`). See [mcp-tools.md](../skills/unitares-governance/mcp-tools.md) for the full parameter reference.
+
+**Key additions since v2.7:** CIRS multi-agent coordination protocol, behavioral EISV for non-embodied agents, outcome event tracking, Pi orchestration tools, `bind_session` for identity continuity.
 
 ## Test Coverage
 
