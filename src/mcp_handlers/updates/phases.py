@@ -172,7 +172,7 @@ async def handle_onboarding_and_resume(ctx: UpdateContext) -> Optional[Sequence[
                 question_count = stats.get("by_type", {}).get("question", 0)
                 ctx.onboarding_guidance = {
                     "message": f"Welcome! The knowledge graph contains {stats['total_discoveries']} discoveries from {stats['total_agents']} agents.",
-                    "suggestion": "Use search_knowledge_graph to find relevant discoveries by tags or type.",
+                    "suggestion": "Use knowledge(action='search') to find relevant discoveries by tags or type.",
                     "example_tags": list(stats.get("by_type", {}).keys())[:5] if stats.get("by_type") else []
                 }
 

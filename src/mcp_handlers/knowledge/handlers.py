@@ -503,7 +503,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
                 error_msg,
                 recovery={
                     "action": "Wait before storing more discoveries, or reduce batch size",
-                    "related_tools": ["search_knowledge_graph"]
+                    "related_tools": ["knowledge"]
                 }
             )]
         # Other ValueError (validation errors, etc.)
