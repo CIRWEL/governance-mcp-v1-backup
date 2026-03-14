@@ -22,6 +22,10 @@ from src import agent_storage
 
 from .context import UpdateContext
 from ..utils import error_response
+from ..support.tool_hints import (
+    KNOWLEDGE_SEARCH_SUGGESTION,
+    KNOWLEDGE_OPEN_QUESTIONS_WORKFLOW,
+)
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
 logger = get_logger(__name__)
 
@@ -172,7 +176,7 @@ async def handle_onboarding_and_resume(ctx: UpdateContext) -> Optional[Sequence[
                 question_count = stats.get("by_type", {}).get("question", 0)
                 ctx.onboarding_guidance = {
                     "message": f"Welcome! The knowledge graph contains {stats['total_discoveries']} discoveries from {stats['total_agents']} agents.",
-                    "suggestion": "Use knowledge(action='search') to find relevant discoveries by tags or type.",
+                    "suggestion": KNOWLEDGE_SEARCH_SUGGESTION,
                     "example_tags": list(stats.get("by_type", {}).keys())[:5] if stats.get("by_type") else []
                 }
 
@@ -222,7 +226,7 @@ async def handle_onboarding_and_resume(ctx: UpdateContext) -> Optional[Sequence[
                 elif question_count > 0:
                     ctx.onboarding_guidance["open_questions"] = {
                         "message": f"There are {question_count} open question(s) in the knowledge graph.",
-                        "suggestion": "Use knowledge(action='search', discovery_type='question', status='open') to find them.",
+                        "suggestion": KNOWLEDGE_OPEN_QUESTIONS_WORKFLOW,
                         "tool": "reply_to_question"
                     }
         except Exception as e:

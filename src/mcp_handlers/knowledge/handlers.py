@@ -24,6 +24,10 @@ from config.governance_config import config
 from src.logging_utils import get_logger
 from src.perf_monitor import record_ms
 from ..support.llm_delegation import synthesize_results
+from ..support.tool_hints import (
+    KNOWLEDGE_SEARCH_TOOL,
+    KNOWLEDGE_OPEN_QUESTIONS_WORKFLOW,
+)
 
 logger = get_logger(__name__)
 
@@ -503,7 +507,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
                 error_msg,
                 recovery={
                     "action": "Wait before storing more discoveries, or reduce batch size",
-                    "related_tools": ["knowledge"]
+                    "related_tools": [KNOWLEDGE_SEARCH_TOOL]
                 }
             )]
         # Other ValueError (validation errors, etc.)
@@ -1470,8 +1474,8 @@ async def handle_answer_question(arguments: Dict[str, Any]) -> Sequence[TextCont
                 details={"recent_questions": question_summaries},
                 recovery={
                     "action": "Try a different search term or use store_knowledge_graph with response_to",
-                    "related_tools": ["knowledge"],
-                    "workflow": "1. knowledge(action='search', discovery_type='question', status='open') 2. Use the discovery_id in response_to"
+                    "related_tools": [KNOWLEDGE_SEARCH_TOOL],
+                    "workflow": KNOWLEDGE_OPEN_QUESTIONS_WORKFLOW,
                 }
             )]
 

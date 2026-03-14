@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
+from .support.tool_hints import KNOWLEDGE_SEARCH_SIMILARITY_MIGRATION_NOTE
 class ToolStability(Enum):
     """Tool stability tier - helps users know what to expect"""
     STABLE = "stable"  # Production-ready, won't change
@@ -199,7 +200,7 @@ _TOOL_ALIASES: Dict[str, ToolAlias] = {
         old_name="find_similar_discoveries_graph",
         new_name="search_knowledge_graph",
         reason="consolidated",
-        migration_note="Use knowledge(action='search', semantic=true) for similarity search"
+        migration_note=KNOWLEDGE_SEARCH_SIMILARITY_MIGRATION_NOTE
     ),
     "get_related_discoveries_graph": ToolAlias(
         old_name="get_related_discoveries_graph",
