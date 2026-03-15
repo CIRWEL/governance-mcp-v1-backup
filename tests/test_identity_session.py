@@ -218,10 +218,12 @@ class TestUnifiedDeriveSessionKey:
     async def test_priority_1_explicit_client_session_id(self):
         """arguments['client_session_id'] has highest priority."""
         from src.mcp_handlers.identity.handlers import derive_session_key
+        from src.mcp_handlers.context import get_session_resolution_source
         from src.mcp_handlers.context import SessionSignals
         signals = SessionSignals(mcp_session_id="mcp-id", x_session_id="x-id")
         result = await derive_session_key(signals, {"client_session_id": "explicit-123"})
         assert result == "explicit-123"
+        assert get_session_resolution_source() == "explicit_client_session_id"
 
     @pytest.mark.asyncio
     async def test_priority_1_continuity_token(self):
@@ -468,6 +470,16 @@ class TestSessionKeyValidation:
         from src.mcp_handlers.identity.handlers import resolve_session_identity
         result = await resolve_session_identity(session_key="test\x00null\x01ctrl")
         assert result["created"] is True
+
+
+class TestContinuitySupportStatus:
+
+    def test_support_status_disabled_without_secret(self):
+        from src.mcp_handlers.identity.handlers import continuity_token_support_status
+        with patch.dict("os.environ", {}, clear=True):
+            status = continuity_token_support_status()
+        assert status["enabled"] is False
+        assert status["secret_source"] is None
 
 
 # ============================================================================

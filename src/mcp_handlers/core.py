@@ -140,6 +140,13 @@ async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequenc
         include_timestamp=True,
         include_context=True
     )
+    try:
+        from .context import get_session_resolution_source
+        standardized_metrics["session_continuity"] = {
+            "resolution_source": get_session_resolution_source(),
+        }
+    except Exception:
+        pass
     
     # Add agent purpose if available (v2.5.2+)
     meta = mcp_server.agent_metadata.get(agent_id)

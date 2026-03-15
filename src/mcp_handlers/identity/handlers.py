@@ -41,6 +41,7 @@ from .session import (
     set_onboard_pin,
     create_continuity_token,
     resolve_continuity_token,
+    continuity_token_support_status,
 )
 
 # --- identity_persistence ---
@@ -453,6 +454,12 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
         model_type=model_type,
         client_hint=arguments.get("client_hint"),
     )
+    try:
+        from ..context import get_session_resolution_source
+        continuity_source = get_session_resolution_source()
+    except Exception:
+        continuity_source = None
+    continuity_support = continuity_token_support_status()
 
     response_data = {
         "uuid": agent_uuid,
@@ -518,6 +525,8 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
                 "Prefer continuity_token for robust resume. "
                 "Use client_session_id when token support is unavailable."
             )
+    response_data["session_continuity"]["resolution_source"] = continuity_source
+    response_data["session_continuity"]["token_support"] = continuity_support
 
     # Use lite_response to skip redundant agent_signature (identity already contains all that info)
     if arguments is None:
@@ -1034,6 +1043,12 @@ def _build_onboard_response(
     thread_context: Optional[dict] = None,
 ) -> dict:
     """Build the onboard response payload (templates, tips, welcome, thread context)."""
+    try:
+        from ..context import get_session_resolution_source
+        continuity_source = get_session_resolution_source()
+    except Exception:
+        continuity_source = None
+    continuity_support = continuity_token_support_status()
     continuity_token = create_continuity_token(
         agent_uuid,
         stable_session_id,
@@ -1151,7 +1166,9 @@ def _build_onboard_response(
         "session_continuity": {
             "client_session_id": stable_session_id,
             "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
-            "tip": client_tips.get(client_hint, client_tips["unknown"])
+            "tip": client_tips.get(client_hint, client_tips["unknown"]),
+            "resolution_source": continuity_source,
+            "token_support": continuity_support,
         },
 
         # The toolcard

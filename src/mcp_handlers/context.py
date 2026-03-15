@@ -66,6 +66,7 @@ _transport_client_hint: ContextVar[Optional[str]] = ContextVar('transport_client
 # MCP session ID - extracted from mcp-session-id header at ASGI layer
 # This enables implicit identity binding without clients manually passing client_session_id
 _mcp_session_id: ContextVar[Optional[str]] = ContextVar('mcp_session_id', default=None)
+_session_resolution_source: ContextVar[Optional[str]] = ContextVar('session_resolution_source', default=None)
 
 def set_session_context(
     session_key: Optional[str] = None,
@@ -179,6 +180,21 @@ def get_mcp_session_id() -> Optional[str]:
     mcp-session-id header. Use for identity binding when available.
     """
     return _mcp_session_id.get()
+
+
+def set_session_resolution_source(source: str) -> object:
+    """Set session resolution source for current request."""
+    return _session_resolution_source.set(source)
+
+
+def reset_session_resolution_source(token: object) -> None:
+    """Reset session resolution source."""
+    _session_resolution_source.reset(token)
+
+
+def get_session_resolution_source() -> Optional[str]:
+    """Get session resolution source for current request."""
+    return _session_resolution_source.get()
 
 # Trajectory identity confidence - set during dispatch if verification runs
 _trajectory_confidence: ContextVar[Optional[float]] = ContextVar('trajectory_confidence', default=None)

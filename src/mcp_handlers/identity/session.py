@@ -22,6 +22,17 @@ _PIN_TTL = 1800  # 30 minutes — refresh on use
 _CONTINUITY_TTL = 30 * 24 * 3600  # 30 days
 
 
+def continuity_token_support_status() -> Dict[str, Any]:
+    """Return continuity token support details for diagnostics."""
+    if os.getenv("UNITARES_CONTINUITY_TOKEN_SECRET"):
+        return {"enabled": True, "secret_source": "UNITARES_CONTINUITY_TOKEN_SECRET"}
+    if os.getenv("UNITARES_HTTP_API_TOKEN"):
+        return {"enabled": True, "secret_source": "UNITARES_HTTP_API_TOKEN"}
+    if os.getenv("UNITARES_API_TOKEN"):
+        return {"enabled": True, "secret_source": "UNITARES_API_TOKEN"}
+    return {"enabled": False, "secret_source": None}
+
+
 def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
@@ -215,6 +226,13 @@ async def derive_session_key(
 
     arguments = arguments or {}
 
+    def _mark(source: str) -> None:
+        try:
+            from ..context import set_session_resolution_source
+            set_session_resolution_source(source)
+        except Exception:
+            pass
+
     # 1. Signed continuity token (preferred over raw IDs when provided)
     if arguments.get("continuity_token"):
         resolved = resolve_continuity_token(
@@ -223,7 +241,9 @@ async def derive_session_key(
             user_agent=signals.user_agent if signals else None,
         )
         if resolved:
+            _mark("continuity_token")
             return resolved
+        _mark("continuity_token_invalid")
 
     # 2. Explicit from arguments
     if arguments.get("client_session_id"):
@@ -236,24 +256,31 @@ async def derive_session_key(
         # same client_session_id across multiple model families.
         if explicit_model:
             if explicit.endswith(f":{explicit_model}"):
+                _mark("explicit_client_session_id")
                 return explicit
+            _mark("explicit_client_session_id_scoped")
             return f"{explicit}:{explicit_model}"
+        _mark("explicit_client_session_id")
         return explicit
 
     # 3. MCP protocol session ID (stable, no pin needed)
     if signals and signals.mcp_session_id:
+        _mark("mcp_session_id")
         return f"mcp:{signals.mcp_session_id}"
 
     # 4. Explicit HTTP session header (stable, no pin needed)
     if signals and signals.x_session_id:
+        _mark("x_session_id")
         return signals.x_session_id
 
     # 5. OAuth client identity (stable, no pin needed)
     if signals and signals.oauth_client_id:
+        _mark("oauth_client_id")
         return signals.oauth_client_id
 
     # 6. Explicit client ID header
     if signals and signals.x_client_id:
+        _mark("x_client_id")
         return signals.x_client_id
 
     # 7. IP:UA fingerprint with integrated pin lookup
@@ -274,7 +301,9 @@ async def derive_session_key(
             for candidate in scoped_candidates:
                 pinned = await lookup_onboard_pin(candidate)
                 if pinned:
+                    _mark("pinned_onboard_session")
                     return pinned
+        _mark("ip_ua_fingerprint")
         return signals.ip_ua_fingerprint
 
     # 8. Fallback: contextvars (for callers without signals)
@@ -283,14 +312,17 @@ async def derive_session_key(
         from ..context import get_mcp_session_id, get_context_session_key
         mcp_sid = get_mcp_session_id()
         if mcp_sid:
+            _mark("context_mcp_session_id")
             return f"mcp:{mcp_sid}"
         ctx_key = get_context_session_key()
         if ctx_key:
+            _mark("context_session_key")
             return str(ctx_key)
     except Exception:
         pass
 
     # 9. stdio fallback
+    _mark("stdio_fallback")
     return f"stdio:{os.getpid()}"
 
 

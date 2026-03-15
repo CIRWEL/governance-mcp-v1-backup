@@ -223,6 +223,7 @@ def _isolate_identity_state():
             _transport_client_hint,
             _session_signals,
             _trajectory_confidence,
+            _session_resolution_source,
         )
         # Reset each contextvar to its default by setting then immediately
         # using the ContextVar default mechanism
@@ -231,6 +232,7 @@ def _isolate_identity_state():
         _transport_client_hint.set(None)
         _session_signals.set(None)
         _trajectory_confidence.set(None)
+        _session_resolution_source.set(None)
     except Exception:
         pass
 

@@ -25,6 +25,9 @@ from src.mcp_handlers.context import (
     set_mcp_session_id,
     reset_mcp_session_id,
     get_mcp_session_id,
+    set_session_resolution_source,
+    reset_session_resolution_source,
+    get_session_resolution_source,
     detect_client_from_user_agent,
 )
 
@@ -147,6 +150,16 @@ class TestMcpSessionId:
         token = set_mcp_session_id("temp-id")
         reset_mcp_session_id(token)
         # After reset, should be back to previous value
+
+
+class TestSessionResolutionSource:
+
+    def test_set_and_get(self):
+        token = set_session_resolution_source("continuity_token")
+        try:
+            assert get_session_resolution_source() == "continuity_token"
+        finally:
+            reset_session_resolution_source(token)
 
 
 class TestDetectClientFromUserAgent:
