@@ -277,7 +277,7 @@ def set_workspace_last_agent(mcp_server, agent_id: str) -> None:
     except Exception:
         pass  # Non-critical
 
-@mcp_tool("health_check", timeout=10.0, rate_limit_exempt=True)
+@mcp_tool("health_check", timeout=20.0, rate_limit_exempt=True)
 async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Handle health_check tool - quick health check of system components"""
     import asyncio
@@ -506,8 +506,8 @@ async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent
         import time as _time
         pi_start = _time.time()
         pi_result = await asyncio.wait_for(
-            call_pi_tool("get_health", {}, timeout=5.0),
-            timeout=6.0
+            call_pi_tool("get_health", {}, timeout=3.0),
+            timeout=4.0
         )
         pi_latency = (_time.time() - pi_start) * 1000
         if isinstance(pi_result, dict) and "error" not in pi_result:
