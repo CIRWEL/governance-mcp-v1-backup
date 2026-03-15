@@ -17,6 +17,8 @@ from src.mcp_handlers.identity.handlers import (
     _generate_agent_id,
     _get_date_context,
     derive_session_key,
+    create_continuity_token,
+    resolve_continuity_token,
 )
 
 
@@ -142,6 +144,11 @@ class TestDeriveSessionKey:
         assert result == "my-session-123"
 
     @pytest.mark.asyncio
+    async def test_explicit_client_session_id_scoped_by_model_type(self):
+        result = await derive_session_key(None, {"client_session_id": "my-session-123", "model_type": "gpt-5-codex"})
+        assert result == "my-session-123:gpt"
+
+    @pytest.mark.asyncio
     async def test_explicit_takes_priority(self):
         """client_session_id should take priority over context."""
         result = await derive_session_key(None, {"client_session_id": "explicit-id"})
@@ -193,3 +200,28 @@ class TestDeriveSessionKey:
     async def test_returns_string(self):
         result = await derive_session_key(None, {})
         assert isinstance(result, str)
+
+
+class TestContinuityToken:
+
+    def test_create_and_resolve_roundtrip(self):
+        with patch.dict("os.environ", {"UNITARES_CONTINUITY_TOKEN_SECRET": "test-secret"}, clear=False):
+            token = create_continuity_token(
+                "11111111-2222-3333-4444-555555555555",
+                "agent-111111111111:gpt",
+                model_type="gpt-5-codex",
+                client_hint="chatgpt",
+            )
+            assert token is not None
+            resolved = resolve_continuity_token(token, model_type="gpt-5-codex")
+            assert resolved == "agent-111111111111:gpt"
+
+    def test_resolve_fails_on_model_mismatch(self):
+        with patch.dict("os.environ", {"UNITARES_CONTINUITY_TOKEN_SECRET": "test-secret"}, clear=False):
+            token = create_continuity_token(
+                "11111111-2222-3333-4444-555555555555",
+                "agent-111111111111:claude",
+                model_type="claude-opus-4-5",
+                client_hint="claude_desktop",
+            )
+            assert resolve_continuity_token(token, model_type="gpt-5-codex") is None

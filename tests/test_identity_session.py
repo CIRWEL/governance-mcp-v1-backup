@@ -224,6 +224,59 @@ class TestUnifiedDeriveSessionKey:
         assert result == "explicit-123"
 
     @pytest.mark.asyncio
+    async def test_priority_1_continuity_token(self):
+        """Signed continuity_token should be preferred when valid."""
+        from src.mcp_handlers.identity.handlers import derive_session_key, create_continuity_token
+        from src.mcp_handlers.context import SessionSignals
+
+        with patch.dict("os.environ", {"UNITARES_CONTINUITY_TOKEN_SECRET": "test-secret"}, clear=False):
+            token = create_continuity_token(
+                "11111111-2222-3333-4444-555555555555",
+                "agent-111111111111:gpt",
+                model_type="gpt-5-codex",
+                client_hint="chatgpt",
+            )
+            signals = SessionSignals(user_agent="Codex/CLI")
+            result = await derive_session_key(
+                signals,
+                {"continuity_token": token, "client_session_id": "wrong-session", "model_type": "gpt-5-codex"},
+            )
+            assert result == "agent-111111111111:gpt"
+
+    @pytest.mark.asyncio
+    async def test_priority_1_continuity_token_model_mismatch_ignored(self):
+        """Token with mismatched model scope should not be used."""
+        from src.mcp_handlers.identity.handlers import derive_session_key, create_continuity_token
+        from src.mcp_handlers.context import SessionSignals
+
+        with patch.dict("os.environ", {"UNITARES_CONTINUITY_TOKEN_SECRET": "test-secret"}, clear=False):
+            token = create_continuity_token(
+                "11111111-2222-3333-4444-555555555555",
+                "agent-111111111111:claude",
+                model_type="claude-opus-4-5",
+                client_hint="claude_desktop",
+            )
+            signals = SessionSignals(user_agent="Codex/CLI")
+            result = await derive_session_key(
+                signals,
+                {"continuity_token": token, "client_session_id": "explicit-123", "model_type": "gpt-5-codex"},
+            )
+            assert result == "explicit-123:gpt"
+
+    @pytest.mark.asyncio
+    async def test_priority_1_explicit_client_session_id_scoped_by_model(self):
+        """Explicit client_session_id is model-scoped when model_type is present."""
+        from src.mcp_handlers.identity.handlers import derive_session_key
+        from src.mcp_handlers.context import SessionSignals
+
+        signals = SessionSignals(user_agent="Codex/CLI")
+        result = await derive_session_key(
+            signals,
+            {"client_session_id": "explicit-123", "model_type": "gpt-5-codex"},
+        )
+        assert result == "explicit-123:gpt"
+
+    @pytest.mark.asyncio
     async def test_priority_2_mcp_session_id(self):
         """mcp_session_id from signals is second priority."""
         from src.mcp_handlers.identity.handlers import derive_session_key
@@ -278,6 +331,59 @@ class TestUnifiedDeriveSessionKey:
         with patch("src.mcp_handlers.identity.session.lookup_onboard_pin", new_callable=AsyncMock, return_value="agent-pinned123"):
             result = await derive_session_key(signals, {})
         assert result == "agent-pinned123"
+
+    @pytest.mark.asyncio
+    async def test_priority_6_scoped_pin_prefers_model_client(self):
+        """Scoped pin keys should be tried before unscoped keys."""
+        from src.mcp_handlers.identity.handlers import derive_session_key
+        from src.mcp_handlers.context import SessionSignals
+
+        signals = SessionSignals(
+            ip_ua_fingerprint="1.2.3.4:abc123",
+            client_hint="chatgpt",
+            user_agent="Codex/CLI",
+        )
+
+        async def lookup_side_effect(key, refresh_ttl=True):
+            if key == "ua:abc123|chatgpt|gpt":
+                return "agent-scoped123"
+            return None
+
+        with patch(
+            "src.mcp_handlers.identity.session.lookup_onboard_pin",
+            new_callable=AsyncMock,
+            side_effect=lookup_side_effect,
+        ):
+            result = await derive_session_key(signals, {"model_type": "gpt-5-codex"})
+
+        assert result == "agent-scoped123"
+
+    @pytest.mark.asyncio
+    async def test_priority_6_scoped_pin_does_not_fallback_to_unscoped(self):
+        """When scoped signals exist, unscoped pin fallback is intentionally skipped."""
+        from src.mcp_handlers.identity.handlers import derive_session_key
+        from src.mcp_handlers.context import SessionSignals
+
+        signals = SessionSignals(
+            ip_ua_fingerprint="1.2.3.4:abc123",
+            client_hint="chatgpt",
+            user_agent="Codex/CLI",
+        )
+        seen_keys = []
+
+        async def lookup_side_effect(key, refresh_ttl=True):
+            seen_keys.append(key)
+            return None
+
+        with patch(
+            "src.mcp_handlers.identity.session.lookup_onboard_pin",
+            new_callable=AsyncMock,
+            side_effect=lookup_side_effect,
+        ):
+            result = await derive_session_key(signals, {"model_type": "gpt-5-codex"})
+
+        assert result == "1.2.3.4:abc123"
+        assert "ua:abc123" not in seen_keys
 
     @pytest.mark.asyncio
     async def test_priority_7_contextvars_fallback(self):

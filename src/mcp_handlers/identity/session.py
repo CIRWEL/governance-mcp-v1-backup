@@ -9,12 +9,189 @@ from __future__ import annotations
 from typing import Optional, Dict, Any
 import os
 import hashlib
+import base64
+import hmac
+import json
+import time
 
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
 _PIN_TTL = 1800  # 30 minutes — refresh on use
+_CONTINUITY_TTL = 30 * 24 * 3600  # 30 days
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+
+def _b64url_decode(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+
+def _get_continuity_secret() -> Optional[bytes]:
+    """Get the HMAC secret used for continuity tokens."""
+    secret = (
+        os.getenv("UNITARES_CONTINUITY_TOKEN_SECRET")
+        or os.getenv("UNITARES_HTTP_API_TOKEN")
+        or os.getenv("UNITARES_API_TOKEN")
+    )
+    if not secret:
+        return None
+    return secret.encode()
+
+
+def create_continuity_token(
+    agent_uuid: str,
+    client_session_id: str,
+    *,
+    model_type: Optional[str] = None,
+    client_hint: Optional[str] = None,
+    ttl_seconds: int = _CONTINUITY_TTL,
+) -> Optional[str]:
+    """Create a signed continuity token for robust session resumption."""
+    secret = _get_continuity_secret()
+    if not secret or not client_session_id or not agent_uuid:
+        return None
+
+    now = int(time.time())
+    payload = {
+        "v": 1,
+        "sid": str(client_session_id),
+        "aid": str(agent_uuid),
+        "mf": _normalize_pin_model_type(model_type),
+        "ch": _normalize_pin_client_hint(client_hint),
+        "iat": now,
+        "exp": now + max(60, int(ttl_seconds)),
+    }
+    payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    payload_b64 = _b64url_encode(payload_json)
+    sig_b64 = _b64url_encode(hmac.new(secret, payload_b64.encode(), hashlib.sha256).digest())
+    return f"v1.{payload_b64}.{sig_b64}"
+
+
+def resolve_continuity_token(
+    token: str,
+    *,
+    model_type: Optional[str] = None,
+    user_agent: Optional[str] = None,
+) -> Optional[str]:
+    """Verify and resolve continuity token to client_session_id."""
+    if not token or not isinstance(token, str):
+        return None
+    secret = _get_continuity_secret()
+    if not secret:
+        return None
+
+    try:
+        version, payload_b64, sig_b64 = token.split(".", 2)
+        if version != "v1":
+            return None
+
+        expected_sig = _b64url_encode(hmac.new(secret, payload_b64.encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(expected_sig, sig_b64):
+            return None
+
+        payload = json.loads(_b64url_decode(payload_b64).decode())
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+
+        sid = payload.get("sid")
+        if not sid or not isinstance(sid, str):
+            return None
+
+        expected_model = _normalize_pin_model_type(model_type, user_agent)
+        token_model = payload.get("mf")
+        if expected_model and token_model and token_model != expected_model:
+            return None
+
+        return sid
+    except Exception:
+        return None
+
+
+def _normalize_pin_client_hint(client_hint: Optional[str]) -> Optional[str]:
+    """Normalize client hint for scoped pin keys."""
+    if not client_hint:
+        return None
+    normalized = str(client_hint).strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized or None
+
+
+def _normalize_pin_model_type(
+    model_type: Optional[str],
+    user_agent: Optional[str] = None,
+) -> Optional[str]:
+    """Normalize model family for scoped pin keys.
+
+    Falls back to coarse user-agent inference when explicit model_type is absent.
+    """
+    raw = (model_type or "").strip().lower()
+
+    # Coarse UA fallback keeps pinning deterministic without importing identity resolution.
+    if not raw and user_agent:
+        ua = user_agent.lower()
+        if "codex" in ua or "chatgpt" in ua or "openai" in ua or "gpt" in ua:
+            raw = "gpt"
+        elif "claude" in ua or "anthropic" in ua:
+            raw = "claude"
+        elif "gemini" in ua or "google" in ua:
+            raw = "gemini"
+        elif "llama" in ua:
+            raw = "llama"
+
+    if not raw:
+        return None
+
+    normalized = raw.replace("-", "_").replace(".", "_")
+    if "claude" in normalized:
+        return "claude"
+    if "gemini" in normalized:
+        return "gemini"
+    if "gpt" in normalized or "chatgpt" in normalized or "codex" in normalized or "openai" in normalized:
+        return "gpt"
+    if "llama" in normalized:
+        return "llama"
+    if "composer" in normalized or "cursor" in normalized:
+        return "composer"
+    return normalized
+
+
+def _build_pin_fingerprint_candidates(
+    base_fingerprint: str,
+    *,
+    client_hint: Optional[str] = None,
+    model_type: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    include_unscoped_fallback: bool = True,
+) -> list[str]:
+    """Build pin-key candidates ordered from most to least specific."""
+    if not base_fingerprint:
+        return []
+
+    client = _normalize_pin_client_hint(client_hint)
+    model = _normalize_pin_model_type(model_type, user_agent)
+    candidates: list[str] = []
+
+    if client and model:
+        candidates.append(f"{base_fingerprint}|{client}|{model}")
+    if client:
+        candidates.append(f"{base_fingerprint}|{client}")
+    if model:
+        candidates.append(f"{base_fingerprint}|{model}")
+    if include_unscoped_fallback:
+        candidates.append(base_fingerprint)
+
+    # Preserve order while deduplicating
+    seen = set()
+    ordered = []
+    for item in candidates:
+        if item not in seen:
+            seen.add(item)
+            ordered.append(item)
+    return ordered
 
 
 async def derive_session_key(
@@ -24,49 +201,83 @@ async def derive_session_key(
     """Single source of truth for session key derivation.
 
     Priority (highest to lowest):
-    1. arguments["client_session_id"]  — explicit from caller
-    2. MCP protocol session ID         — stable, no pin needed
-    3. Explicit HTTP session header     — stable, no pin needed
-    4. OAuth client identity            — stable, no pin needed
-    5. Explicit client ID header        — stable-ish
-    6. IP:UA fingerprint + pin lookup   — unstable, needs pin
-    7. Contextvars fallback             — backward compat (remove once all callers pass signals)
-    8. stdio fallback                   — single-user / Claude Desktop
+    1. arguments["continuity_token"]   — signed resume token (preferred)
+    2. arguments["client_session_id"]  — explicit from caller
+    3. MCP protocol session ID         — stable, no pin needed
+    4. Explicit HTTP session header     — stable, no pin needed
+    5. OAuth client identity            — stable, no pin needed
+    6. Explicit client ID header        — stable-ish
+    7. IP:UA fingerprint + pin lookup   — unstable, needs pin
+    8. Contextvars fallback             — backward compat (remove once all callers pass signals)
+    9. stdio fallback                   — single-user / Claude Desktop
     """
     from ..context import SessionSignals  # type hint import
 
     arguments = arguments or {}
 
-    # 1. Explicit from arguments (highest priority)
-    if arguments.get("client_session_id"):
-        return str(arguments["client_session_id"])
+    # 1. Signed continuity token (preferred over raw IDs when provided)
+    if arguments.get("continuity_token"):
+        resolved = resolve_continuity_token(
+            str(arguments["continuity_token"]),
+            model_type=arguments.get("model_type"),
+            user_agent=signals.user_agent if signals else None,
+        )
+        if resolved:
+            return resolved
 
-    # 2. MCP protocol session ID (stable, no pin needed)
+    # 2. Explicit from arguments
+    if arguments.get("client_session_id"):
+        explicit = str(arguments["client_session_id"])
+        explicit_model = _normalize_pin_model_type(
+            arguments.get("model_type"),
+            signals.user_agent if signals else None,
+        )
+        # Harden against cross-model identity bleed when a caller reuses the
+        # same client_session_id across multiple model families.
+        if explicit_model:
+            if explicit.endswith(f":{explicit_model}"):
+                return explicit
+            return f"{explicit}:{explicit_model}"
+        return explicit
+
+    # 3. MCP protocol session ID (stable, no pin needed)
     if signals and signals.mcp_session_id:
         return f"mcp:{signals.mcp_session_id}"
 
-    # 3. Explicit HTTP session header (stable, no pin needed)
+    # 4. Explicit HTTP session header (stable, no pin needed)
     if signals and signals.x_session_id:
         return signals.x_session_id
 
-    # 4. OAuth client identity (stable, no pin needed)
+    # 5. OAuth client identity (stable, no pin needed)
     if signals and signals.oauth_client_id:
         return signals.oauth_client_id
 
-    # 5. Explicit client ID header
+    # 6. Explicit client ID header
     if signals and signals.x_client_id:
         return signals.x_client_id
 
-    # 6. IP:UA fingerprint with integrated pin lookup
+    # 7. IP:UA fingerprint with integrated pin lookup
     if signals and signals.ip_ua_fingerprint:
         base_fp = _extract_base_fingerprint(signals.ip_ua_fingerprint)
         if base_fp:
-            pinned = await lookup_onboard_pin(base_fp)
-            if pinned:
-                return pinned
+            hint = (arguments.get("client_hint") or signals.client_hint) if arguments else signals.client_hint
+            model = arguments.get("model_type") if arguments else None
+            scoped_candidates = _build_pin_fingerprint_candidates(
+                base_fp,
+                client_hint=hint,
+                model_type=model,
+                user_agent=signals.user_agent,
+                # If we have scope signals, do NOT fall back to unscoped pin to
+                # avoid cross-model/session identity bleed.
+                include_unscoped_fallback=not bool(hint or model),
+            )
+            for candidate in scoped_candidates:
+                pinned = await lookup_onboard_pin(candidate)
+                if pinned:
+                    return pinned
         return signals.ip_ua_fingerprint
 
-    # 7. Fallback: contextvars (for callers without signals)
+    # 8. Fallback: contextvars (for callers without signals)
     # Backward compat — remove once all callers pass signals
     try:
         from ..context import get_mcp_session_id, get_context_session_key
@@ -79,7 +290,7 @@ async def derive_session_key(
     except Exception:
         pass
 
-    # 8. stdio fallback
+    # 9. stdio fallback
     return f"stdio:{os.getpid()}"
 
 
@@ -162,7 +373,15 @@ async def lookup_onboard_pin(base_fingerprint: str, *, refresh_ttl: bool = True)
         return None
 
 
-async def set_onboard_pin(base_fingerprint: str, agent_uuid: str, client_session_id: str) -> bool:
+async def set_onboard_pin(
+    base_fingerprint: str,
+    agent_uuid: str,
+    client_session_id: str,
+    *,
+    client_hint: Optional[str] = None,
+    model_type: Optional[str] = None,
+    user_agent: Optional[str] = None,
+) -> bool:
     """Set a pin mapping a transport fingerprint to an onboarded agent.
 
     Called by handle_onboard_v2() after successful onboard.
@@ -184,13 +403,26 @@ async def set_onboard_pin(base_fingerprint: str, agent_uuid: str, client_session
         if not raw_redis:
             logger.warning("[ONBOARD_PIN] Redis not available for pin-setting")
             return False
-        pin_key = f"recent_onboard:{base_fingerprint}"
+        candidates = _build_pin_fingerprint_candidates(
+            base_fingerprint,
+            client_hint=client_hint,
+            model_type=model_type,
+            user_agent=user_agent,
+            # If we can scope by model/client, avoid writing unscoped pin to
+            # prevent collisions across mixed-model traffic sharing one UA hash.
+            include_unscoped_fallback=not bool(client_hint or model_type),
+        )
+        if not candidates:
+            return False
+
         pin_data = _json.dumps({
             "agent_uuid": agent_uuid,
             "client_session_id": client_session_id,
         })
-        await raw_redis.setex(pin_key, _PIN_TTL, pin_data)
-        logger.info(f"[ONBOARD_PIN] Set {pin_key} -> {agent_uuid[:8]}...")
+        for fp in candidates:
+            pin_key = f"recent_onboard:{fp}"
+            await raw_redis.setex(pin_key, _PIN_TTL, pin_data)
+            logger.info(f"[ONBOARD_PIN] Set {pin_key} -> {agent_uuid[:8]}...")
         return True
     except Exception as e:
         logger.warning(f"[ONBOARD_PIN] Could not set pin: {e}")

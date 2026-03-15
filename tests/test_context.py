@@ -169,6 +169,12 @@ class TestDetectClientFromUserAgent:
     def test_openai(self):
         assert detect_client_from_user_agent("OpenAI/Agent") == "chatgpt"
 
+    def test_codex(self):
+        assert detect_client_from_user_agent("Codex/CLI") == "chatgpt"
+
+    def test_mixed_ua_prefers_openai(self):
+        assert detect_client_from_user_agent("Anthropic proxy OpenAI Codex") == "chatgpt"
+
     def test_vscode(self):
         assert detect_client_from_user_agent("VSCode/1.85") == "vscode"
 

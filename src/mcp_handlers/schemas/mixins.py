@@ -3,6 +3,10 @@ from pydantic import BaseModel, Field
 
 class AgentIdentityMixin(BaseModel):
     """Common parameters for tools that require agent orchestration."""
+    continuity_token: Optional[str] = Field(
+        default=None,
+        description="Signed continuity token from onboard()/identity(). Prefer this for robust resume."
+    )
     client_session_id: Optional[str] = Field(
         default=None,
         description="Session continuity token from identity(). Include in all calls to maintain identity."

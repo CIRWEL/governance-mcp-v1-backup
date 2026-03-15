@@ -325,6 +325,64 @@ class TestSharedPinOperations:
             assert stored["agent_uuid"] == "test-uuid"
             assert stored["client_session_id"] == "agent-test123"
 
+    @pytest.mark.asyncio
+    async def test_set_pin_scoped_key_for_model_and_client(self):
+        """Scoped pin should include client+model and skip unscoped fallback."""
+        from src.mcp_handlers.identity.handlers import set_onboard_pin
+
+        mock_redis = AsyncMock()
+        mock_redis.setex = AsyncMock()
+
+        async def get_redis_mock():
+            return mock_redis
+
+        with patch("src.cache.redis_client.get_redis", get_redis_mock):
+            ok = await set_onboard_pin(
+                "ua:abc123",
+                "test-uuid",
+                "agent-test123",
+                client_hint="chatgpt",
+                model_type="gpt-5-codex",
+            )
+
+        assert ok is True
+        keys = [call.args[0] for call in mock_redis.setex.call_args_list]
+        assert "recent_onboard:ua:abc123|chatgpt|gpt" in keys
+        assert "recent_onboard:ua:abc123" not in keys
+
+    @pytest.mark.asyncio
+    async def test_lookup_scoped_key_roundtrip(self):
+        """Scoped key lookup should resolve the pinned session id."""
+        from src.mcp_handlers.identity.handlers import set_onboard_pin, lookup_onboard_pin
+
+        mock_redis = AsyncMock()
+        storage = {}
+
+        async def mock_setex(key, ttl, data):
+            storage[key] = data
+
+        async def mock_get(key):
+            return storage.get(key)
+
+        mock_redis.setex = mock_setex
+        mock_redis.get = mock_get
+        mock_redis.expire = AsyncMock()
+
+        async def get_redis_mock():
+            return mock_redis
+
+        with patch("src.cache.redis_client.get_redis", get_redis_mock):
+            await set_onboard_pin(
+                "ua:abc123",
+                "test-uuid",
+                "agent-test123",
+                client_hint="chatgpt",
+                model_type="gpt-5-codex",
+            )
+            found = await lookup_onboard_pin("ua:abc123|chatgpt|gpt")
+
+        assert found == "agent-test123"
+
 
 class TestOnboardPinSetting:
     """Tests that onboard() sets the Redis pin correctly via set_onboard_pin()."""
@@ -577,6 +635,17 @@ class TestToolSchemaClientSessionId:
             assert is_string, (
                 f"Tool '{tool_name}': client_session_id should accept type 'string'"
             )
+
+    @pytest.mark.parametrize("tool_name", CRITICAL_TOOLS)
+    def test_critical_tool_has_continuity_token(self, tool_schemas, tool_name):
+        """Critical tools should expose continuity_token for robust resume."""
+        assert tool_name in tool_schemas, f"Tool '{tool_name}' not found in TOOL_SCHEMAS"
+        tool = tool_schemas[tool_name]
+        input_schema = tool.inputSchema or {}
+        props = input_schema.get("properties", {})
+        assert "continuity_token" in props, (
+            f"Tool '{tool_name}' is missing continuity_token in inputSchema.properties."
+        )
 
     def test_no_critical_tool_missing(self, tool_schemas):
         """Sanity check: all critical tools exist in the schema registry."""

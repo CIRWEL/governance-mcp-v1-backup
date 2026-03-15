@@ -306,10 +306,11 @@ async def http_call_tool(request):
                 detected_client = None
                 if "cursor" in ua:
                     detected_client = "cursor"
+                # Prefer OpenAI/Codex before Claude in mixed/proxy UAs.
+                elif "codex" in ua or "chatgpt" in ua or "openai" in ua or "gpt" in ua:
+                    detected_client = "chatgpt"
                 elif "claude" in ua or "anthropic" in ua:
                     detected_client = "claude_desktop"
-                elif "chatgpt" in ua or "openai" in ua:
-                    detected_client = "chatgpt"
                 elif "vscode" in ua or "visual studio code" in ua:
                     detected_client = "vscode"
 
@@ -323,7 +324,7 @@ async def http_call_tool(request):
                 # Check for model identifiers in User-Agent
                 if "composer" in ua or "cursor.*composer" in ua:
                     detected_model = "composer"
-                elif "chatgpt" in ua or "gpt-4" in ua or "gpt-3" in ua:
+                elif "codex" in ua or "chatgpt" in ua or "openai" in ua or "gpt-5" in ua or "gpt-4" in ua or "gpt-3" in ua:
                     detected_model = "chatgpt"
                 elif "claude" in ua:
                     detected_model = "claude"

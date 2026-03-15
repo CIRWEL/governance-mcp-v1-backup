@@ -39,6 +39,8 @@ from .session import (
     _PIN_TTL,
     lookup_onboard_pin,
     set_onboard_pin,
+    create_continuity_token,
+    resolve_continuity_token,
 )
 
 # --- identity_persistence ---
@@ -445,6 +447,12 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
 
     # Derive client_session_id for session continuity
     client_session_id = base_session_key
+    continuity_token = create_continuity_token(
+        agent_uuid,
+        client_session_id,
+        model_type=model_type,
+        client_hint=arguments.get("client_hint"),
+    )
 
     response_data = {
         "uuid": agent_uuid,
@@ -478,8 +486,15 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
             "description": "Session continuity token - include in ALL future tool calls",
             "usage": "Echo this value back in all tool calls to maintain identity across sessions",
             "critical": True
-        }
+        },
     }
+    if continuity_token:
+        response_data["identity_summary"]["continuity_token"] = {
+            "value": continuity_token,
+            "description": "Signed continuity token for robust resume across transport/session changes",
+            "usage": "Prefer this over raw client_session_id when available",
+            "critical": False,
+        }
 
     # Add quick reference for common use cases
     response_data["quick_reference"] = {
@@ -488,6 +503,8 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
         "for_internal_lookup": agent_uuid,
         "to_set_display_name": "identity(name='YourName')"
     }
+    if continuity_token:
+        response_data["quick_reference"]["for_strong_resume"] = continuity_token
 
     # Session continuity guidance (if not already set)
     if not result.get("session_continuity"):
@@ -495,6 +512,12 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
             "client_session_id": client_session_id,
             "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
         }
+        if continuity_token:
+            response_data["session_continuity"]["continuity_token"] = continuity_token
+            response_data["session_continuity"]["instruction"] = (
+                "Prefer continuity_token for robust resume. "
+                "Use client_session_id when token support is unavailable."
+            )
 
     # Use lite_response to skip redundant agent_signature (identity already contains all that info)
     if arguments is None:
@@ -516,8 +539,16 @@ async def handle_bind_session(arguments: Dict[str, Any]) -> Sequence[TextContent
     """
     arguments = arguments or {}
     client_session_id = arguments.get("client_session_id")
+    if not client_session_id and arguments.get("continuity_token"):
+        from ..context import get_session_signals
+        token_signals = get_session_signals()
+        client_session_id = resolve_continuity_token(
+            str(arguments.get("continuity_token")),
+            model_type=arguments.get("model_type"),
+            user_agent=token_signals.user_agent if token_signals else None,
+        )
     if not client_session_id:
-        return error_response("client_session_id is required")
+        return error_response("client_session_id or continuity_token is required")
 
     # Get the current MCP session key (the one we want to rebind)
     from ..context import get_session_signals
@@ -921,7 +952,14 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     try:
         logger.debug(f"[ONBOARD_PIN] base_session_key={base_session_key!r}")
         base_fp = _extract_base_fingerprint(base_session_key)
-        await set_onboard_pin(base_fp, agent_uuid, stable_session_id)
+        await set_onboard_pin(
+            base_fp,
+            agent_uuid,
+            stable_session_id,
+            client_hint=client_hint,
+            model_type=model_type,
+            user_agent=signals.user_agent if signals else None,
+        )
     except Exception as e:
         logger.warning(f"[ONBOARD_PIN] Could not set pin: {e}")
 
@@ -949,6 +987,7 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         agent_id=agent_id,
         agent_label=agent_label,
         stable_session_id=stable_session_id,
+        model_type=model_type,
         is_new=is_new,
         force_new=force_new,
         client_hint=client_hint,
@@ -984,6 +1023,7 @@ def _build_onboard_response(
     agent_id: str,
     agent_label: Optional[str],
     stable_session_id: str,
+    model_type: Optional[str],
     is_new: bool,
     force_new: bool,
     client_hint: str,
@@ -994,6 +1034,12 @@ def _build_onboard_response(
     thread_context: Optional[dict] = None,
 ) -> dict:
     """Build the onboard response payload (templates, tips, welcome, thread context)."""
+    continuity_token = create_continuity_token(
+        agent_uuid,
+        stable_session_id,
+        model_type=model_type,
+        client_hint=client_hint,
+    )
 
     next_calls = [
         {
@@ -1028,6 +1074,11 @@ def _build_onboard_response(
             }
         }
     ]
+    if continuity_token:
+        for call in next_calls:
+            args_full = call.get("args_full")
+            if isinstance(args_full, dict):
+                args_full["continuity_token"] = continuity_token
 
     # Client-specific tips
     client_tips = {
@@ -1122,6 +1173,13 @@ def _build_onboard_response(
     # Add thread context to response (honest forking)
     if thread_context:
         result["thread_context"] = thread_context
+    if continuity_token:
+        result["continuity_token"] = continuity_token
+        result["session_continuity"]["continuity_token"] = continuity_token
+        result["session_continuity"]["instruction"] = (
+            "Prefer continuity_token for robust resume across session-key changes. "
+            "Use client_session_id when token support is unavailable."
+        )
 
     # Add tool mode info so agents know what subset they're seeing
     try:

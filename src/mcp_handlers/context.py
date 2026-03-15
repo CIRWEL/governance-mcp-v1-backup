@@ -214,10 +214,11 @@ def detect_client_from_user_agent(user_agent: str) -> Optional[str]:
 
     if "cursor" in ua:
         return "cursor"
+    # Prefer OpenAI/Codex detection before Claude in mixed/proxy UAs.
+    elif "codex" in ua or "chatgpt" in ua or "openai" in ua or "gpt" in ua:
+        return "chatgpt"
     elif "claude" in ua or "anthropic" in ua:
         return "claude_desktop"
-    elif "chatgpt" in ua or "openai" in ua:
-        return "chatgpt"
     elif "vscode" in ua or "visual studio code" in ua:
         return "vscode"
 
