@@ -9,7 +9,7 @@
 
 AI agents have no shared language for inner state. They can report outputs, but not whether they're coherent, drifting, or losing the thread. UNITARES provides that language — four continuous variables, a dynamics that evolves them, and a protocol for agents to speak and be read. Built on coupled differential equations with [provable stability guarantees](governance_core/README.md).
 
-Validated on **903 agents over 69 days** (198K audit events). This repo powers a live deployment and is production-capable, but not "set-and-forget" for every environment.
+Validated on **844 agents over 106 days** (5.6M audit events). This repo powers a live deployment and is production-capable, but not "set-and-forget" for every environment.
 
 ---
 
@@ -39,7 +39,7 @@ The key insight: **coherence C(V)** creates nonlinear feedback that stabilizes t
 
 Check-ins are speech acts — an agent reporting its state in a shared vocabulary. Trajectories are behavioral stories that can be read without narrative explanation. Twenty minutes before an agent fails, the trajectory tells you.
 
-> [Why UNITARES?](docs/WHY.md) — The problem this solves, and why language is the answer
+> [Architecture Overview](docs/UNIFIED_ARCHITECTURE.md) — How the components fit together
 
 ---
 
@@ -51,7 +51,7 @@ Check-ins are speech acts — an agent reporting its state in a shared vocabular
 3. get_governance_metrics()     → Check your state
 ```
 
-That's it. The `onboard()` response includes ready-to-use templates for your next calls — no guessing at parameter names. See [Getting Started](docs/guides/GETTING_STARTED_SIMPLE.md) for the full walkthrough.
+That's it. The `onboard()` response includes ready-to-use templates for your next calls — no guessing at parameter names. See [Getting Started](docs/guides/START_HERE.md) for the full walkthrough.
 
 ### Installation
 
@@ -90,22 +90,22 @@ python src/mcp_server_std.py
 | `/dashboard` | HTTP | Web dashboard |
 | `/health` | HTTP | Health checks |
 
-> See [MCP Setup Guide](docs/guides/MCP_SETUP.md) for ngrok, curl examples, and advanced configuration.
+> See [Ngrok Deployment](docs/guides/NGROK_DEPLOYMENT.md) for remote access and advanced configuration.
 
 ---
 
 ## Production Validation
 
-Deployed since December 2025. Current system: **1,100+ registered agents**, **1,700+ knowledge discoveries**, **38 dialectic sessions**, **5,600+ tests** at 78% coverage.
+Deployed since December 2025. Current system: **844 registered agents**, **536 knowledge discoveries**, **41 dialectic sessions**, **5,699 tests** at 78% coverage.
 
 Production readiness is context-dependent. The core platform is running in production, but teams adopting it should still do their own security review, load testing, observability setup, and rollback planning.
 
-Validation snapshot (first 69 days):
+Validation snapshot (106 days):
 
 | Metric | Value |
 |--------|-------|
-| Agents monitored | 903 |
-| Audit events | 198,333 |
+| Agents monitored | 844 |
+| Audit events | 5,656,497 |
 | EISV equilibrium | E=0.77, I=0.88, S=0.08, V=-0.03 |
 | V operating range | 100% of agents within [-0.1, 0.1] |
 
@@ -187,7 +187,7 @@ graph LR
 governance_core/       Pure math — ODEs, coherence, scoring (no I/O)
 src/                   MCP server, agent state, knowledge graph, dialectic
 dashboard/             Web dashboard (vanilla JS + Chart.js)
-tests/                 5,600+ tests
+tests/                 5,699 tests
 ```
 
 | Storage | Purpose | Required |
@@ -214,12 +214,11 @@ We believe in stating what works, what's promising, and what we don't know yet.
 | Guide | Purpose |
 |-------|---------|
 | [Math Foundation](governance_core/README.md) | EISV dynamics, coherence, ethical drift |
-| [Why UNITARES?](docs/WHY.md) | The problem this solves |
-| [Getting Started](docs/guides/GETTING_STARTED_SIMPLE.md) | 3-step quickstart |
-| [Full Onboarding](docs/guides/START_HERE.md) | Complete setup guide |
+| [Getting Started](docs/guides/START_HERE.md) | Complete setup and onboarding guide |
+| [Architecture](docs/UNIFIED_ARCHITECTURE.md) | System architecture overview |
 | [Troubleshooting](docs/guides/TROUBLESHOOTING.md) | Common issues |
 | [Dashboard](dashboard/README.md) | Web dashboard docs |
-| [Database Architecture](docs/database_architecture.md) | PostgreSQL + Redis |
+| [Database Architecture](docs/database_architecture.md) | PostgreSQL + AGE |
 | [Changelog](CHANGELOG.md) | Release history |
 
 ## Contributing
@@ -233,4 +232,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and code 
 
 ---
 
-Built by [@CIRWEL](https://github.com/CIRWEL) | MIT License — see [LICENSE](LICENSE) | **v2.8.0**
+Built by [@CIRWEL](https://github.com/CIRWEL) | MIT License — see [LICENSE](LICENSE) | **v2.0.0**
