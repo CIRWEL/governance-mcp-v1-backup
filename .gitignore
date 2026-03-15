@@ -58,10 +58,14 @@ data/hackathon_*.csv
 data/portal_*.json
 data/portal_*.csv
 data/archive/
+
 # Agent state files (runtime data, not tracked)
 data/agents/
+
 # Knowledge layer (may contain sensitive discoveries)
 data/knowledge/
+data/knowledge_graph.json
+
 # Dialectic sessions (runtime data)
 data/dialectic_sessions/
 data/dialectic_sessions_archive/
@@ -74,47 +78,6 @@ data/analysis/
 data/test_files/
 data/exports/
 data/mcp_server_sse*.log
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# Jupyter
-.ipynb_checkpoints
-
-# Environment variables
-.env
-.env.local
-secrets/
-
-# Internal/local documentation (deployment-specific configs)
-docs/INTERNAL_CONFIG.md
-*.local.md
-
-# Archived docs and working plans (session artifacts, not project documentation)
-docs/archive/
-docs/plans/
-docs/superpowers/
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# Temporary files
-*.tmp
-*.bak
-*.old
 
 # Agent metadata (contains API keys)
 data/agent_metadata.json
@@ -135,32 +98,75 @@ data/activity/
 data/calibration_state.json
 data/calibration_state_backup_*.json
 
-# Knowledge layer (may contain sensitive discoveries)
-data/knowledge/
-data/knowledge_graph.json
-
 # Audit logs (may contain sensitive information)
 data/audit_log.jsonl
 data/tool_usage.jsonl
 
-# Test artifacts (keep test files, ignore outputs)
-*.pyc
+# Telemetry
+data/telemetry/*.jsonl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Testing
 .pytest_cache/
 .coverage
 coverage.xml
 htmlcov/
+.tox/
+*.pyc
 *.lock
 tests/security_audit_report.json
 tests/additional_security_report.json
 
-# Prevent test script proliferation in root (tests must go in tests/)
+# Jupyter
+.ipynb_checkpoints
+
+# Environment variables
+.env
+.env.local
+secrets/
+
+# Documentation — only docs/*.md and docs/guides/ tracked; everything else local
+docs/INTERNAL_CONFIG.md
+docs/archive/
+docs/plans/
+docs/superpowers/
+*.local.md
+
+# Agent guides (generated onboarding docs, not project documentation)
+.agent-guides/
+
+# Archived scripts
+scripts/archive/
+
+# Temporary files
+*.tmp
+*.bak
+*.old
+
+# Prevent test/demo script proliferation in root
 /test_*.py
 /demo_*.py
+
+# Session files
 .governance_session
 .mcp_session
-config/generated-*.json
-data/telemetry/*.jsonl
 .kimi_governance_session
+
+# Generated config
+config/generated-*.json
+
+# Local-only directories
 sketch/
 wiggum/
 papers/
