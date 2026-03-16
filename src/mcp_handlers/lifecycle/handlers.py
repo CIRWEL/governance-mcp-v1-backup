@@ -1171,7 +1171,7 @@ async def handle_archive_orphan_agents(arguments: Dict[str, Any]) -> Sequence[Te
 
     max_age_hours = float(arguments.get("max_age_hours", 6))
     max_updates = int(arguments.get("max_updates", 3))
-    dry_run = arguments.get("dry_run", False)
+    dry_run = arguments.get("dry_run", True)
 
     # Derive tier thresholds from max_age_hours, capped to sensible minimums
     zero_update_hours = min(max(max_age_hours / 6, 0.5), max_age_hours)   # ~1h at default 6

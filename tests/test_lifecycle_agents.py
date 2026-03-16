@@ -2316,7 +2316,7 @@ class TestArchiveOrphanAgentsEdgeCases:
              patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage:
             mock_storage.archive_agent = AsyncMock()
             from src.mcp_handlers.lifecycle.handlers import handle_archive_orphan_agents
-            result = await handle_archive_orphan_agents({})
+            result = await handle_archive_orphan_agents({"dry_run": False})
             data = _parse(result)
             assert data["archived_count"] >= 1
             assert agent_id not in server.monitors
@@ -2334,7 +2334,7 @@ class TestArchiveOrphanAgentsEdgeCases:
              patch("src.mcp_handlers.lifecycle.handlers.agent_storage") as mock_storage:
             mock_storage.archive_agent = AsyncMock(side_effect=RuntimeError("PG down"))
             from src.mcp_handlers.lifecycle.handlers import handle_archive_orphan_agents
-            result = await handle_archive_orphan_agents({})
+            result = await handle_archive_orphan_agents({"dry_run": False})
             data = _parse(result)
             assert data["archived_count"] >= 1
 
