@@ -141,34 +141,37 @@ class KnowledgeGraphPostgres:
         return result is not None
 
     async def get_stats(self) -> Dict[str, Any]:
-        """Get knowledge graph statistics."""
+        """Get knowledge graph statistics for current epoch."""
+        from config.governance_config import GovernanceConfig
         db = await self._get_db()
+        epoch = GovernanceConfig.CURRENT_EPOCH
 
         # Get total discoveries
-        total = await db._pool.fetchval("SELECT COUNT(*) FROM knowledge.discoveries")
+        total = await db._pool.fetchval(
+            "SELECT COUNT(*) FROM knowledge.discoveries WHERE epoch = $1", epoch)
 
         # Get discoveries by agent
         by_agent_rows = await db._pool.fetch("""
             SELECT agent_id, COUNT(*) as count
-            FROM knowledge.discoveries
+            FROM knowledge.discoveries WHERE epoch = $1
             GROUP BY agent_id
-        """)
+        """, epoch)
         by_agent = {row['agent_id']: row['count'] for row in by_agent_rows}
 
         # Get discoveries by type
         by_type_rows = await db._pool.fetch("""
             SELECT type, COUNT(*) as count
-            FROM knowledge.discoveries
+            FROM knowledge.discoveries WHERE epoch = $1
             GROUP BY type
-        """)
+        """, epoch)
         by_type = {row['type']: row['count'] for row in by_type_rows}
 
         # Get discoveries by status
         by_status_rows = await db._pool.fetch("""
             SELECT status, COUNT(*) as count
-            FROM knowledge.discoveries
+            FROM knowledge.discoveries WHERE epoch = $1
             GROUP BY status
-        """)
+        """, epoch)
         by_status = {row['status']: row['count'] for row in by_status_rows}
 
         return {
@@ -177,6 +180,7 @@ class KnowledgeGraphPostgres:
             "by_type": by_type,
             "by_status": by_status,
             "total_agents": len(by_agent),
+            "epoch": epoch,
         }
 
     async def get_agent_discoveries(

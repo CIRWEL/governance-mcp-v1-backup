@@ -25,23 +25,33 @@ class StateMixin:
         coherence: float,
         state_json: Optional[Dict[str, Any]] = None,
     ) -> int:
+        from config.governance_config import GovernanceConfig
         async with self.acquire() as conn:
             state_id = await conn.fetchval(
                 """
                 INSERT INTO core.agent_state
-                    (identity_id, entropy, integrity, stability_index, volatility, regime, coherence, state_json)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    (identity_id, entropy, integrity, stability_index, volatility, regime, coherence, state_json, epoch)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 RETURNING state_id
                 """,
                 identity_id, entropy, integrity, stability_index, void,  # void maps to volatility column
                 regime, coherence, json.dumps(state_json or {}),
+                GovernanceConfig.CURRENT_EPOCH,
             )
+            # Refresh materialized view (non-blocking, best-effort)
+            try:
+                await conn.execute(
+                    "REFRESH MATERIALIZED VIEW CONCURRENTLY core.mv_latest_agent_states"
+                )
+            except Exception:
+                pass  # View may not exist yet (pre-migration)
             return state_id
 
     async def get_latest_agent_state(
         self,
         identity_id: int,
     ) -> Optional[AgentStateRecord]:
+        from config.governance_config import GovernanceConfig
         async with self.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -50,11 +60,11 @@ class StateMixin:
                        s.regime, s.coherence, s.state_json
                 FROM core.agent_state s
                 JOIN core.identities i ON i.identity_id = s.identity_id
-                WHERE s.identity_id = $1
+                WHERE s.identity_id = $1 AND s.epoch = $2
                 ORDER BY s.recorded_at DESC
                 LIMIT 1
                 """,
-                identity_id,
+                identity_id, GovernanceConfig.CURRENT_EPOCH,
             )
             if not row:
                 return None
@@ -65,6 +75,7 @@ class StateMixin:
         identity_id: int,
         limit: int = 100,
     ) -> List[AgentStateRecord]:
+        from config.governance_config import GovernanceConfig
         async with self.acquire() as conn:
             rows = await conn.fetch(
                 """
@@ -73,27 +84,42 @@ class StateMixin:
                        s.regime, s.coherence, s.state_json
                 FROM core.agent_state s
                 JOIN core.identities i ON i.identity_id = s.identity_id
-                WHERE s.identity_id = $1
+                WHERE s.identity_id = $1 AND s.epoch = $2
                 ORDER BY s.recorded_at DESC
-                LIMIT $2
+                LIMIT $3
                 """,
-                identity_id, limit,
+                identity_id, GovernanceConfig.CURRENT_EPOCH, limit,
             )
             return [self._row_to_agent_state(r) for r in rows]
 
     async def get_all_latest_agent_states(self) -> list[AgentStateRecord]:
+        from config.governance_config import GovernanceConfig
         async with self.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT DISTINCT ON (s.identity_id)
-                       s.state_id, s.identity_id, i.agent_id, s.recorded_at,
-                       s.entropy, s.integrity, s.stability_index, s.volatility,
-                       s.regime, s.coherence, s.state_json
-                FROM core.agent_state s
-                JOIN core.identities i ON i.identity_id = s.identity_id
-                ORDER BY s.identity_id, s.recorded_at DESC
-                """
-            )
+            # Try materialized view first (pre-computed, fast)
+            try:
+                rows = await conn.fetch(
+                    """
+                    SELECT state_id, identity_id, agent_id, recorded_at,
+                           entropy, integrity, stability_index, volatility,
+                           regime, coherence, state_json
+                    FROM core.mv_latest_agent_states
+                    """
+                )
+            except Exception:
+                # Fallback: matview doesn't exist yet (pre-migration)
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT ON (s.identity_id)
+                           s.state_id, s.identity_id, i.agent_id, s.recorded_at,
+                           s.entropy, s.integrity, s.stability_index, s.volatility,
+                           s.regime, s.coherence, s.state_json
+                    FROM core.agent_state s
+                    JOIN core.identities i ON i.identity_id = s.identity_id
+                    WHERE s.epoch = $1
+                    ORDER BY s.identity_id, s.recorded_at DESC
+                    """,
+                    GovernanceConfig.CURRENT_EPOCH,
+                )
             return [self._row_to_agent_state(r) for r in rows]
 
     async def get_recent_cross_agent_activity(
@@ -117,11 +143,12 @@ class StateMixin:
                 JOIN core.identities i ON i.identity_id = s.identity_id
                 WHERE s.identity_id != $1
                   AND s.recorded_at > now() - ($2 * interval '1 minute')
+                  AND s.epoch = $3
                 GROUP BY i.agent_id
                 ORDER BY MAX(s.recorded_at) DESC
                 LIMIT 5
                 """,
-                exclude_identity_id, window,
+                exclude_identity_id, window, GovernanceConfig.CURRENT_EPOCH,
             )
             return [dict(r) for r in rows]
 

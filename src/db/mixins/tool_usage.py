@@ -58,6 +58,7 @@ class ToolUsageMixin:
         detail: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         """Insert one outcome event. Returns outcome_id UUID string or None on failure."""
+        from config.governance_config import GovernanceConfig
         async with self.acquire() as conn:
             try:
                 outcome_id = await conn.fetchval(
@@ -65,13 +66,14 @@ class ToolUsageMixin:
                     INSERT INTO audit.outcome_events
                         (ts, agent_id, session_id, outcome_type, outcome_score, is_bad,
                          eisv_e, eisv_i, eisv_s, eisv_v, eisv_phi, eisv_verdict, eisv_coherence, eisv_regime,
-                         detail)
-                    VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                         detail, epoch)
+                    VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     RETURNING outcome_id
                     """,
                     agent_id, session_id, outcome_type, outcome_score, is_bad,
                     eisv_e, eisv_i, eisv_s, eisv_v, eisv_phi, eisv_verdict, eisv_coherence, eisv_regime,
                     json.dumps(detail or {}),
+                    GovernanceConfig.CURRENT_EPOCH,
                 )
                 return str(outcome_id)
             except Exception:
@@ -103,6 +105,7 @@ class ToolUsageMixin:
 
     async def get_latest_eisv_by_agent_id(self, agent_id: str) -> Optional[Dict[str, Any]]:
         """Fetch latest EISV snapshot for an agent."""
+        from config.governance_config import GovernanceConfig
         async with self.acquire() as conn:
             try:
                 row = await conn.fetchrow(
@@ -111,11 +114,11 @@ class ToolUsageMixin:
                            s.coherence, s.regime
                     FROM core.agent_state s
                     JOIN core.identities i ON i.identity_id = s.identity_id
-                    WHERE i.agent_id = $1
+                    WHERE i.agent_id = $1 AND s.epoch = $2
                     ORDER BY s.recorded_at DESC
                     LIMIT 1
                     """,
-                    agent_id,
+                    agent_id, GovernanceConfig.CURRENT_EPOCH,
                 )
                 if not row:
                     return None

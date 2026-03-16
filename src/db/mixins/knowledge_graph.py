@@ -41,12 +41,13 @@ class KnowledgeGraphMixin:
                 else:
                     created_at = dt.now()
 
+            from config.governance_config import GovernanceConfig
             await conn.execute("""
                 INSERT INTO knowledge.discoveries (
                     id, agent_id, type, summary, details, tags, severity, status,
                     references_files, related_to, response_to_id, response_type,
-                    provenance, created_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    provenance, created_at, epoch
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 ON CONFLICT (id) DO UPDATE SET
                     summary = EXCLUDED.summary,
                     details = EXCLUDED.details,
@@ -68,6 +69,7 @@ class KnowledgeGraphMixin:
                 response_type,
                 json.dumps(discovery.provenance) if discovery.provenance else None,
                 created_at,
+                GovernanceConfig.CURRENT_EPOCH,
             )
 
     async def kg_query(

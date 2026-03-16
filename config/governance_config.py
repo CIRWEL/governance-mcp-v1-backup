@@ -589,6 +589,15 @@ class GovernanceConfig:
     AUDIT_LOG_MAX_AGE_DAYS = 30  # Archive entries older than this
 
     # =================================================================
+    # Epoch Configuration
+    # =================================================================
+    # Bump this when a model change invalidates existing stored data.
+    # Most changes (bug fixes, new tools, docs) do NOT bump the epoch.
+    # Only changes to EISV coupling, coherence formulas, or calibration
+    # logic that make existing data wrong require a bump.
+    CURRENT_EPOCH = 1
+
+    # =================================================================
     # Temporal Narrator Configuration
     # =================================================================
 

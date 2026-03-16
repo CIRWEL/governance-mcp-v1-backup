@@ -14,6 +14,7 @@ class BaselineMixin:
 
     async def save_agent_baseline(self, baseline_dict: Dict[str, Any]) -> bool:
         """UPSERT agent baseline into core.agent_baselines."""
+        from config.governance_config import GovernanceConfig
         agent_id = baseline_dict.get('agent_id')
         if not agent_id:
             return False
@@ -24,8 +25,8 @@ class BaselineMixin:
                     INSERT INTO core.agent_baselines (
                         agent_id, baseline_coherence, baseline_confidence, baseline_complexity,
                         prev_coherence, prev_confidence, prev_complexity,
-                        recent_decisions, decision_consistency, update_count, alpha, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+                        recent_decisions, decision_consistency, update_count, alpha, updated_at, epoch
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), $12)
                     ON CONFLICT (agent_id) DO UPDATE SET
                         baseline_coherence = EXCLUDED.baseline_coherence,
                         baseline_confidence = EXCLUDED.baseline_confidence,
@@ -37,7 +38,8 @@ class BaselineMixin:
                         decision_consistency = EXCLUDED.decision_consistency,
                         update_count = EXCLUDED.update_count,
                         alpha = EXCLUDED.alpha,
-                        updated_at = now()
+                        updated_at = now(),
+                        epoch = EXCLUDED.epoch
                     """,
                     agent_id,
                     baseline_dict.get('baseline_coherence', 0.5),
@@ -50,6 +52,7 @@ class BaselineMixin:
                     baseline_dict.get('decision_consistency', 0.8),
                     baseline_dict.get('update_count', 0),
                     baseline_dict.get('alpha', 0.1),
+                    GovernanceConfig.CURRENT_EPOCH,
                 )
                 return True
         except Exception as e:
@@ -58,11 +61,12 @@ class BaselineMixin:
 
     async def load_agent_baseline(self, agent_id: str) -> Optional[Dict[str, Any]]:
         """Load agent baseline from core.agent_baselines."""
+        from config.governance_config import GovernanceConfig
         try:
             async with self.acquire() as conn:
                 row = await conn.fetchrow(
-                    "SELECT * FROM core.agent_baselines WHERE agent_id = $1",
-                    agent_id,
+                    "SELECT * FROM core.agent_baselines WHERE agent_id = $1 AND epoch = $2",
+                    agent_id, GovernanceConfig.CURRENT_EPOCH,
                 )
                 if row is None:
                     return None
