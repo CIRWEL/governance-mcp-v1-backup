@@ -19,11 +19,13 @@ DATA COLLECTED:
 - Timestamps for time-series analysis
 """
 
+import gzip
 import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 import threading
 
@@ -278,6 +280,75 @@ class DriftTelemetry:
                 if len(norms) >= 10 else None,
             },
         }
+
+    def rotate(self, max_size_mb: float = 100.0, archive_months: int = 12) -> Optional[Path]:
+        """
+        Rotate drift telemetry file if it exceeds max_size_mb.
+
+        Archives to data/telemetry/archive/ as gzipped JSONL.
+        Returns the archive path if rotation happened, None otherwise.
+        """
+        if not self.drift_file.exists():
+            return None
+
+        size_mb = self.drift_file.stat().st_size / (1024 * 1024)
+        if size_mb < max_size_mb:
+            return None
+
+        archive_dir = self.data_dir / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        rotated = self.data_dir / f"drift_telemetry_{stamp}.jsonl"
+        archive_path = archive_dir / f"drift_telemetry_{stamp}.jsonl.gz"
+
+        with _telemetry_lock:
+            # Flush any buffered samples first
+            if self._buffer:
+                try:
+                    with open(self.drift_file, 'a') as f:
+                        for sample in self._buffer:
+                            f.write(json.dumps(sample.to_dict()) + '\n')
+                    self._buffer = []
+                except Exception as e:
+                    logger.error(f"Failed to flush before rotation: {e}")
+
+            # Rename current file
+            self.drift_file.rename(rotated)
+            # Create fresh empty file
+            self.drift_file.touch()
+
+        # Gzip outside the lock (can take time for large files)
+        try:
+            with open(rotated, 'rb') as f_in:
+                with gzip.open(archive_path, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            rotated.unlink()
+            logger.info(f"Rotated drift telemetry ({size_mb:.0f}MB) -> {archive_path}")
+        except Exception as e:
+            logger.error(f"Failed to gzip rotated telemetry: {e}")
+            return rotated  # Return uncompressed path
+
+        # Prune old archives
+        self._prune_archives(archive_dir, archive_months)
+
+        return archive_path
+
+    @staticmethod
+    def _prune_archives(archive_dir: Path, keep_months: int):
+        """Remove archives older than keep_months."""
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(days=keep_months * 30)
+        for gz_file in sorted(archive_dir.glob("drift_telemetry_*.jsonl.gz")):
+            try:
+                # Parse date from filename: drift_telemetry_YYYYMMDD_HHMMSS.jsonl.gz
+                date_str = gz_file.stem.replace("drift_telemetry_", "").replace(".jsonl", "")
+                file_date = datetime.strptime(date_str, "%Y%m%d_%H%M%S")
+                if file_date < cutoff:
+                    gz_file.unlink()
+                    logger.info(f"Pruned old archive: {gz_file.name}")
+            except (ValueError, OSError):
+                pass
 
     def export_csv(self, output_path: Optional[Path] = None, agent_id: Optional[str] = None) -> Path:
         """

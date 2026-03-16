@@ -6,7 +6,11 @@ Each task runs as an asyncio coroutine, started during server initialization.
 """
 
 import asyncio
+import gzip
+import os
+import shutil
 from datetime import datetime
+from pathlib import Path
 
 from src.logging_utils import get_logger
 from src.connection_tracker import CONNECTIONS_ACTIVE
@@ -379,6 +383,100 @@ async def coherence_monitoring_task(interval_minutes: float = 10.0):
 
 
 # ---------------------------------------------------------------------------
+# Telemetry & log rotation
+# ---------------------------------------------------------------------------
+
+async def periodic_telemetry_rotation(interval_hours: float = 24.0):
+    """Rotate drift_telemetry.jsonl daily when >100MB."""
+    await asyncio.sleep(120.0)  # Let server settle
+    while True:
+        try:
+            from src.drift_telemetry import get_telemetry
+            telemetry = get_telemetry()
+            result = telemetry.rotate(max_size_mb=100.0, archive_months=12)
+            if result:
+                logger.info(f"[ROTATION] Drift telemetry rotated -> {result}")
+        except Exception as e:
+            logger.debug(f"[ROTATION] Drift telemetry rotation skipped: {e}")
+        await asyncio.sleep(interval_hours * 3600)
+
+
+async def periodic_audit_log_rotation(interval_hours: float = 168.0):
+    """Rotate audit_log.jsonl weekly. Data is fully duplicated in PostgreSQL."""
+    await asyncio.sleep(180.0)
+    while True:
+        try:
+            from src.audit_log import get_audit_log
+            audit = get_audit_log()
+            kept, archive_path = audit.rotate_log(max_age_days=30)
+            if archive_path:
+                logger.info(f"[ROTATION] Audit log rotated: {kept} entries kept, archived to {archive_path}")
+        except Exception as e:
+            logger.debug(f"[ROTATION] Audit log rotation skipped: {e}")
+        await asyncio.sleep(interval_hours * 3600)
+
+
+async def periodic_server_log_rotation(interval_hours: float = 24.0, max_size_mb: float = 50.0):
+    """Rotate launchd-managed server log files by copy+truncate."""
+    await asyncio.sleep(300.0)
+
+    project_root = Path(__file__).parent.parent
+    log_dir = project_root / "data" / "logs"
+    archive_dir = log_dir / "archive"
+
+    log_files = ["mcp_server.log", "mcp_server_error.log"]
+
+    while True:
+        for log_name in log_files:
+            log_path = log_dir / log_name
+            try:
+                if not log_path.exists():
+                    continue
+                size_mb = log_path.stat().st_size / (1024 * 1024)
+                if size_mb < max_size_mb:
+                    continue
+
+                archive_dir.mkdir(parents=True, exist_ok=True)
+                stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                stem = log_path.stem
+                archive_path = archive_dir / f"{stem}_{stamp}.log.gz"
+
+                # Copy then truncate in-place (launchd holds the fd)
+                with open(log_path, 'rb') as f_in:
+                    with gzip.open(archive_path, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+
+                # Truncate original (launchd's fd stays valid)
+                with open(log_path, 'w') as f:
+                    pass
+
+                logger.info(f"[ROTATION] {log_name} ({size_mb:.0f}MB) -> {archive_path}")
+
+                # Prune archives older than 6 months
+                _prune_log_archives(archive_dir, stem, keep_months=6)
+
+            except Exception as e:
+                logger.debug(f"[ROTATION] {log_name} rotation failed: {e}")
+
+        await asyncio.sleep(interval_hours * 3600)
+
+
+def _prune_log_archives(archive_dir: Path, stem: str, keep_months: int = 6):
+    """Remove log archives older than keep_months."""
+    from datetime import timedelta
+    cutoff = datetime.now() - timedelta(days=keep_months * 30)
+    for gz_file in sorted(archive_dir.glob(f"{stem}_*.log.gz")):
+        try:
+            date_str = gz_file.stem.replace(f"{stem}_", "").replace(".log", "")
+            file_date = datetime.strptime(date_str, "%Y%m%d_%H%M%S")
+            if file_date < cutoff:
+                gz_file.unlink()
+                logger.info(f"[ROTATION] Pruned old log archive: {gz_file.name}")
+        except (ValueError, OSError):
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator — called from mcp_server.py
 # ---------------------------------------------------------------------------
 
@@ -437,3 +535,8 @@ def start_all_background_tasks(connection_tracker, set_ready):
 
     _supervised_create_task(coherence_monitoring_task(interval_minutes=10.0), name="coherence_monitor")
     logger.info("[COHERENCE_MONITOR] Started proactive coherence monitoring (every 10m)")
+
+    _supervised_create_task(periodic_telemetry_rotation(), name="telemetry_rotation")
+    _supervised_create_task(periodic_audit_log_rotation(), name="audit_log_rotation")
+    _supervised_create_task(periodic_server_log_rotation(), name="server_log_rotation")
+    logger.info("[ROTATION] Started periodic log/telemetry rotation tasks")
