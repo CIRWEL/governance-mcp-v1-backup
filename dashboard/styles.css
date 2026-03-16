@@ -4066,3 +4066,118 @@ body {
     font-size: 0.9em;
     line-height: 1.5;
 }
+
+/* Compare Agents */
+.compare-result {
+    font-size: 0.9em;
+}
+.compare-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr 60px;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+.compare-agent-col {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.compare-agent-name {
+    font-weight: 600;
+    font-size: 1em;
+}
+.compare-badge {
+    font-size: 0.75em;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.compare-diff-header {
+    font-size: 0.75em;
+    color: var(--text-secondary);
+    text-align: right;
+    align-self: end;
+}
+.compare-metric-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 60px;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 0;
+}
+.compare-metric-label {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.compare-bars {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.compare-bar-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.compare-bar-track {
+    flex: 1;
+    height: 8px;
+    background: var(--surface-2, rgba(255,255,255,0.05));
+    border-radius: 4px;
+    overflow: hidden;
+}
+.compare-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+.compare-bar-val {
+    font-size: 0.75em;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    min-width: 42px;
+    text-align: right;
+}
+.compare-diff {
+    font-size: 0.75em;
+    font-family: var(--font-mono);
+    text-align: right;
+    color: var(--text-secondary);
+}
+.compare-diff.better { color: var(--green); }
+.compare-diff.worse { color: var(--red, #e55); }
+.compare-section {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+.compare-section h4 {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    margin: 0 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.compare-findings {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.compare-findings li {
+    font-size: 0.85em;
+    padding: 3px 0;
+    color: var(--text-primary);
+}
+.compare-sim-score {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+.compare-error {
+    color: var(--red, #e55);
+    padding: 8px;
+    font-size: 0.9em;
+}

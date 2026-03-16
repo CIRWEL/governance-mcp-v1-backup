@@ -1591,18 +1591,105 @@ if (agentCompareBtn) {
             resultDiv.innerHTML = 'Loading...';
             try {
                 const r = await callTool('compare_agents', { agent_ids: [id1, id2] });
+                if (r?.success === false || r?.error) {
+                    resultDiv.innerHTML = '<div class="compare-error">Error: ' + escapeHtml(r.error || 'Unknown error') + '</div>';
+                    runBtn.disabled = false;
+                    return;
+                }
                 const c = r?.comparison || r;
-                if (!c) { resultDiv.innerHTML = 'No comparison data'; return; }
-                const diff = c.differences || c;
-                resultDiv.innerHTML = '<pre>' + escapeHtml(JSON.stringify(diff, null, 2)) + '</pre>';
+                if (!c || !c.agents || c.agents.length < 2) {
+                    resultDiv.innerHTML = '<div class="compare-error">No comparison data returned</div>';
+                    runBtn.disabled = false;
+                    return;
+                }
+                resultDiv.innerHTML = renderCompareResult(c, agents);
             } catch (e) {
-                resultDiv.innerHTML = 'Error: ' + escapeHtml(e.message);
+                resultDiv.innerHTML = '<div class="compare-error">Error: ' + escapeHtml(e.message) + '</div>';
             }
             runBtn.disabled = false;
         });
         modal.classList.add('visible');
         document.body.style.overflow = 'hidden';
     });
+}
+
+function renderCompareResult(comparison, cachedList) {
+    const a1 = comparison.agents[0];
+    const a2 = comparison.agents[1];
+    const label = (id) => {
+        const found = cachedList.find(a => a.agent_id === id);
+        return escapeHtml(found?.label || found?.name || id.substring(0, 12));
+    };
+    const name1 = label(a1.agent_id);
+    const name2 = label(a2.agent_id);
+
+    const healthColor = (s) => s === 'healthy' ? 'var(--green)' : s === 'moderate' ? 'var(--orange)' : 'var(--red, #e55)';
+    const verdictColor = (v) => v === 'proceed' || v === 'approve' ? 'var(--green)' : v === 'caution' || v === 'guide' ? 'var(--orange)' : 'var(--red, #e55)';
+
+    // EISV metrics with ranges for bar scaling
+    const metrics = [
+        { key: 'E', label: 'Energy', max: 1, color: 'var(--energy, #4ecdc4)' },
+        { key: 'I', label: 'Integrity', max: 1, color: 'var(--integrity, #45b7d1)' },
+        { key: 'S', label: 'Entropy', max: 1, color: 'var(--entropy, #f7dc6f)', invert: true },
+        { key: 'V', label: 'Void', max: 0.5, color: 'var(--volatility, #bb8fce)', signed: true },
+        { key: 'coherence', label: 'Coherence', max: 1, color: 'var(--coherence, #85c1e9)' },
+        { key: 'risk_score', label: 'Risk', max: 1, color: 'var(--red, #e55)', invert: true },
+    ];
+
+    const barWidth = (val, max) => Math.min(Math.abs(val) / max * 100, 100);
+
+    let barsHtml = metrics.map(m => {
+        const v1 = a1[m.key] ?? 0;
+        const v2 = a2[m.key] ?? 0;
+        const diff = v2 - v1;
+        const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(3);
+        const diffClass = m.invert ? (diff > 0.02 ? 'worse' : diff < -0.02 ? 'better' : '') : (diff > 0.02 ? 'better' : diff < -0.02 ? 'worse' : '');
+        return `<div class="compare-metric-row">
+            <div class="compare-metric-label">${m.label}</div>
+            <div class="compare-bars">
+                <div class="compare-bar-cell">
+                    <div class="compare-bar-track"><div class="compare-bar" style="width:${barWidth(v1, m.max)}%;background:${m.color};opacity:0.8"></div></div>
+                    <span class="compare-bar-val">${v1.toFixed(3)}</span>
+                </div>
+                <div class="compare-bar-cell">
+                    <div class="compare-bar-track"><div class="compare-bar" style="width:${barWidth(v2, m.max)}%;background:${m.color};opacity:0.8"></div></div>
+                    <span class="compare-bar-val">${v2.toFixed(3)}</span>
+                </div>
+            </div>
+            <div class="compare-diff ${diffClass}">${diffStr}</div>
+        </div>`;
+    }).join('');
+
+    // Similarities & outliers
+    let extrasHtml = '';
+    if (comparison.similarities?.length > 0) {
+        extrasHtml += '<div class="compare-section"><h4>Similarities</h4><ul class="compare-findings">' +
+            comparison.similarities.map(s => `<li>${escapeHtml(s.description)} <span class="compare-sim-score">(${(s.similarity * 100).toFixed(0)}%)</span></li>`).join('') +
+            '</ul></div>';
+    }
+    if (comparison.outliers?.length > 0) {
+        extrasHtml += '<div class="compare-section"><h4>Outliers</h4><ul class="compare-findings">' +
+            comparison.outliers.map(o => `<li><strong>${label(o.agent_id)}</strong>: ${escapeHtml(o.reason)} (${o.value.toFixed(3)} vs mean ${o.mean.toFixed(3)})</li>`).join('') +
+            '</ul></div>';
+    }
+
+    return `<div class="compare-result">
+        <div class="compare-header">
+            <div class="compare-agent-col">
+                <span class="compare-agent-name">${name1}</span>
+                <span class="compare-badge" style="color:${verdictColor(a1.verdict)}">${escapeHtml(a1.verdict || '-')}</span>
+                <span class="compare-badge" style="color:${healthColor(a1.health_status)}">${escapeHtml(a1.health_status || '-')}</span>
+            </div>
+            <div class="compare-agent-col">
+                <span class="compare-agent-name">${name2}</span>
+                <span class="compare-badge" style="color:${verdictColor(a2.verdict)}">${escapeHtml(a2.verdict || '-')}</span>
+                <span class="compare-badge" style="color:${healthColor(a2.health_status)}">${escapeHtml(a2.health_status || '-')}</span>
+            </div>
+            <div class="compare-diff-header">Diff</div>
+        </div>
+        ${barsHtml}
+        ${extrasHtml}
+    </div>`;
 }
 
 // Debounce helper
