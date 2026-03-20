@@ -763,6 +763,13 @@ function showToast(message, durationMs) {
     }, durationMs);
 }
 
+// Verdict icons for color-blind accessibility (single source of truth)
+const VERDICT_ICONS = {
+    approve: '\u2713', proceed: '\u2713', safe: '\u2713',
+    caution: '\u26A0', guide: '\u26A0',
+    pause: '\u2715', reject: '\u2715'
+};
+
 // Export for use in dashboard
 if (typeof window !== 'undefined') {
     window.DashboardAPI = DashboardAPI;
@@ -771,6 +778,7 @@ if (typeof window !== 'undefined') {
     window.EISVWebSocket = EISVWebSocket;
     window.debounce = debounce;
     window.GLOSSARY = GLOSSARY;
+    window.VERDICT_ICONS = VERDICT_ICONS;
     window.createHelpIcon = createHelpIcon;
     window.showToast = showToast;
 }

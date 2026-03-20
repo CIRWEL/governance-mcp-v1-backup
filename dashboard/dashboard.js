@@ -1031,9 +1031,6 @@ async function loadAgents() {
             }
         }
 
-        // Update quick status hero
-        updateQuickStatus(allAgents, cachedStuckAgents);
-
         applyAgentFilters();
         return true;
 

@@ -81,11 +81,7 @@
         renderTimeline();
     }
 
-    var VERDICT_ICONS = {
-        approve: '\u2713', proceed: '\u2713', safe: '\u2713',
-        caution: '\u26A0', guide: '\u26A0',
-        pause: '\u2715', reject: '\u2715'
-    };
+    // VERDICT_ICONS is defined in utils.js and exported on window
 
     function isImportantEntry(e) {
         // Show everything except check-ins, UNLESS the check-in has a non-proceed/approve verdict

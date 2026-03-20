@@ -17,27 +17,26 @@
     var highlightMatch = DataProcessor.highlightMatch;
     var formatRelativeTime = DataProcessor.formatRelativeTime;
 
-    // Production filter state
-    var prodOnlyActive = localStorage.getItem('unitares_prod_only') === 'true';
-    var currentPageSize = 20;
-
-    // Verdict icons for color-blind accessibility
-    var VERDICT_ICONS = {
-        approve: '\u2713', proceed: '\u2713', safe: '\u2713',
-        caution: '\u26A0', guide: '\u26A0',
-        pause: '\u2715', reject: '\u2715'
-    };
+    // Production filter & pagination state managed via state.js
+    // VERDICT_ICONS is defined in utils.js and exported on window
 
     /**
      * Heuristic: returns true if agent looks like a test/experiment agent.
      */
     function isTestAgent(agent) {
         var name = (agent.label || agent.display_name || agent.name || '').toLowerCase();
-        if (/^(exp_|val_|paper_|test_|experiment)/.test(name)) return true;
+        if (/^(exp_|val_|paper_|test_)/.test(name)) return true;
+        var tags = agent.tags || [];
+        for (var i = 0; i < tags.length; i++) {
+            var t = String(tags[i]).toLowerCase();
+            if (t === 'test' || t === 'experimental') return true;
+        }
+        // Skip staleness heuristic for actively running agents
+        if ((agent.lifecycle_status || '').toLowerCase() === 'active') return false;
         var totalUpdates = agent.total_updates || 0;
         if (totalUpdates < 200) {
             var staleness = getAgentStaleness(agent);
-            if (staleness.ageMs > 24 * 60 * 60 * 1000) return true;
+            if (staleness.ageMs > 72 * 60 * 60 * 1000) return true;
         }
         return false;
     }
@@ -198,7 +197,7 @@
 
         updateAgentFilterInfo(agents.length);
         var agentEISVHistory = state.get('agentEISVHistory') || {};
-        var displayAgents = agents.slice(0, currentPageSize);
+        var displayAgents = agents.slice(0, state.get('agentPageSize'));
 
         var cardsHtml = displayAgents.map(function (agent) {
             var status = getAgentStatus(agent);
@@ -388,7 +387,7 @@
 
         // Pagination footer
         var paginationHtml = '';
-        if (agents.length > currentPageSize) {
+        if (agents.length > state.get('agentPageSize')) {
             paginationHtml = '<div class="agents-pagination">' +
                 '<span class="pagination-info">Showing ' + displayAgents.length + ' of ' + agents.length + ' agents</span>' +
                 '<button class="show-more-btn" type="button">Show more</button>' +
@@ -420,7 +419,7 @@
         var cachedAgents = state.get('cachedAgents');
         var filteredAgents = cachedAgents.filter(function (agent) {
             // Production filter
-            if (prodOnlyActive && isTestAgent(agent)) return false;
+            if (state.get('prodOnlyActive') && isTestAgent(agent)) return false;
 
             var agentStatus = getAgentStatus(agent);
             if (statusFilter !== 'all' && agentStatus !== statusFilter) return false;
@@ -772,12 +771,12 @@
     // Production toggle button
     var prodToggleBtn = document.getElementById('prod-toggle');
     if (prodToggleBtn) {
-        if (prodOnlyActive) prodToggleBtn.classList.add('active');
+        if (state.get('prodOnlyActive')) prodToggleBtn.classList.add('active');
         prodToggleBtn.addEventListener('click', function () {
-            prodOnlyActive = !prodOnlyActive;
-            localStorage.setItem('unitares_prod_only', prodOnlyActive ? 'true' : 'false');
-            prodToggleBtn.classList.toggle('active', prodOnlyActive);
-            currentPageSize = 20; // Reset pagination on toggle
+            var newVal = !state.get('prodOnlyActive');
+            state.set({ prodOnlyActive: newVal, agentPageSize: 20 });
+            localStorage.setItem('unitares_prod_only', newVal ? 'true' : 'false');
+            prodToggleBtn.classList.toggle('active', newVal);
             applyAgentFilters();
         });
     }
@@ -799,7 +798,7 @@
             var showMore = e.target.closest('.show-more-btn');
             if (showMore) {
                 e.stopPropagation();
-                currentPageSize += 20;
+                state.set({ agentPageSize: state.get('agentPageSize') + 20 });
                 applyAgentFilters();
                 return;
             }
@@ -812,7 +811,7 @@
         var el = document.getElementById(id);
         if (el) {
             el.addEventListener(el.tagName === 'INPUT' && el.type === 'text' ? 'input' : 'change', function () {
-                currentPageSize = 20;
+                state.set({ agentPageSize: 20 });
             });
         }
     });
@@ -836,6 +835,6 @@
         exportAgents: exportAgents,
         isTestAgent: isTestAgent,
         getProductionAgents: getProductionAgents,
-        isProdOnlyActive: function () { return prodOnlyActive; }
+        isProdOnlyActive: function () { return state.get('prodOnlyActive'); }
     };
 })();

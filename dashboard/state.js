@@ -71,7 +71,9 @@
         selectedAgentView: '__fleet__',
         lastVitalsTimestamp: null,
         pinnedAgentId: null,
-        pinnedAgentName: null
+        pinnedAgentName: null,
+        prodOnlyActive: typeof localStorage !== 'undefined' && localStorage.getItem('unitares_prod_only') === 'true',
+        agentPageSize: 20
     });
 
     // Restore pinned agent from localStorage
