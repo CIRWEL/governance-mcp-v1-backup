@@ -710,6 +710,59 @@ class EISVWebSocket {
     }
 }
 
+// ============================================================================
+// GLOSSARY & UI HELPERS
+// ============================================================================
+
+const GLOSSARY = {
+    'Coherence': 'How well-aligned an agent\'s state vector is. Derived from E-I balance and void — structural health, not semantic quality.',
+    'Energy': 'Productive capacity. Rises when integrity exceeds energy, dragged down by high entropy.',
+    'Integrity': 'Signal fidelity and information quality. Boosted by coherence, reduced by entropy.',
+    'Entropy': 'Semantic uncertainty and disorder. Lower is better. Naturally decays over time, rises with complexity and ethical drift.',
+    'Void': 'Accumulated E-I imbalance. Positive = running hot (E > I), negative = running careful (I > E). Decays toward zero.',
+    'Risk': 'Combined score from EISV state, drift, and trajectory. Higher = more governance concern.',
+    'Verdict': 'Governance decision after check-in: approve/proceed (healthy), guide (adjust), pause/reject (needs attention).',
+    'Drift': 'Deviation from behavioral baseline across emotional, epistemic, and behavioral axes.',
+    'Trust Tier': 'Agent reliability level. T0 = unknown (+5% risk), T1 = emerging (+5%), T2 = established (0%), T3 = verified (-5%).',
+    'Basin': 'Region of EISV state space. High basin = healthy operation, low basin = degraded, boundary = transitioning.',
+    'Phi': 'Integrated information measure. Higher values indicate more complex internal state integration.',
+    'Calibration': 'Whether an agent\'s stated confidence matches observed outcomes. Overconfidence penalizes integrity.'
+};
+
+/**
+ * Create a help icon with tooltip for a glossary term.
+ * @param {string} term - Glossary term to look up
+ * @returns {HTMLSpanElement}
+ */
+function createHelpIcon(term) {
+    var span = document.createElement('span');
+    span.className = 'help-icon';
+    span.textContent = '?';
+    span.title = GLOSSARY[term] || term;
+    span.setAttribute('aria-label', 'Help: ' + term);
+    return span;
+}
+
+/**
+ * Show a temporary toast notification.
+ * @param {string} message - Message to display
+ * @param {number} [durationMs=3000] - Auto-dismiss duration in ms
+ */
+function showToast(message, durationMs) {
+    durationMs = durationMs || 3000;
+    var toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    // Trigger reflow then add visible class for animation
+    toast.offsetHeight; // eslint-disable-line no-unused-expressions
+    toast.classList.add('visible');
+    setTimeout(function () {
+        toast.classList.remove('visible');
+        setTimeout(function () { toast.remove(); }, 300);
+    }, durationMs);
+}
+
 // Export for use in dashboard
 if (typeof window !== 'undefined') {
     window.DashboardAPI = DashboardAPI;
@@ -717,4 +770,7 @@ if (typeof window !== 'undefined') {
     window.ThemeManager = ThemeManager;
     window.EISVWebSocket = EISVWebSocket;
     window.debounce = debounce;
+    window.GLOSSARY = GLOSSARY;
+    window.createHelpIcon = createHelpIcon;
+    window.showToast = showToast;
 }

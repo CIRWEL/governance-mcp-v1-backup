@@ -17,6 +17,38 @@
     var highlightMatch = DataProcessor.highlightMatch;
     var formatRelativeTime = DataProcessor.formatRelativeTime;
 
+    // Production filter state
+    var prodOnlyActive = localStorage.getItem('unitares_prod_only') === 'true';
+    var currentPageSize = 20;
+
+    // Verdict icons for color-blind accessibility
+    var VERDICT_ICONS = {
+        approve: '\u2713', proceed: '\u2713', safe: '\u2713',
+        caution: '\u26A0', guide: '\u26A0',
+        pause: '\u2715', reject: '\u2715'
+    };
+
+    /**
+     * Heuristic: returns true if agent looks like a test/experiment agent.
+     */
+    function isTestAgent(agent) {
+        var name = (agent.label || agent.display_name || agent.name || '').toLowerCase();
+        if (/^(exp_|val_|paper_|test_|experiment)/.test(name)) return true;
+        var totalUpdates = agent.total_updates || 0;
+        if (totalUpdates < 200) {
+            var staleness = getAgentStaleness(agent);
+            if (staleness.ageMs > 24 * 60 * 60 * 1000) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns only production agents (filtered by isTestAgent heuristic).
+     */
+    function getProductionAgents(agents) {
+        return agents.filter(function (a) { return !isTestAgent(a); });
+    }
+
     // ========================================================================
     // Agent utility functions
     // ========================================================================
@@ -139,8 +171,8 @@
             info.textContent = 'No agents match filters (' + total + ' loaded)';
             return;
         }
-        var showingCount = Math.min(filteredCount, 20);
-        info.textContent = 'Showing ' + showingCount + ' of ' + filteredCount + ' filtered (' + total + ' loaded)';
+        // Info text is now driven by pagination footer, keep this minimal
+        info.textContent = '';
     }
 
     // ========================================================================
@@ -166,14 +198,14 @@
 
         updateAgentFilterInfo(agents.length);
         var agentEISVHistory = state.get('agentEISVHistory') || {};
+        var displayAgents = agents.slice(0, currentPageSize);
 
-        container.innerHTML = agents.slice(0, 20).map(function (agent) {
+        var cardsHtml = displayAgents.map(function (agent) {
             var status = getAgentStatus(agent);
             var statusClass = status === 'paused' ? 'paused' :
                 status === 'archived' ? 'archived' :
                     status === 'deleted' ? 'archived' : '';
             var statusIndicator = '<span class="status-indicator ' + status + '"></span>';
-            var statusLabel = escapeHtml(formatStatusLabel(status));
 
             var metrics = agent.metrics || {};
             var eValue = metrics.E !== undefined && metrics.E !== null ? Number(metrics.E) : null;
@@ -204,7 +236,6 @@
             var agentId = agent.agent_id || '';
             var timestampLabel = formatAgentTimestamp(agent);
             var nameHtml = highlightMatch(displayName, searchTerm);
-            var idHtml = searchTerm ? highlightMatch(agentId, searchTerm) : escapeHtml(agentId);
 
             var subtitleParts = [];
             if (timestampLabel) subtitleParts.push(escapeHtml(timestampLabel));
@@ -217,7 +248,7 @@
             var purposeHtml = purpose
                 ? '<div class="agent-purpose" title="' + purpose + '">' + purpose + '</div>' : '';
 
-            // Stuck badge (cross-referenced from detect_stuck_agents)
+            // Stuck badge
             var stuckBadgeHtml = '';
             if (agent._stuck && agent._stuckInfo) {
                 var stuckReason = agent._stuckInfo.reason || 'timeout';
@@ -251,7 +282,7 @@
                   '</div>'
                 : '';
 
-            // Metric bar colors via MetricColors (replaces inline metricColor function)
+            // Metric bar colors
             var eColor = MetricColors.forValue(eValue, false, 'css');
             var iColor = MetricColors.forValue(iValue, false, 'css');
             var sColor = MetricColors.forValue(sValue, true, 'css');
@@ -265,28 +296,46 @@
                 healthBadgeHtml = '<span class="health-badge-mini ' + healthStatus + '">' + escapeHtml(healthStatus) + '</span>';
             }
 
-            // Verdict badge
+            // Verdict badge with icon
             var verdict = metrics.verdict || '';
             var verdictBadgeHtml = '';
             if (verdict && verdict !== '-') {
                 var verdictClass = verdict === 'proceed' || verdict === 'approve' || verdict === 'safe' ? 'verdict-good' :
                     verdict === 'caution' || verdict === 'guide' ? 'verdict-caution' : 'verdict-bad';
-                verdictBadgeHtml = '<span class="verdict-badge-mini ' + verdictClass + '">' + escapeHtml(verdict) + '</span>';
+                var verdictIcon = VERDICT_ICONS[verdict] || '';
+                verdictBadgeHtml = '<span class="verdict-badge-mini ' + verdictClass + '">' + (verdictIcon ? verdictIcon + ' ' : '') + escapeHtml(verdict) + '</span>';
             }
 
             // Staleness & inactive badges
             var staleBadgeHtml = getStaleBadgeHtml(agent);
             var inactiveBadgeHtml = getInactiveBadgeHtml(agent);
 
-            // Anomaly indicator (from visualizations.js)
+            // Anomaly indicator
             var anomalyHtml = typeof getAnomalyIndicator === 'function' ? getAnomalyIndicator(metrics) : '';
 
-            // Sparkline for coherence trend (from visualizations.js)
+            // Sparkline
             var history = agentEISVHistory[agentId] || [];
             var sparklineData = history.length >= 2 ? history.slice(-20).map(function (p) { return p.coherence; }) : null;
             var sparklineVal = sparklineData ? sparklineData[sparklineData.length - 1] : null;
             var sparklineHtml = sparklineData && typeof createSparklineSVG === 'function'
                 ? '<div class="sparkline-container" title="Coherence trend (last ' + sparklineData.length + ' points)"><span class="sparkline-label">C ' + sparklineVal.toFixed(2) + '</span>' + createSparklineSVG(sparklineData, { color: '#06b6d4' }) + '</div>'
+                : '';
+
+            // Compact summary: verdict + coherence + risk (shown inline below title)
+            var compactSummaryHtml = '';
+            if (hasMetrics) {
+                var riskScore = metrics.risk_score !== undefined && metrics.risk_score !== null
+                    ? (Number(metrics.risk_score) * 100).toFixed(0) + '%' : '';
+                compactSummaryHtml = '<div class="agent-compact-summary">' +
+                    verdictBadgeHtml +
+                    (coherence !== '-' ? '<span class="compact-coherence">C ' + coherence + '</span>' : '') +
+                    (riskScore ? '<span class="compact-risk">R ' + riskScore + '</span>' : '') +
+                '</div>';
+            }
+
+            // Metrics toggle
+            var metricsToggleHtml = hasMetrics
+                ? '<span class="agent-metrics-toggle" data-agent-uuid="' + escapeHtml(agentId) + '"><span class="toggle-arrow">\u25B8</span> Metrics</span>'
                 : '';
 
             return '<div class="agent-item ' + statusClass + '" data-agent-uuid="' + escapeHtml(agentId) + '" title="Click to view details">' +
@@ -295,13 +344,15 @@
                         statusIndicator +
                         '<span class="agent-name">' + nameHtml + '</span>' +
                         stuckBadgeHtml + inactiveBadgeHtml +
-                        healthBadgeHtml + verdictBadgeHtml + staleBadgeHtml +
+                        healthBadgeHtml + staleBadgeHtml +
                         trustTierHtml + anomalyHtml +
                         sparklineHtml +
                         actionsHtml +
                     '</div>' +
                     subtitleHtml +
                     purposeHtml +
+                    compactSummaryHtml +
+                    metricsToggleHtml +
                 '</div>' +
                 (hasMetrics
                     ? '<div class="agent-metrics">' +
@@ -334,6 +385,21 @@
                     : '<div class="agent-metrics"><span class="text-secondary-sm">No metrics yet</span></div>') +
             '</div>';
         }).join('');
+
+        // Pagination footer
+        var paginationHtml = '';
+        if (agents.length > currentPageSize) {
+            paginationHtml = '<div class="agents-pagination">' +
+                '<span class="pagination-info">Showing ' + displayAgents.length + ' of ' + agents.length + ' agents</span>' +
+                '<button class="show-more-btn" type="button">Show more</button>' +
+            '</div>';
+        } else if (agents.length > 0) {
+            paginationHtml = '<div class="agents-pagination">' +
+                '<span class="pagination-info">Showing ' + agents.length + ' of ' + agents.length + ' agents</span>' +
+            '</div>';
+        }
+
+        container.innerHTML = cardsHtml + paginationHtml;
     }
 
     // ========================================================================
@@ -353,6 +419,9 @@
 
         var cachedAgents = state.get('cachedAgents');
         var filteredAgents = cachedAgents.filter(function (agent) {
+            // Production filter
+            if (prodOnlyActive && isTestAgent(agent)) return false;
+
             var agentStatus = getAgentStatus(agent);
             if (statusFilter !== 'all' && agentStatus !== statusFilter) return false;
             if (metricsOnly && !agentHasMetrics(agent)) return false;
@@ -543,7 +612,7 @@
                         '<div class="detail-box-value"><span class="verdict-badge-mini ' +
                             (verdict === 'proceed' || verdict === 'approve' || verdict === 'safe' ? 'verdict-good' :
                              verdict === 'caution' || verdict === 'guide' ? 'verdict-caution' : 'verdict-bad') +
-                        '">' + escapeHtml(verdict) + '</span></div>' +
+                        '">' + (VERDICT_ICONS[verdict] ? VERDICT_ICONS[verdict] + ' ' : '') + escapeHtml(verdict) + '</span></div>' +
                     '</div>' +
                     '<div class="detail-box">' +
                         '<div class="detail-box-label">Risk</div>' +
@@ -564,6 +633,29 @@
                 '<strong class="text-secondary-sm">Tags:</strong>' +
                 '<div class="mt-sm">' + tags + '</div>' +
             '</div>' +
+
+            // Recent Discoveries cross-link
+            (function () {
+                var cachedDisc = state.get('cachedDiscoveries') || [];
+                var agentDisc = cachedDisc.filter(function (d) {
+                    return (d.agent_id || d._agent_id || d.by || '') === agentId;
+                }).slice(0, 5);
+                if (agentDisc.length === 0) return '';
+                var discItems = agentDisc.map(function (d) {
+                    var dType = d.type || d.discovery_type || 'note';
+                    var dSummary = d.summary || 'Untitled';
+                    var dDate = d._displayDate || '';
+                    return '<div class="discovery-mini-item" style="padding: 6px 0; border-bottom: 1px solid var(--border-color);">' +
+                        '<span class="discovery-type ' + escapeHtml(dType) + '" style="font-size: 0.7em;">' + escapeHtml(dType) + '</span> ' +
+                        '<span style="font-size: 0.85em;">' + escapeHtml(dSummary.length > 60 ? dSummary.substring(0, 57) + '...' : dSummary) + '</span>' +
+                        (dDate ? ' <span class="text-secondary-xs">' + escapeHtml(dDate) + '</span>' : '') +
+                    '</div>';
+                }).join('');
+                return '<div class="detail-section">' +
+                    '<strong class="detail-section-title">Recent Discoveries:</strong>' +
+                    '<div class="mt-sm">' + discItems + '</div>' +
+                '</div>';
+            })() +
 
             (notes
                 ? '<div class="detail-section">' +
@@ -674,6 +766,58 @@
     }
 
     // ========================================================================
+    // Event listeners: prod toggle, metrics toggle, show more
+    // ========================================================================
+
+    // Production toggle button
+    var prodToggleBtn = document.getElementById('prod-toggle');
+    if (prodToggleBtn) {
+        if (prodOnlyActive) prodToggleBtn.classList.add('active');
+        prodToggleBtn.addEventListener('click', function () {
+            prodOnlyActive = !prodOnlyActive;
+            localStorage.setItem('unitares_prod_only', prodOnlyActive ? 'true' : 'false');
+            prodToggleBtn.classList.toggle('active', prodOnlyActive);
+            currentPageSize = 20; // Reset pagination on toggle
+            applyAgentFilters();
+        });
+    }
+
+    // Delegated: metrics toggle + show more button
+    var agentsContainer = document.getElementById('agents-container');
+    if (agentsContainer) {
+        agentsContainer.addEventListener('click', function (e) {
+            // Metrics toggle
+            var toggle = e.target.closest('.agent-metrics-toggle');
+            if (toggle) {
+                e.stopPropagation();
+                var card = toggle.closest('.agent-item');
+                if (card) card.classList.toggle('metrics-expanded');
+                return;
+            }
+
+            // Show more pagination
+            var showMore = e.target.closest('.show-more-btn');
+            if (showMore) {
+                e.stopPropagation();
+                currentPageSize += 20;
+                applyAgentFilters();
+                return;
+            }
+        });
+    }
+
+    // Reset page size on filter/search/sort changes (NOT in applyAgentFilters since that's called on 30s refresh)
+    var resetPageInputs = ['agent-search', 'agent-status-filter', 'agent-metrics-only', 'agent-sort'];
+    resetPageInputs.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) {
+            el.addEventListener(el.tagName === 'INPUT' && el.type === 'text' ? 'input' : 'change', function () {
+                currentPageSize = 20;
+            });
+        }
+    });
+
+    // ========================================================================
     // Public API
     // ========================================================================
 
@@ -689,6 +833,9 @@
         applyAgentFilters: applyAgentFilters,
         clearAgentFilters: clearAgentFilters,
         showAgentDetail: showAgentDetail,
-        exportAgents: exportAgents
+        exportAgents: exportAgents,
+        isTestAgent: isTestAgent,
+        getProductionAgents: getProductionAgents,
+        isProdOnlyActive: function () { return prodOnlyActive; }
     };
 })();

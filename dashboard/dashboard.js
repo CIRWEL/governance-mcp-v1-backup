@@ -939,7 +939,11 @@ async function loadAgents() {
         const fleetCoherenceEl = document.getElementById('fleet-coherence');
         const fleetDetailEl = document.getElementById('fleet-health-detail');
         if (fleetCoherenceEl && fleetDetailEl) {
-            const agentsWithMetrics = allAgents.filter(a => {
+            // If prod-only is active, filter to production agents for fleet stats
+            const fleetAgents = (typeof AgentsModule !== 'undefined' && AgentsModule.isProdOnlyActive && AgentsModule.isProdOnlyActive())
+                ? AgentsModule.getProductionAgents(allAgents)
+                : allAgents;
+            const agentsWithMetrics = fleetAgents.filter(a => {
                 const m = a.metrics || {};
                 return m.coherence !== undefined && m.coherence !== null && (a.total_updates || 0) > 0;
             });
@@ -947,8 +951,8 @@ async function loadAgents() {
                 const totalUpdates = agentsWithMetrics.reduce((sum, a) => sum + (a.total_updates || 1), 0);
                 const avgCoherence = agentsWithMetrics.reduce((sum, a) => sum + Number(a.metrics.coherence) * (a.total_updates || 1), 0) / totalUpdates;
                 animateValue(fleetCoherenceEl, avgCoherence * 100, { decimals: 0, suffix: '%' });
-                const criticalCount = allAgents.filter(a => a.health_status === 'critical').length;
-                const highRiskCount = allAgents.filter(a => {
+                const criticalCount = fleetAgents.filter(a => a.health_status === 'critical').length;
+                const highRiskCount = fleetAgents.filter(a => {
                     const rs = a.metrics && a.metrics.risk_score;
                     return rs !== undefined && rs !== null && Number(rs) > 0.6;
                 }).length;
@@ -1015,6 +1019,21 @@ async function loadAgents() {
         });
 
         cachedAgents = allAgents;
+
+        // Stale pinned agent validation
+        var pinnedId = state.get('pinnedAgentId');
+        if (pinnedId && !allAgents.find(function (a) { return a.agent_id === pinnedId; })) {
+            state.set({ pinnedAgentId: null, pinnedAgentName: null });
+            localStorage.removeItem('unitares_pinned_agent_id');
+            localStorage.removeItem('unitares_pinned_agent_name');
+            if (typeof showToast === 'function') {
+                showToast('Pinned agent no longer exists — unpinned');
+            }
+        }
+
+        // Update quick status hero
+        updateQuickStatus(allAgents, cachedStuckAgents);
+
         applyAgentFilters();
         return true;
 
@@ -1211,6 +1230,69 @@ async function loadServerInfo() {
     } catch (e) {
         const el = document.getElementById('server-version');
         if (el) el.textContent = '-';
+    }
+}
+
+/**
+ * Update the Quick Status hero section.
+ * Shows fleet health at a glance: green/yellow/red dot + summary.
+ */
+function updateQuickStatus(agents, stuckAgents) {
+    const dot = document.getElementById('qs-dot');
+    const label = document.getElementById('qs-label');
+    const detail = document.getElementById('qs-detail');
+    const lumen = document.getElementById('qs-lumen');
+    if (!dot || !label) return;
+
+    stuckAgents = stuckAgents || [];
+    agents = agents || [];
+
+    // Compute fleet health
+    const criticalAgents = agents.filter(a => a.health_status === 'critical').length;
+    const agentsWithMetrics = agents.filter(a => {
+        const m = a.metrics || {};
+        return m.coherence !== undefined && m.coherence !== null;
+    });
+    const avgCoherence = agentsWithMetrics.length > 0
+        ? agentsWithMetrics.reduce((s, a) => s + Number(a.metrics.coherence), 0) / agentsWithMetrics.length
+        : null;
+
+    let status = 'healthy';
+    let statusText = 'All systems healthy';
+    if (stuckAgents.length > 2 || criticalAgents > 0) {
+        status = 'critical';
+        statusText = criticalAgents + ' critical' + (stuckAgents.length > 0 ? ', ' + stuckAgents.length + ' stuck' : '');
+    } else if (stuckAgents.length > 0 || (avgCoherence !== null && avgCoherence < 0.4)) {
+        status = 'warning';
+        const parts = [];
+        if (stuckAgents.length > 0) parts.push(stuckAgents.length + ' stuck');
+        if (avgCoherence !== null && avgCoherence < 0.4) parts.push('coherence ' + (avgCoherence * 100).toFixed(0) + '%');
+        statusText = parts.join(', ');
+    }
+
+    dot.className = 'quick-status-dot ' + status;
+    label.textContent = statusText;
+
+    // Detail: agent count
+    if (detail) {
+        detail.textContent = agents.length + ' agents' + (agentsWithMetrics.length > 0 ? ' · ' + agentsWithMetrics.length + ' reporting' : '');
+    }
+
+    // Lumen slot: show pinned agent or first active agent summary
+    if (lumen) {
+        const pinnedId = state.get('pinnedAgentId');
+        const targetAgent = pinnedId
+            ? agents.find(a => a.agent_id === pinnedId)
+            : agents[0];
+        if (targetAgent) {
+            const m = targetAgent.metrics || {};
+            const name = targetAgent.label || targetAgent.display_name || targetAgent.name || '';
+            const v = m.verdict || '';
+            const icon = v && typeof AgentsModule !== 'undefined' ? '' : '';
+            lumen.textContent = name ? name + (v ? ' · ' + v : '') : '';
+        } else {
+            lumen.textContent = '';
+        }
     }
 }
 
@@ -1589,6 +1671,9 @@ async function refresh(options = {}) {
                 console.error(`Load operation ${index} failed:`, result.reason);
             }
         });
+
+        // Update quick status after all loads complete
+        updateQuickStatus(cachedAgents, cachedStuckAgents);
     } catch (error) {
         // This should rarely happen since we're using Promise.allSettled
         updateConnectionBanner(true);
@@ -2308,17 +2393,54 @@ console.log('API available:', typeof api !== 'undefined' && api !== null);
 console.log('DataProcessor available:', typeof DataProcessor !== 'undefined');
 console.log('ThemeManager available:', typeof themeManager !== 'undefined' && themeManager !== null);
 
+// Hydrate help icon placeholders and show shortcuts hint
+function hydrateHelpIcons() {
+    if (typeof createHelpIcon !== 'function') return;
+    var placeholders = document.querySelectorAll('.help-icon-placeholder');
+    placeholders.forEach(function (el) {
+        var term = el.getAttribute('data-term');
+        if (term) {
+            var icon = createHelpIcon(term);
+            el.parentNode.replaceChild(icon, el);
+        }
+    });
+}
+
+function showShortcutsHintOnce() {
+    if (localStorage.getItem('unitares_shortcuts_seen')) return;
+    var hint = document.createElement('div');
+    hint.className = 'shortcuts-hint';
+    hint.innerHTML = 'Press <kbd>?</kbd> for keyboard shortcuts';
+    document.body.appendChild(hint);
+    requestAnimationFrame(function () { hint.classList.add('visible'); });
+
+    function dismiss() {
+        hint.classList.remove('visible');
+        setTimeout(function () { hint.remove(); }, 400);
+        localStorage.setItem('unitares_shortcuts_seen', 'true');
+        document.removeEventListener('keydown', dismiss);
+    }
+
+    setTimeout(dismiss, 8000);
+    document.addEventListener('keydown', dismiss);
+}
+
+function dashboardInit() {
+    hydrateHelpIcons();
+    showShortcutsHintOnce();
+    setTimeout(function () { refresh(); }, 100);
+    fetchInitialEvents();
+}
+
 // Wait for DOM to be ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         console.log('DOM ready, starting initial load');
-        setTimeout(() => { refresh(); }, 100);
-        fetchInitialEvents();  // Load recent events
+        dashboardInit();
     });
 } else {
     console.log('DOM already ready, starting initial load');
-    setTimeout(() => { refresh(); }, 100);
-    fetchInitialEvents();  // Load recent events
+    dashboardInit();
 }
 
 // Auto-refresh every 30 seconds

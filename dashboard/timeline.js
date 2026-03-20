@@ -17,7 +17,7 @@
 
     var MAX_TIMELINE_ITEMS = 100;
     var timelineEntries = []; // {ts, type, agent, message, verdict, className}
-    var currentFilter = 'all';
+    var currentFilter = 'important';
 
     // ========================================================================
     // Skeleton loader initialization
@@ -52,9 +52,9 @@
         if (!dot || !label || !container) return;
 
         dot.className = 'ws-dot ' + status;
-        var labels = { connected: 'Live', polling: 'Polling', reconnecting: 'Reconnecting', disconnected: 'Offline', poll_error: 'Poll Failed' };
+        var labels = { connected: 'Live', polling: 'Polling (~30s)', reconnecting: 'Reconnecting', disconnected: 'Offline', poll_error: 'Stale Data' };
         label.textContent = labels[status] || 'Offline';
-        var titles = { connected: 'Connected via WebSocket', polling: 'Polling (WebSocket unavailable)', reconnecting: 'Reconnecting...', disconnected: 'Offline', poll_error: 'Polling failed — data may be stale' };
+        var titles = { connected: 'Connected via WebSocket', polling: 'Polling every ~30 seconds (WebSocket unavailable)', reconnecting: 'Reconnecting...', disconnected: 'Offline', poll_error: 'Polling failed — data may be stale' };
         container.title = titles[status] || 'Offline';
     }
 
@@ -81,13 +81,31 @@
         renderTimeline();
     }
 
+    var VERDICT_ICONS = {
+        approve: '\u2713', proceed: '\u2713', safe: '\u2713',
+        caution: '\u26A0', guide: '\u26A0',
+        pause: '\u2715', reject: '\u2715'
+    };
+
+    function isImportantEntry(e) {
+        // Show everything except check-ins, UNLESS the check-in has a non-proceed/approve verdict
+        if (e.type !== 'checkin') return true;
+        if (e.verdict && e.verdict !== 'proceed' && e.verdict !== 'approve') return true;
+        return false;
+    }
+
     function renderTimeline() {
         var container = document.getElementById('timeline-container');
         if (!container) return;
 
-        var filtered = currentFilter === 'all'
-            ? timelineEntries
-            : timelineEntries.filter(function (e) { return e.type === currentFilter; });
+        var filtered;
+        if (currentFilter === 'all') {
+            filtered = timelineEntries;
+        } else if (currentFilter === 'important') {
+            filtered = timelineEntries.filter(isImportantEntry);
+        } else {
+            filtered = timelineEntries.filter(function (e) { return e.type === currentFilter; });
+        }
 
         if (filtered.length === 0) {
             container.innerHTML = '<div class="timeline-empty">No events' + (currentFilter !== 'all' ? ' matching filter' : '') + '</div>';
@@ -100,7 +118,8 @@
             var relStr = relative ? ' (' + relative + ')' : '';
             var typeIcon = { checkin: '\u25CF', verdict: '\u25A0', discovery: '\u2605', dialectic: '\u25B6' }[e.type] || '\u25CB';
             var agentStr = e.agent ? '<span class="tl-agent">' + escapeHtml(e.agent) + '</span>' : '';
-            var verdictBadge = e.verdict ? '<span class="tl-verdict ' + (VERDICT_CLASSES[e.verdict] || '') + '">' + escapeHtml(e.verdict) + '</span>' : '';
+            var verdictIcon = e.verdict && VERDICT_ICONS[e.verdict] ? VERDICT_ICONS[e.verdict] + ' ' : '';
+            var verdictBadge = e.verdict ? '<span class="tl-verdict ' + (VERDICT_CLASSES[e.verdict] || '') + '">' + verdictIcon + escapeHtml(e.verdict) + '</span>' : '';
 
             return '<div class="tl-entry ' + (e.className || '') + '" data-type="' + (e.type || '') + '">' +
                 '<span class="tl-icon">' + typeIcon + '</span>' +

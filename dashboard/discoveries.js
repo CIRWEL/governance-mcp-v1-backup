@@ -131,7 +131,11 @@
         container.innerHTML = displayDiscoveries.map(function (d, idx) {
             var type = normalizeDiscoveryType(d.type || d.discovery_type || 'note');
             var typeLabel = escapeHtml(formatDiscoveryType(type));
-            var agent = escapeHtml(d.by || d.agent_id || d._agent_id || 'Unknown');
+            var agentRaw = d.by || d.agent_id || d._agent_id || 'Unknown';
+            var agentIdForLink = d.agent_id || d._agent_id || '';
+            var agent = agentIdForLink
+                ? '<span class="agent-link" data-agent-id="' + escapeHtml(agentIdForLink) + '">' + escapeHtml(agentRaw) + '</span>'
+                : escapeHtml(agentRaw);
             var details = String(d.details || d.content || d.discovery || '');
             var summaryText = d.summary || 'Untitled';
             var summaryHtml = highlightMatch(summaryText, searchTerm);
@@ -359,6 +363,27 @@
                 URL.revokeObjectURL(url2);
             }
         }
+    }
+
+    // ========================================================================
+    // Event listeners: agent cross-link
+    // ========================================================================
+
+    var discContainer = document.getElementById('discoveries-container');
+    if (discContainer) {
+        discContainer.addEventListener('click', function (e) {
+            var agentLink = e.target.closest('.agent-link');
+            if (agentLink) {
+                e.stopPropagation();
+                var agentId = agentLink.getAttribute('data-agent-id');
+                if (!agentId) return;
+                var cachedAgents = state.get('cachedAgents') || [];
+                var agent = cachedAgents.find(function (a) { return a.agent_id === agentId; });
+                if (agent && typeof AgentsModule !== 'undefined' && AgentsModule.showAgentDetail) {
+                    AgentsModule.showAgentDetail(agent);
+                }
+            }
+        });
     }
 
     // ========================================================================

@@ -3359,6 +3359,343 @@ body {
     ============================================ */
 
 /* ============================================
+   Help Icons (glossary tooltips)
+   ============================================ */
+.help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 0.6rem;
+    font-weight: 600;
+    cursor: help;
+    vertical-align: middle;
+    margin-left: 4px;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.help-icon:hover {
+    background: rgba(0, 240, 255, 0.15);
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+}
+
+/* ============================================
+   Toast Notifications
+   ============================================ */
+.toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    box-shadow: var(--shadow-md);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    z-index: 10000;
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: none;
+}
+
+.toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+}
+
+/* ============================================
+   Quick Status Hero
+   ============================================ */
+.quick-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 1400px;
+    margin: 0 auto 16px;
+    padding: 12px 20px;
+    background: var(--toolbar-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    font-size: 0.9rem;
+}
+
+.quick-status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.quick-status-dot.healthy {
+    background: var(--color-success);
+    box-shadow: 0 0 8px var(--color-success);
+}
+
+.quick-status-dot.warning {
+    background: var(--color-warning);
+    box-shadow: 0 0 8px var(--color-warning);
+}
+
+.quick-status-dot.critical {
+    background: var(--color-error);
+    box-shadow: 0 0 8px var(--color-error);
+    animation: axis-pulse-critical 1.5s infinite ease-in-out;
+}
+
+.quick-status-label {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.quick-status-separator {
+    width: 1px;
+    height: 20px;
+    background: var(--border-color);
+    flex-shrink: 0;
+}
+
+.quick-status-lumen {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* ============================================
+   Agent Metrics — Collapsible Override
+   ============================================ */
+.agent-item .agent-metrics {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+
+.agent-item.metrics-expanded .agent-metrics {
+    max-height: 200px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* ============================================
+   Agent Compact Summary
+   ============================================ */
+.agent-compact-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 0.8rem;
+    font-family: var(--font-mono);
+}
+
+.agent-compact-summary .verdict-badge-mini {
+    font-size: 0.75rem;
+}
+
+.agent-compact-summary .compact-coherence,
+.agent-compact-summary .compact-risk {
+    color: var(--text-secondary);
+}
+
+/* ============================================
+   Agent Metrics Toggle
+   ============================================ */
+.agent-metrics-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all var(--transition-fast);
+    user-select: none;
+}
+
+.agent-metrics-toggle:hover {
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.agent-metrics-toggle .toggle-arrow {
+    transition: transform 0.2s ease;
+    display: inline-block;
+}
+
+.agent-item.metrics-expanded .agent-metrics-toggle .toggle-arrow {
+    transform: rotate(90deg);
+}
+
+/* ============================================
+   Agents Pagination
+   ============================================ */
+.agents-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0 4px;
+    margin-top: 8px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.agents-pagination .pagination-info {
+    font-family: var(--font-mono);
+}
+
+.agents-pagination .show-more-btn {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+}
+
+.agents-pagination .show-more-btn:hover {
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+}
+
+/* ============================================
+   Production Toggle
+   ============================================ */
+.prod-toggle {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.85em;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.prod-toggle:hover {
+    border-color: var(--text-primary);
+    color: var(--text-primary);
+}
+
+.prod-toggle.active {
+    border-color: var(--accent-green);
+    color: var(--accent-green);
+    background: rgba(0, 230, 118, 0.08);
+}
+
+/* ============================================
+   EISV Threshold Legend
+   ============================================ */
+.eisv-threshold-legend {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 12px;
+    margin-top: 8px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    flex-wrap: wrap;
+}
+
+.eisv-threshold-legend .legend-threshold {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.eisv-threshold-legend .threshold-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.eisv-threshold-legend .threshold-dot.healthy { background: var(--accent-green); }
+.eisv-threshold-legend .threshold-dot.moderate { background: var(--accent-yellow); }
+.eisv-threshold-legend .threshold-dot.concerning { background: var(--accent-orange); }
+
+.eisv-threshold-legend .threshold-note {
+    font-style: italic;
+    color: var(--text-muted);
+}
+
+/* ============================================
+   Shortcuts Hint
+   ============================================ */
+.shortcuts-hint {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    z-index: 9000;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+    pointer-events: none;
+}
+
+.shortcuts-hint.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.shortcuts-hint kbd {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    margin: 0 2px;
+}
+
+/* ============================================
+   Agent Link (in discoveries)
+   ============================================ */
+.agent-link {
+    color: var(--color-info);
+    text-decoration: underline;
+    text-decoration-color: rgba(59, 130, 246, 0.4);
+    text-underline-offset: 2px;
+    cursor: pointer;
+    transition: color var(--transition-fast);
+}
+
+.agent-link:hover {
+    color: var(--accent-cyan);
+    text-decoration-color: var(--accent-cyan);
+}
+
+/* ============================================
    Responsive
    ============================================ */
 @media (max-width: 960px) {
@@ -3421,6 +3758,27 @@ body {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .quick-status {
+        flex-direction: column;
+        text-align: center;
+        gap: 8px;
+    }
+
+    .quick-status-separator {
+        width: 80%;
+        height: 1px;
+    }
+
+    .eisv-threshold-legend {
+        justify-content: center;
+    }
+
+    .shortcuts-hint {
+        right: 10px;
+        bottom: 10px;
+        font-size: 0.75rem;
     }
 }
 

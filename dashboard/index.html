@@ -78,9 +78,18 @@
     </nav>
 
     <main>
+        <!-- Quick Status Hero -->
+        <div class="quick-status" id="quick-status">
+            <span class="quick-status-dot healthy" id="qs-dot"></span>
+            <span class="quick-status-label" id="qs-label">Loading...</span>
+            <span class="quick-status-separator"></span>
+            <span class="quick-status-lumen" id="qs-detail"></span>
+            <span class="quick-status-lumen" id="qs-lumen"></span>
+        </div>
+
         <div class="stats-grid" id="stats-section">
             <div class="stat-card" data-accent="coherence">
-                <h2>Fleet Coherence</h2>
+                <h2>Fleet Coherence <span class="help-icon-placeholder" data-term="Coherence"></span></h2>
                 <div class="value"><span id="fleet-coherence">-</span></div>
                 <div class="change" id="fleet-health-detail"></div>
             </div>
@@ -110,7 +119,7 @@
                 <div class="change" id="system-health-detail"></div>
             </div>
             <div class="stat-card expandable" data-accent="info" id="calibration-card" title="Click for calibration details">
-                <h2>Calibration <span class="expand-icon">&#9662;</span></h2>
+                <h2>Calibration <span class="help-icon-placeholder" data-term="Calibration"></span> <span class="expand-icon">&#9662;</span></h2>
                 <div class="value" id="calibration-value">-</div>
                 <div class="change" id="calibration-detail"></div>
             </div>
@@ -120,7 +129,7 @@
                 <div class="change" id="anomalies-detail"></div>
             </div>
             <div class="stat-card" data-accent="cyan" id="trust-tier-card" title="Fleet trust tier distribution">
-                <h2>Trust Tiers</h2>
+                <h2>Trust Tiers <span class="help-icon-placeholder" data-term="Trust Tier"></span></h2>
                 <div class="trust-tier-bars" id="trust-tier-bars"></div>
                 <div class="change" id="trust-tier-detail"></div>
             </div>
@@ -147,7 +156,7 @@
                 <div class="pulse-primary">
                     <div class="pulse-metric pulse-metric-large">
                         <div class="pulse-metric-header">
-                            <span class="pulse-metric-label">Risk</span>
+                            <span class="pulse-metric-label">Risk <span class="help-icon-placeholder" data-term="Risk"></span></span>
                             <span class="pulse-metric-value" id="vv-risk">—</span>
                             <span class="pulse-metric-detail" id="vv-risk-detail"
                                 title="Risk adjustment from trajectory analysis"></span>
@@ -186,7 +195,7 @@
                             </div>
                         </div>
                         <div class="pulse-drift">
-                            <h3>Drift</h3>
+                            <h3>Drift <span class="help-icon-placeholder" data-term="Drift"></span></h3>
                             <div class="drift-vector">
                                 <div class="drift-axis">
                                     <span class="drift-axis-label" title="Emotional drift → calibration deviation from baseline">Emotional</span>
@@ -268,6 +277,12 @@
                     </div>
                 </div>
             </div>
+            <div class="eisv-threshold-legend">
+                <span class="legend-threshold"><span class="threshold-dot healthy"></span> &gt;0.6 healthy</span>
+                <span class="legend-threshold"><span class="threshold-dot moderate"></span> 0.3–0.6 moderate</span>
+                <span class="legend-threshold"><span class="threshold-dot concerning"></span> &lt;0.3 concerning</span>
+                <span class="threshold-note">(S/V inverted: lower is better)</span>
+            </div>
             <div class="eisv-chart-empty" id="eisv-chart-empty">
                 <div class="chart-shimmer"></div>
                 <div style="text-align: center; margin-top: 8px; font-size: 0.85em; color: var(--text-secondary);">
@@ -307,6 +322,7 @@
                         <button id="agent-filters-toggle" class="panel-button" type="button"
                             title="Toggle filters">Filters</button>
                         <button id="agent-compare-btn" class="panel-button" type="button" title="Compare two agents">Compare</button>
+                        <button id="prod-toggle" class="prod-toggle" type="button" title="Hide experiment/test agents">Prod only</button>
                     </div>
                 </div>
                 <div class="agent-filters-row collapsed" id="agent-filters-row">
@@ -406,6 +422,7 @@
                 <h2>Activity</h2>
                 <div class="panel-controls">
                     <select id="timeline-filter" aria-label="Filter timeline events">
+                        <option value="important">Important</option>
                         <option value="all">All events</option>
                         <option value="checkin">Check-ins</option>
                         <option value="verdict">Verdicts</option>
