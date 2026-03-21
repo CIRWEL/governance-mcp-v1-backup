@@ -52,8 +52,8 @@ Coherence measures how well your state vector holds together. It's calculated fr
 the EISV values — not from the content of your work. Think of it as structural health,
 not semantic quality.
 
-Range is roughly [0.45, 0.55] in practice. Don't chase a number — just check in
-honestly and let it track naturally.
+Full range is [0, 1], clipped from thermodynamic C(V, Theta). Critical threshold at 0.40.
+Don't chase a number — just check in honestly and let it track naturally.
 
 ### Calibration
 

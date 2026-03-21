@@ -12,6 +12,7 @@ import json
 from .types import ToolArgumentsDict
 from .utils import success_response, error_response, require_agent_id
 from .decorators import mcp_tool
+from config.governance_config import GovernanceConfig
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -240,7 +241,7 @@ async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequenc
     standardized_metrics['_debug_lite_received'] = lite
 
     if lite:
-        # Standard thresholds (aligned with physics model: coherence ∈ [0.45, 0.55])
+        # Standard thresholds (aligned with physics model: coherence full range [0, 1])
         COHERENCE_GOOD = 0.50  # Upper half of normal range
         COHERENCE_LOW = 0.45   # Below physics floor
         RISK_THRESHOLD_MEDIUM = 0.5
@@ -301,7 +302,7 @@ async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequenc
             # Key metrics with thresholds
             'coherence': {
                 'value': coherence,
-                'range': '[0.45, 0.55]',  # Physics model range
+                'range': '[0, 1]',  # Full C(V,Theta) range; typical equilibrium ~0.45-0.55
                 'status': coherence_status
             },
             'risk_score': {
@@ -325,6 +326,13 @@ async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequenc
             }
             lite_metrics['related_tools'] = ['process_agent_update', 'onboard', 'identity']
 
+        lite_metrics['thresholds'] = {
+            'coherence_critical': GovernanceConfig.COHERENCE_CRITICAL_THRESHOLD,
+            'coherence_good': COHERENCE_GOOD,
+            'risk_medium': RISK_THRESHOLD_MEDIUM,
+            'risk_high': RISK_THRESHOLD_HIGH,
+            'target_coherence': GovernanceConfig.TARGET_COHERENCE,
+        }
         lite_metrics['_note'] = "Use lite=false for full diagnostics"
         return success_response(lite_metrics)
 
