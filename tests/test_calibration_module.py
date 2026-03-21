@@ -39,7 +39,7 @@ def checker(tmp_path):
     state_file = tmp_path / "cal_state.json"
     c = CalibrationChecker(state_file=state_file)
     c._backend = "json"  # force JSON so tests don't touch real DBs
-    c._write_json_snapshot = True  # enable JSON writes for persistence tests
+    # JSON snapshot is always written (write-through cache for sync cold-start)
     c.reset()
     return c
 
@@ -50,7 +50,7 @@ def checker_no_persist(tmp_path):
     state_file = tmp_path / "cal_state_no_persist.json"
     c = CalibrationChecker(state_file=state_file)
     c._backend = "json"
-    c._write_json_snapshot = False
+    # JSON snapshot always written but to tmpdir, so no impact
     c.reset()
     return c
 
@@ -927,7 +927,7 @@ class TestSaveLoadState:
         state_file = tmp_path / "rt.json"
         c = CalibrationChecker(state_file=state_file)
         c._backend = "json"
-        c._write_json_snapshot = True
+        # JSON snapshot always written (write-through cache)
         c.reset()
 
         c.record_prediction(0.85, True, 1.0)
@@ -938,7 +938,7 @@ class TestSaveLoadState:
         # Create a new checker and load from same file
         c2 = CalibrationChecker(state_file=state_file)
         c2._backend = "json"
-        c2._write_json_snapshot = True
+        # JSON snapshot always written (write-through cache)
         c2.load_state()
 
         # Strategic bins
@@ -955,7 +955,7 @@ class TestSaveLoadState:
         state_file = tmp_path / "nonexistent.json"
         c = CalibrationChecker(state_file=state_file)
         c._backend = "json"
-        c._write_json_snapshot = True
+        # JSON snapshot always written (write-through cache)
         c.load_state()
         # Should reset to empty
         total = sum(s['count'] for s in c.bin_stats.values())
@@ -966,7 +966,7 @@ class TestSaveLoadState:
         state_file.write_text("not valid json {{{")
         c = CalibrationChecker(state_file=state_file)
         c._backend = "json"
-        c._write_json_snapshot = True
+        # JSON snapshot always written (write-through cache)
         c.load_state()
         total = sum(s['count'] for s in c.bin_stats.values())
         assert total == 0
@@ -979,7 +979,7 @@ class TestSaveLoadState:
         }))
         c = CalibrationChecker(state_file=state_file)
         c._backend = "json"
-        c._write_json_snapshot = True
+        # JSON snapshot always written (write-through cache)
         c.load_state()
         assert c.bin_stats["0.8-0.9"]['count'] == 5
         # tactical should be empty defaultdict
@@ -1011,7 +1011,7 @@ class TestGlobalAccessors:
         state_file = tmp_path / "proxy.json"
         instance = CalibrationChecker(state_file=state_file)
         instance._backend = "json"
-        instance._write_json_snapshot = True
+        # JSON snapshot always written (write-through cache)
         instance.reset()
         monkeypatch.setattr(
             "src.calibration._calibration_checker_instance", instance
@@ -1144,7 +1144,7 @@ class TestIntegrationPipeline:
         state_file = tmp_path / "lifecycle.json"
         c = CalibrationChecker(state_file=state_file)
         c._backend = "json"
-        c._write_json_snapshot = True
+        # JSON snapshot always written (write-through cache)
         c.reset()
 
         # Phase 1: Record strategic predictions
@@ -1184,7 +1184,7 @@ class TestIntegrationPipeline:
         c.save_state()
         c2 = CalibrationChecker(state_file=state_file)
         c2._backend = "json"
-        c2._write_json_snapshot = True
+        # JSON snapshot always written (write-through cache)
         c2.load_state()
 
         # Verify reloaded state matches

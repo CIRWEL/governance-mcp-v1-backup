@@ -87,30 +87,22 @@ class TestCalibrationSaveNoClose:
 class TestCalibrationLoadNoClose:
     """Verify load_state() does not call db.close() or db.init()."""
 
-    def test_load_does_not_close_pool(self, calibration_checker):
-        """load_state() must NOT call db.close()."""
+    def test_load_does_not_touch_db(self, calibration_checker):
+        """load_state() is sync JSON-only and must NOT touch the DB."""
         checker, mock_db = calibration_checker
-        with patch("src.db.get_db", return_value=mock_db):
-            checker.load_state()
+        checker.load_state()
         mock_db.close.assert_not_called()
-
-    def test_load_does_not_init_pool(self, calibration_checker):
-        """load_state() must NOT call db.init()."""
-        checker, mock_db = calibration_checker
-        with patch("src.db.get_db", return_value=mock_db):
-            checker.load_state()
         mock_db.init.assert_not_called()
+        mock_db.get_calibration.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_load_calls_get_calibration(self, calibration_checker):
-        """load_state() should still call db.get_calibration().
+    async def test_load_async_calls_get_calibration(self, calibration_checker):
+        """load_state_async() should call db.get_calibration().
 
-        _run_async uses asyncio.get_running_loop() + create_task, so we must
-        be inside an async context for the DB call to fire.
+        load_state() is now JSON-only (sync). DB loading happens in
+        load_state_async() which runs after the event loop is available.
         """
         checker, mock_db = calibration_checker
         with patch("src.db.get_db", return_value=mock_db):
-            checker.load_state()
-            # Allow the created task to execute
-            await asyncio.sleep(0)
+            await checker.load_state_async()
         mock_db.get_calibration.assert_called()

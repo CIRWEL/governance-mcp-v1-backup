@@ -1166,31 +1166,31 @@ class UNITARESMonitor:
         self._prev_drift_norm = current_norm
         self._prev_confidence = confidence
 
-        # Record prediction for STRATEGIC calibration
+        # Record prediction for STRATEGIC calibration.
         #
-        # Ground truth comes from tool success rates (external outcomes), not EISV.
-        # When tool data is available, use it. Otherwise fall back to trajectory health
-        # proxy (EISV-derived, less reliable but better than nothing).
+        # Trajectory-based ground truth is already recorded by the retrospective
+        # validation block above (using prev_confidence). This block adds
+        # tool-usage ground truth for the CURRENT confidence when available.
         predicted_correct = confidence >= 0.5
-
-        # Try external ground truth first: tool success rate for this agent
         actual_correct = None
+
         try:
             from src.tool_usage_tracker import get_tool_usage_tracker
             tracker = get_tool_usage_tracker()
             stats = tracker.get_usage_stats(window_hours=1, agent_id=self.agent_id)
             total_calls = stats.get('total_calls', 0)
-            if total_calls >= 3:  # Need enough data for meaningful rate
+            if total_calls >= 3:
                 tools = stats.get('tools', {})
                 total_success = sum(t.get('success_count', 0) for t in tools.values())
-                actual_correct = float(total_success) / float(total_calls)
+                tool_accuracy = float(total_success) / float(total_calls)
+                # Blend with trajectory quality when both are available
+                if trajectory_validation:
+                    actual_correct = 0.4 * trajectory_validation['quality'] + 0.6 * tool_accuracy
+                else:
+                    actual_correct = tool_accuracy
         except Exception:
             pass
 
-        # Only record calibration when we have real ground truth (tool usage data).
-        # Fallback (1 - risk_score) creates a circular dependency: risk derives from
-        # EISV, so using it as "accuracy" feeds back into S as calibration penalty,
-        # causing a death spiral for agents without tool usage data (e.g. Lumen).
         if actual_correct is not None:
             calibration_checker.record_prediction(
                 confidence=confidence,

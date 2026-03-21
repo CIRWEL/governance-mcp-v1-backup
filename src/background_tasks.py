@@ -99,6 +99,16 @@ async def connection_heartbeat_task(connection_tracker):
 async def startup_auto_calibration():
     """Start automatic ground truth collection at startup and periodically."""
     await asyncio.sleep(1.0)
+
+    # Load calibration from DB now that the event loop is running.
+    # sync load_state() at __init__ time can only read JSON; this gets the DB state.
+    try:
+        from src.calibration import get_calibration_checker
+        await get_calibration_checker().load_state_async()
+        logger.info("[CALIBRATION] Loaded calibration state from DB")
+    except Exception as e:
+        logger.warning(f"[CALIBRATION] Async calibration load failed (JSON fallback used): {e}")
+
     try:
         from src.auto_ground_truth import collect_ground_truth_automatically, auto_ground_truth_collector_task
 

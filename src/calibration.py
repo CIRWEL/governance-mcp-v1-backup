@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import sys
+import time
 import numpy as np
 import os
 from datetime import datetime
@@ -90,13 +91,8 @@ class CalibrationChecker:
 
         # Backend: postgres (default), json (fallback)
         self._backend = os.getenv("UNITARES_CALIBRATION_BACKEND", "postgres").strip().lower()
-        # JSON snapshots disabled by default (DB is canonical). Set to "1" to enable for debugging.
-        self._write_json_snapshot = os.getenv("UNITARES_CALIBRATION_WRITE_JSON_SNAPSHOT", "0").strip().lower() in (
-            "1",
-            "true",
-            "yes",
-        )
         self._pg_db = None  # PostgreSQL backend (lazy init)
+        self._last_json_write = 0.0  # monotonic timestamp of last JSON snapshot write
 
         # Resolve backend: postgres is default, json is fallback
         if self._backend not in ("json", "postgres"):
@@ -792,8 +788,6 @@ class CalibrationChecker:
                 'tactical_bins': {k: dict(v) for k, v in self.tactical_bin_stats.items()} if hasattr(self, 'tactical_bin_stats') else {}
             }
 
-            now = datetime.now().isoformat()
-
             # PostgreSQL backend
             if self._backend == "postgres":
                 async def _save(data):
@@ -804,82 +798,102 @@ class CalibrationChecker:
                     return await db.update_calibration(data)
                 self._run_async(_save, state_data)
 
-            # Optional JSON snapshot for backward compatibility / transparency
-            if self._write_json_snapshot:
-                self.state_file.parent.mkdir(parents=True, exist_ok=True)
-                with open(self.state_file, 'w') as f:
-                    json.dump(state_data, f, indent=2)
+            # Write JSON snapshot as write-through cache.
+            # When postgres is the backend, debounce to <=1 write per 10s (JSON is
+            # just a cold-start cache). When JSON is the only backend, always write.
+            now = time.monotonic()
+            if self._backend != "postgres" or now - self._last_json_write >= 10.0:
+                try:
+                    self.state_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(self.state_file, 'w') as f:
+                        json.dump(state_data, f, indent=2)
+                    self._last_json_write = now
+                except Exception as e_json:
+                    print(f"Warning: Failed to write calibration JSON snapshot: {e_json}", file=sys.stderr)
         except Exception as e:
             # Don't fail silently, but don't crash either
             print(f"Warning: Failed to save calibration state: {e}", file=sys.stderr)
     
+    def _apply_state_data(self, state_data: dict):
+        """Apply loaded state data to bin structures.
+
+        Shared by both sync load_state() and async load_state_async().
+        """
+        # Restore bin_stats (STRATEGIC calibration)
+        self.bin_stats = defaultdict(lambda: {
+            'count': 0,
+            'predicted_correct': 0,
+            'actual_correct': 0,
+            'confidence_sum': 0.0
+        })
+
+        for bin_key, stats in state_data.get('bins', {}).items():
+            self.bin_stats[bin_key] = stats
+
+        # Restore complexity_stats (backward compatible - may not exist in old state files)
+        self.complexity_stats = defaultdict(lambda: {
+            'count': 0,
+            'discrepancy_sum': 0.0,
+            'reported_sum': 0.0,
+            'derived_sum': 0.0,
+            'high_discrepancy_count': 0
+        })
+
+        for bin_key, stats in state_data.get('complexity_bins', {}).items():
+            self.complexity_stats[bin_key] = stats
+
+        # Restore tactical_bin_stats (NEW - may not exist in old state files)
+        self.tactical_bin_stats = defaultdict(lambda: {
+            'count': 0,
+            'predicted_correct': 0,
+            'actual_correct': 0,
+            'confidence_sum': 0.0
+        })
+
+        for bin_key, stats in state_data.get('tactical_bins', {}).items():
+            self.tactical_bin_stats[bin_key] = stats
+
     def load_state(self):
-        """Load calibration state from file"""
+        """Load calibration state from JSON file (sync, used at __init__ time).
+
+        Note: _run_async is fire-and-forget so DB loads always return None here.
+        The JSON snapshot (written by save_state) serves as the sync-readable cache.
+        After the event loop is running, call load_state_async() to load from DB.
+        """
         try:
-            state_data = None
+            # Load from JSON snapshot (the sync-readable write-through cache)
+            if not self.state_file.exists():
+                self.reset()
+                return
+            with open(self.state_file, 'r') as f:
+                state_data = json.load(f)
 
-            # PostgreSQL backend
-            if self._backend == "postgres":
-                try:
-                    async def _load():
-                        from src.db import get_db
-                        db = get_db()
-                        # Note: do NOT call db.close() — shared singleton pool
-                        return await db.get_calibration()
-                    result = self._run_async(_load)
-                    if result and isinstance(result, dict):
-                        # PostgreSQL returns calibration state directly (bins, tactical_bins, etc.)
-                        # Filter out metadata fields that start with '_'
-                        state_data = {k: v for k, v in result.items() if not k.startswith('_')}
-                except Exception as e:
-                    print(f"Warning: PostgreSQL calibration load failed: {e}, trying fallback", file=sys.stderr)
-                    state_data = None
-
-            # Fallback to JSON file if db empty/unavailable
-            if state_data is None:
-                if not self.state_file.exists():
-                    self.reset()
-                    return
-                with open(self.state_file, 'r') as f:
-                    state_data = json.load(f)
-            
-            # Restore bin_stats (STRATEGIC calibration)
-            self.bin_stats = defaultdict(lambda: {
-                'count': 0,
-                'predicted_correct': 0,
-                'actual_correct': 0,
-                'confidence_sum': 0.0
-            })
-            
-            for bin_key, stats in state_data.get('bins', {}).items():
-                self.bin_stats[bin_key] = stats
-            
-            # Restore complexity_stats (backward compatible - may not exist in old state files)
-            self.complexity_stats = defaultdict(lambda: {
-                'count': 0,
-                'discrepancy_sum': 0.0,
-                'reported_sum': 0.0,
-                'derived_sum': 0.0,
-                'high_discrepancy_count': 0
-            })
-            
-            for bin_key, stats in state_data.get('complexity_bins', {}).items():
-                self.complexity_stats[bin_key] = stats
-            
-            # Restore tactical_bin_stats (NEW - may not exist in old state files)
-            self.tactical_bin_stats = defaultdict(lambda: {
-                'count': 0,
-                'predicted_correct': 0,
-                'actual_correct': 0,
-                'confidence_sum': 0.0
-            })
-            
-            for bin_key, stats in state_data.get('tactical_bins', {}).items():
-                self.tactical_bin_stats[bin_key] = stats
+            self._apply_state_data(state_data)
         except Exception as e:
             # If loading fails, reset to empty state
             print(f"Warning: Failed to load calibration state: {e}, resetting", file=sys.stderr)
             self.reset()
+
+    async def load_state_async(self):
+        """Load calibration state from PostgreSQL (call after event loop is running).
+
+        Falls back to sync JSON load if DB is unavailable.
+        """
+        if self._backend == "postgres":
+            try:
+                from src.db import get_db
+                db = get_db()
+                result = await db.get_calibration()
+                if result and isinstance(result, dict):
+                    state_data = {k: v for k, v in result.items() if not k.startswith('_')}
+                    if state_data.get('bins'):
+                        self._apply_state_data(state_data)
+                        return
+            except Exception as e:
+                print(f"Warning: async calibration load failed: {e}", file=sys.stderr)
+        # Fallback to sync JSON load (already done at __init__, but re-read in case
+        # the file was updated since then)
+        self.load_state()
 
     def compute_correction_factors(self, min_samples: int = 5) -> Dict[str, float]:
         """
