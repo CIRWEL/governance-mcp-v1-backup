@@ -39,7 +39,7 @@ The key insight: **coherence C(V)** creates nonlinear feedback that stabilizes t
 
 Check-ins are speech acts — an agent reporting its state in a shared vocabulary. Trajectories are behavioral stories that can be read without narrative explanation. Twenty minutes before an agent fails, the trajectory tells you.
 
-> [Architecture Overview](docs/UNIFIED_ARCHITECTURE.md) — How the components fit together
+> [Governance Architecture](docs/UNIFIED_ARCHITECTURE.md) — Bridge interface, EISV dynamics, database ownership
 
 ---
 
@@ -98,7 +98,7 @@ python src/mcp_server_std.py
 
 ## Production Validation
 
-Deployed since December 2025. Current system: **844 registered agents**, **536 knowledge discoveries**, **41 dialectic sessions**, **5,536 tests** at 78% coverage.
+Deployed since December 2025. Current system: **844 registered agents**, **536 knowledge discoveries**, **41 dialectic sessions**, **5,588 tests** at 78% coverage.
 
 Production readiness is context-dependent. The core platform is running in production, but teams adopting it should still do their own security review, load testing, observability setup, and rollback planning.
 
@@ -182,7 +182,7 @@ graph LR
 ```
 src/                   MCP server, agent state, knowledge graph, dialectic
 dashboard/             Web dashboard (vanilla JS + Chart.js)
-tests/                 5,536 tests
+tests/                 5,588 tests
 ```
 
 The mathematical engine (`governance_core`) — ODEs, coherence, scoring — is distributed as a compiled package (unitares-core).
@@ -211,7 +211,7 @@ We believe in stating what works, what's promising, and what we don't know yet.
 | Guide | Purpose |
 |-------|---------|
 | [Getting Started](docs/guides/START_HERE.md) | Complete setup and onboarding guide |
-| [Architecture](docs/UNIFIED_ARCHITECTURE.md) | EISV dynamics, system design |
+| [Architecture](docs/UNIFIED_ARCHITECTURE.md) | Governance architecture, bridge interface |
 | [Troubleshooting](docs/guides/TROUBLESHOOTING.md) | Common issues |
 | [Dashboard](dashboard/README.md) | Web dashboard docs |
 | [Database Architecture](docs/database_architecture.md) | PostgreSQL + AGE |
