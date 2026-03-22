@@ -102,8 +102,9 @@ data/calibration_state_backup_*.json
 data/audit_log.jsonl
 data/tool_usage.jsonl
 
-# Telemetry
-data/telemetry/*.jsonl
+# Runtime data
+data/logs/
+data/telemetry/
 
 # IDE
 .vscode/
@@ -162,6 +163,8 @@ scripts/archive/
 .governance_session
 .mcp_session
 .kimi_governance_session
+.vigil_session
+.vigil_state
 
 # Generated config
 config/generated-*.json
