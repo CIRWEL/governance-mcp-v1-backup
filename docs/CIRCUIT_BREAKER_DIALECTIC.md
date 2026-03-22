@@ -1,6 +1,6 @@
 # Circuit Breaker + Dialectic Recovery
 
-**Last Updated:** 2026-02-04 (v2.5.6)
+**Last Updated:** 2026-03-22
 
 This system uses a **circuit breaker** to pause agents when risk signals or coherence drop below safe thresholds. Recovery is handled via a **dialectic protocol** that provides a safe path to resume.
 
@@ -75,11 +75,14 @@ Key tools:
 - `request_dialectic_review` — start a review session (assigns reviewer)
 - `get_dialectic_session` — monitor progress by session id or agent id
 
-### 3) Direct Resume (Tier‑1)
+### 3) Self-Recovery (Tier-1)
 
 For simple stuck scenarios (timeouts, trivial stalls) when the state is safe:
 
-- `direct_resume_if_safe` — checks coherence/risk/void and resumes if safe
+- `self_recovery(action="quick")` — checks coherence/risk/void and resumes if safe (coherence > 0.60, risk < 0.40)
+- `self_recovery(action="review", reflection="...")` — reflective recovery for cases that don't meet quick-resume thresholds
+
+> **Note:** `direct_resume_if_safe` is deprecated. Use `self_recovery` instead.
 
 Recommended conditions:
 - short monitoring window
@@ -124,8 +127,8 @@ This provides durability and auditability, enabling post‑hoc review and calibr
 - `list_dialectic_sessions` — list all sessions with optional filters
 
 **Recovery tools:**
-- `direct_resume_if_safe` — fast path resume when safe
-- `self_recovery` — unified self-recovery interface
+- `self_recovery(action="quick")` — fast path resume when safe (supersedes deprecated `direct_resume_if_safe`)
+- `self_recovery(action="review", reflection="...")` — reflective recovery for complex cases
 - `mark_response_complete` — use if the agent is simply waiting for input
 
 **LLM delegation tools:**

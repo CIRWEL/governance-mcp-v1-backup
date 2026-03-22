@@ -1,9 +1,5 @@
 # Start Here - Agent Onboarding
 
-**⭐ New? Start with the simple path:** [GETTING_STARTED_SIMPLE.md](GETTING_STARTED_SIMPLE.md) — 3 tools, 3 steps, done.
-
-**This guide is comprehensive. For a quick start, use the simple path above.**
-
 **Flexible onboarding - start however feels natural. Most agents jump right in.**
 
 ## For All Agents (MCP Clients: Cursor, Claude Desktop, Claude Code, etc.)
@@ -144,7 +140,6 @@ Key sections below:
 - Quick Reference: Common tasks
 
 **Additional resources:**
-- [GETTING_STARTED_SIMPLE.md](GETTING_STARTED_SIMPLE.md) - Quick 3-step intro
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and fixes
 
 ---
@@ -304,7 +299,6 @@ list_tools(include_advanced=False)  # Hide Tier 3 (advanced) tools
 |-------------|-------------|
 | **Get started** | `onboard()` - THE portal tool, call FIRST |
 | Read the guide | This file (START_HERE.md) |
-| Quick start | [GETTING_STARTED_SIMPLE.md](GETTING_STARTED_SIMPLE.md) |
 | Share my work | `process_agent_update` (MCP) or `UNITARESMonitor` (Python) |
 | Check my identity | `identity()` (MCP) |
 | Check my state | `get_governance_metrics` (MCP) |
@@ -312,9 +306,6 @@ list_tools(include_advanced=False)  # Hide Tier 3 (advanced) tools
 | **Call an LLM** | `call_model` — local (Ollama) or cloud (HF, Gemini) |
 | **Recover when stuck** | `request_dialectic_review` — structured self-reflection |
 | Find solutions | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
-| LLM integration | [LLM_DELEGATION.md](LLM_DELEGATION.md) |
-| Setup MCP | [MCP_SETUP.md](MCP_SETUP.md) |
-| Deploy | [DEPLOYMENT.md](DEPLOYMENT.md) |
 
 ---
 
