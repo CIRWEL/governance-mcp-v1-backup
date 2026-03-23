@@ -39,6 +39,7 @@ from .continuity import (
     ContinuityMetrics,
     ContinuityLayer,
     derive_complexity,
+    tool_usage_complexity,
     compute_continuity_metrics,
 )
 
@@ -59,6 +60,7 @@ __all__ = [
     'ContinuityMetrics',
     'ContinuityLayer',
     'derive_complexity',
+    'tool_usage_complexity',
     'compute_continuity_metrics',
     # Restorative
     'RestorativeStatus',

@@ -28,7 +28,8 @@ from src.dual_log.reflective import (
     ReflectiveEntry, create_reflective_entry
 )
 from src.dual_log.continuity import (
-    derive_complexity, compute_continuity_metrics, ContinuityMetrics, ContinuityLayer
+    derive_complexity, tool_usage_complexity, compute_continuity_metrics,
+    ContinuityMetrics, ContinuityLayer
 )
 
 
@@ -725,3 +726,126 @@ class TestContinuityLayerInMemory:
         key = f"cont:trim-agent"
         stored = layer._memory_storage.get(key, [])
         assert len(stored) <= ContinuityLayer.MAX_LOG_ENTRIES
+
+
+# ---------------------------------------------------------------------------
+# tool_usage_complexity
+# ---------------------------------------------------------------------------
+
+class TestToolUsageComplexity:
+    """Tests for tool_usage_complexity()."""
+
+    def test_zero_calls_returns_baseline(self):
+        assert tool_usage_complexity(total_calls=0) == 0.2
+
+    def test_simple_usage_low_complexity(self):
+        """One tool, few calls, no errors, one file → low complexity."""
+        c = tool_usage_complexity(
+            unique_tools=1, total_calls=3, error_rate=0.0, files_modified=1
+        )
+        assert c < 0.35
+
+    def test_complex_usage_high_complexity(self):
+        """Many tools, many calls, some errors, many files → high complexity."""
+        c = tool_usage_complexity(
+            unique_tools=6, total_calls=40, error_rate=0.3, files_modified=10
+        )
+        assert c > 0.6
+
+    def test_more_tools_increases_complexity(self):
+        base = dict(total_calls=10, error_rate=0.1, files_modified=2)
+        c_few = tool_usage_complexity(unique_tools=1, **base)
+        c_many = tool_usage_complexity(unique_tools=5, **base)
+        assert c_many > c_few
+
+    def test_more_files_increases_complexity(self):
+        base = dict(unique_tools=2, total_calls=10, error_rate=0.0)
+        c_one = tool_usage_complexity(files_modified=1, **base)
+        c_many = tool_usage_complexity(files_modified=8, **base)
+        assert c_many > c_one
+
+    def test_higher_error_rate_increases_complexity(self):
+        base = dict(unique_tools=2, total_calls=10, files_modified=2)
+        c_clean = tool_usage_complexity(error_rate=0.0, **base)
+        c_errors = tool_usage_complexity(error_rate=0.5, **base)
+        assert c_errors > c_clean
+
+    def test_bounded_zero_to_one(self):
+        """Output always in [0, 1] even with extreme inputs."""
+        assert 0.0 <= tool_usage_complexity(
+            unique_tools=100, total_calls=10000, error_rate=1.0, files_modified=100
+        ) <= 1.0
+        assert 0.0 <= tool_usage_complexity(
+            unique_tools=0, total_calls=0, error_rate=0.0, files_modified=0
+        ) <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# ContinuityLayer with tool_usage_stats
+# ---------------------------------------------------------------------------
+
+class TestContinuityLayerToolUsage:
+    """Tests for tool_usage_stats integration in ContinuityLayer."""
+
+    def test_no_tool_stats_same_as_before(self):
+        """Passing tool_usage_stats=None doesn't change behavior."""
+        layer = ContinuityLayer(agent_id="test-no-tool", redis_client=None)
+        m1 = layer.process_update(
+            response_text="Fixed the bug in auth module.",
+            self_complexity=0.5,
+            client_session_id="s1",
+        )
+        layer2 = ContinuityLayer(agent_id="test-no-tool2", redis_client=None)
+        m2 = layer2.process_update(
+            response_text="Fixed the bug in auth module.",
+            self_complexity=0.5,
+            client_session_id="s1",
+            tool_usage_stats=None,
+        )
+        assert abs(m1.derived_complexity - m2.derived_complexity) < 0.01
+
+    def test_tool_stats_blend_into_derived_complexity(self):
+        """Tool usage stats should shift derived_complexity."""
+        layer = ContinuityLayer(agent_id="test-blend", redis_client=None)
+        # Simple text, but complex tool usage
+        m = layer.process_update(
+            response_text="Done.",
+            client_session_id="s1",
+            tool_usage_stats={
+                "unique_tools": 6,
+                "total_calls": 40,
+                "error_rate": 0.2,
+                "files_modified": 10,
+            },
+        )
+        layer2 = ContinuityLayer(agent_id="test-no-blend", redis_client=None)
+        m2 = layer2.process_update(
+            response_text="Done.",
+            client_session_id="s1",
+        )
+        # "Done." has very low text complexity, so tool usage should raise it
+        assert m.derived_complexity > m2.derived_complexity
+
+    def test_cross_validation_strengthens_divergence(self):
+        """When both text and tool derivation disagree with self-report, divergence increases."""
+        layer = ContinuityLayer(agent_id="test-cross", redis_client=None)
+        # Agent claims low complexity but tool usage shows high complexity
+        m = layer.process_update(
+            response_text="Simple one-liner fix.",
+            self_complexity=0.1,
+            client_session_id="s1",
+            tool_usage_stats={
+                "unique_tools": 5,
+                "total_calls": 30,
+                "error_rate": 0.3,
+                "files_modified": 8,
+            },
+        )
+        layer2 = ContinuityLayer(agent_id="test-no-cross", redis_client=None)
+        m2 = layer2.process_update(
+            response_text="Simple one-liner fix.",
+            self_complexity=0.1,
+            client_session_id="s1",
+        )
+        # Cross-validation should strengthen divergence when both signals disagree
+        assert m.complexity_divergence >= m2.complexity_divergence

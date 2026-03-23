@@ -211,6 +211,43 @@ def compute_continuity_metrics(
     )
 
 
+def tool_usage_complexity(
+    unique_tools: int = 0,
+    total_calls: int = 0,
+    error_rate: float = 0.0,
+    files_modified: int = 0,
+) -> float:
+    """Derive complexity estimate from tool usage patterns.
+
+    Independent of text analysis — grounded in what the agent actually did.
+    Returns float in [0, 1].
+    """
+    if total_calls == 0:
+        return 0.2  # Minimal baseline
+
+    # Tool diversity: many unique tools = more complex task
+    # 1 tool = simple, 5+ tools = complex
+    diversity = min(1.0, unique_tools / 5.0)
+
+    # Error rate: errors signal harder problem (capped contribution)
+    error_signal = min(1.0, error_rate * 2.0)
+
+    # Files touched: multi-file = higher complexity
+    # 1 file = simple, 8+ = complex
+    file_signal = min(1.0, files_modified / 8.0)
+
+    # Call volume: more calls = more work (log scale)
+    volume = min(1.0, np.log1p(total_calls) / np.log1p(50))
+
+    derived = (
+        0.35 * diversity +
+        0.15 * error_signal +
+        0.25 * file_signal +
+        0.25 * volume
+    )
+    return float(np.clip(derived, 0.0, 1.0))
+
+
 class ContinuityLayer:
     """
     Manages the dual-log architecture.
@@ -299,7 +336,8 @@ class ContinuityLayer:
         self_confidence: Optional[float] = None,
         client_session_id: str = "",
         task_type: Optional[str] = None,
-        calibration_weight: float = 0.5
+        calibration_weight: float = 0.5,
+        tool_usage_stats: Optional[Dict[str, Any]] = None,
     ) -> ContinuityMetrics:
         """
         Process an agent update through dual-log architecture.
@@ -340,7 +378,31 @@ class ContinuityLayer:
             op_entry, refl_entry, calibration_weight
         )
 
-        # 3b. When no self-reported complexity, use rate-of-change of derived
+        # 3b. Blend tool-usage-derived complexity when available.
+        # This grounds complexity in actual tool call patterns, not just text features.
+        if tool_usage_stats:
+            tu_complexity = tool_usage_complexity(
+                unique_tools=tool_usage_stats.get("unique_tools", 0),
+                total_calls=tool_usage_stats.get("total_calls", 0),
+                error_rate=tool_usage_stats.get("error_rate", 0.0),
+                files_modified=tool_usage_stats.get("files_modified", 0),
+            )
+            # Blend: 70% text-derived + 30% tool-derived
+            metrics.derived_complexity = 0.70 * metrics.derived_complexity + 0.30 * tu_complexity
+
+            # Cross-validate: if self-report diverges from BOTH text and tool derivation,
+            # strengthen the divergence signal
+            if refl_entry.self_complexity is not None:
+                tu_divergence = abs(tu_complexity - refl_entry.self_complexity)
+                text_divergence = metrics.complexity_divergence
+                if tu_divergence > 0.3 and text_divergence > 0.2:
+                    # Both independent derivations disagree with self-report
+                    metrics.complexity_divergence = max(
+                        metrics.complexity_divergence,
+                        (text_divergence + tu_divergence) / 2,
+                    )
+
+        # 3c. When no self-reported complexity, use rate-of-change of derived
         # complexity instead of hardcoded 0.2. This gives non-Lumen agents a
         # real signal that varies with actual task changes.
         if refl_entry.self_complexity is None and self._prev_derived_complexity is not None:

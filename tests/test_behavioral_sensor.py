@@ -364,3 +364,86 @@ class TestBehavioralSensorInjection:
         monitor = monitors.get("nonexistent_agent")
         assert monitor is None
         # The injection code checks `if monitor and len(...)` — this would skip
+
+
+# ══════════════════════════════════════════════════
+#  Unit tests: Tool usage signal blending
+# ══════════════════════════════════════════════════
+
+class TestToolUsageBlending:
+    """Tests for tool_error_rate, tool_call_velocity, unique_tools_ratio params."""
+
+    def test_none_tool_params_same_as_before(self):
+        """All tool params None produces same result as without them."""
+        h = make_histories(n=10)
+        r_without = compute_behavioral_sensor_eisv(**h)
+        r_with = compute_behavioral_sensor_eisv(
+            **h,
+            tool_error_rate=None,
+            tool_call_velocity=None,
+            unique_tools_ratio=None,
+        )
+        assert r_without == r_with
+
+    def test_high_error_rate_reduces_e(self):
+        """High tool error rate (many failures) should reduce E."""
+        h = make_histories(n=10)
+        r_low_err = compute_behavioral_sensor_eisv(**h, tool_error_rate=0.1)
+        r_high_err = compute_behavioral_sensor_eisv(**h, tool_error_rate=0.9)
+        assert r_low_err["E"] > r_high_err["E"]
+
+    def test_zero_error_rate_boosts_e(self):
+        """Zero error rate blends 1.0 into E — should raise it or keep it high."""
+        h = make_histories(n=10)
+        r_no_tool = compute_behavioral_sensor_eisv(**h)
+        r_zero_err = compute_behavioral_sensor_eisv(**h, tool_error_rate=0.0)
+        # With 0.85 * E + 0.15 * 1.0, E should be >= original when original E < 1.0
+        assert r_zero_err["E"] >= r_no_tool["E"] - 0.01  # small tolerance
+
+    def test_high_velocity_increases_s(self):
+        """Tool call velocity > 5/min should increase entropy S."""
+        h = make_histories(n=10)
+        r_low_vel = compute_behavioral_sensor_eisv(**h, tool_call_velocity=2.0)
+        r_high_vel = compute_behavioral_sensor_eisv(**h, tool_call_velocity=12.0)
+        assert r_high_vel["S"] > r_low_vel["S"]
+
+    def test_low_velocity_no_entropy_change(self):
+        """Velocity <= 5/min should not add entropy."""
+        h = make_histories(n=10)
+        r_no_vel = compute_behavioral_sensor_eisv(**h)
+        r_low_vel = compute_behavioral_sensor_eisv(**h, tool_call_velocity=3.0)
+        assert r_low_vel["S"] == r_no_vel["S"]
+
+    def test_velocity_entropy_capped(self):
+        """Even extreme velocity should cap entropy contribution at 0.10."""
+        h = make_histories(n=10)
+        r_extreme = compute_behavioral_sensor_eisv(**h, tool_call_velocity=100.0)
+        r_high = compute_behavioral_sensor_eisv(**h, tool_call_velocity=15.0)
+        assert r_extreme["S"] == r_high["S"]
+
+    def test_high_tool_diversity_maintains_i(self):
+        """High unique_tools_ratio signals coherent work, maintains I."""
+        h = make_histories(n=10)
+        r_low_div = compute_behavioral_sensor_eisv(**h, unique_tools_ratio=0.1)
+        r_high_div = compute_behavioral_sensor_eisv(**h, unique_tools_ratio=0.9)
+        assert r_high_div["I"] > r_low_div["I"]
+
+    def test_tool_params_dont_affect_v(self):
+        """Tool usage signals should not affect V computation."""
+        h = make_histories(n=10)
+        r_no_tool = compute_behavioral_sensor_eisv(**h)
+        r_with_tool = compute_behavioral_sensor_eisv(
+            **h, tool_error_rate=0.5, tool_call_velocity=10.0, unique_tools_ratio=0.3
+        )
+        assert r_no_tool["V"] == r_with_tool["V"]
+
+    def test_bounds_with_tool_params(self):
+        """Output stays bounded with extreme tool usage values."""
+        h = make_histories(n=10)
+        r = compute_behavioral_sensor_eisv(
+            **h, tool_error_rate=1.0, tool_call_velocity=100.0, unique_tools_ratio=0.0
+        )
+        assert 0.0 <= r["E"] <= 1.0
+        assert 0.0 <= r["I"] <= 1.0
+        assert 0.05 <= r["S"] <= 1.5  # S can go above 1.0 with velocity addition
+        assert -1.0 <= r["V"] <= 1.0

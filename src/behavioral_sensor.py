@@ -22,6 +22,9 @@ def compute_behavioral_sensor_eisv(
     continuity_I_input: float | None = None,
     continuity_S_input: float | None = None,
     outcome_history: list | None = None,
+    tool_error_rate: float | None = None,
+    tool_call_velocity: float | None = None,
+    unique_tools_ratio: float | None = None,
 ) -> dict | None:
     """Compute behavioral sensor EISV from governance observables.
 
@@ -43,6 +46,16 @@ def compute_behavioral_sensor_eisv(
         I = 0.80 * I + 0.20 * continuity_I_input
     if continuity_S_input is not None:
         S = 0.80 * S + 0.20 * continuity_S_input
+
+    # Blend tool usage signals (10-15% weight) when available.
+    # These are grounded in actual tool call outcomes, not self-reports.
+    if tool_error_rate is not None:
+        E = 0.85 * E + 0.15 * (1.0 - tool_error_rate)
+    if tool_call_velocity is not None:
+        # Velocity > 5 calls/min adds mild entropy (capped at 0.10 contribution)
+        S = S + 0.10 * min(1.0, max(0.0, tool_call_velocity - 5.0) / 10.0)
+    if unique_tools_ratio is not None:
+        I = 0.90 * I + 0.10 * unique_tools_ratio
 
     return {"E": E, "I": I, "S": S, "V": V}
 

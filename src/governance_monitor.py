@@ -143,6 +143,7 @@ class UNITARESMonitor:
         self._prev_verdict_action: Optional[str] = None   # 'proceed', 'pause', etc.
         self._prev_drift_norm: Optional[float] = None
         self._prev_confidence: Optional[float] = None
+        self._prev_checkin_time: Optional[float] = None  # monotonic time of last check-in
 
         # CIRS: Initialize oscillation detector / adaptive governor
         from config.governance_config import GovernanceConfig as GovConfig
@@ -774,12 +775,35 @@ class UNITARESMonitor:
         self_confidence = confidence  # May be None at this point
         client_session_id = agent_state.get('client_session_id', '')
         
+        # Extract tool usage stats for complexity grounding
+        tu_stats = None
+        try:
+            from src.tool_usage_tracker import get_tool_usage_tracker
+            raw_stats = get_tool_usage_tracker().get_usage_stats(
+                agent_id=self.agent_id, window_hours=1,
+            )
+            tu_total = raw_stats.get("total_calls", 0)
+            if tu_total > 0:
+                tu_failed = sum(
+                    t.get("error_count", 0)
+                    for t in raw_stats.get("tools", {}).values()
+                )
+                tu_stats = {
+                    "unique_tools": raw_stats.get("unique_tools", 0),
+                    "total_calls": tu_total,
+                    "error_rate": tu_failed / tu_total,
+                    "files_modified": agent_state.get("files_modified", 0),
+                }
+        except Exception:
+            pass  # Fail-safe
+
         continuity_metrics = self.continuity_layer.process_update(
             response_text=response_text,
             self_complexity=self_complexity,
             self_confidence=self_confidence,
             client_session_id=client_session_id,
             task_type=task_type,
+            tool_usage_stats=tu_stats,
         )
         
         # Store for response and downstream use
@@ -1130,7 +1154,15 @@ class UNITARESMonitor:
         current_norm = drift_vector.norm if self._last_drift_vector else 0.0
         trajectory_validation = None
 
-        if self._prev_verdict_action is not None and self._prev_drift_norm is not None:
+        import time as _time
+        now_mono = _time.monotonic()
+        elapsed_since_prev = (now_mono - self._prev_checkin_time) if self._prev_checkin_time else float('inf')
+
+        # Only record trajectory-based calibration when enough time has elapsed
+        # (>10s) to prevent rapid-fire calibration pollution from burst check-ins
+        if (self._prev_verdict_action is not None
+                and self._prev_drift_norm is not None
+                and elapsed_since_prev > 10.0):
             norm_delta = self._prev_drift_norm - current_norm  # positive = improved
 
             # Convert to [0, 1] quality signal via sigmoid
@@ -1165,6 +1197,7 @@ class UNITARESMonitor:
         self._prev_verdict_action = decision['action']
         self._prev_drift_norm = current_norm
         self._prev_confidence = confidence
+        self._prev_checkin_time = now_mono
 
         # Record prediction for STRATEGIC calibration.
         #

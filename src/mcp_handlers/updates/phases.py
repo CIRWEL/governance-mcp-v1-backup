@@ -561,6 +561,25 @@ async def execute_locked_update(ctx: UpdateContext) -> Optional[Sequence[TextCon
                     cont_I = getattr(cm, 'I_input', None)
                     cont_S = getattr(cm, 'S_input', None)
 
+                # Tool usage signals for behavioral sensor
+                tool_err, tool_vel, tool_div = None, None, None
+                try:
+                    from src.tool_usage_tracker import get_tool_usage_tracker
+                    tu_stats = get_tool_usage_tracker().get_usage_stats(
+                        agent_id=ctx.agent_id, window_hours=1
+                    )
+                    tu_total = tu_stats.get("total_calls", 0)
+                    if tu_total > 0:
+                        tu_failed = sum(
+                            t.get("error_count", 0)
+                            for t in tu_stats.get("tools", {}).values()
+                        )
+                        tool_err = tu_failed / tu_total
+                        tool_vel = tu_total / 60.0  # calls per minute
+                        tool_div = tu_stats.get("unique_tools", 0) / tu_total
+                except Exception:
+                    pass  # Fail-safe: sensor works without tool usage
+
                 # Recent outcome events for behavioral feedback
                 outcome_hist = None
                 try:
@@ -590,6 +609,9 @@ async def execute_locked_update(ctx: UpdateContext) -> Optional[Sequence[TextCon
                     continuity_I_input=cont_I,
                     continuity_S_input=cont_S,
                     outcome_history=outcome_hist,
+                    tool_error_rate=tool_err,
+                    tool_call_velocity=tool_vel,
+                    unique_tools_ratio=tool_div,
                 )
                 if behavioral_eisv:
                     ctx.agent_state["sensor_eisv"] = behavioral_eisv
@@ -727,6 +749,52 @@ async def execute_locked_update(ctx: UpdateContext) -> Optional[Sequence[TextCon
             except Exception as e:
                 logger.debug(f"Could not persist thread identity: {e}")
 
+    # Per-agent anomaly detection: add entropy if current signals deviate from baseline
+    try:
+        from src.agent_behavioral_baseline import (
+            get_agent_behavioral_baseline, compute_anomaly_entropy,
+        )
+        baseline = get_agent_behavioral_baseline(ctx.agent_id)
+        # Collect current signals for anomaly check
+        anomaly_signals = {}
+        try:
+            from src.tool_usage_tracker import get_tool_usage_tracker
+            _tu = get_tool_usage_tracker().get_usage_stats(
+                agent_id=ctx.agent_id, window_hours=1,
+            )
+            _tu_total = _tu.get("total_calls", 0)
+            if _tu_total > 0:
+                _tu_failed = sum(
+                    t.get("error_count", 0)
+                    for t in _tu.get("tools", {}).values()
+                )
+                anomaly_signals["tool_error_rate"] = _tu_failed / _tu_total
+                anomaly_signals["tool_call_velocity"] = _tu_total / 60.0
+        except Exception:
+            pass
+
+        # Coherence from monitor history
+        _mon = mcp_server.monitors.get(ctx.agent_id)
+        if _mon and hasattr(_mon.state, 'coherence_history') and _mon.state.coherence_history:
+            anomaly_signals["coherence"] = _mon.state.coherence_history[-1]
+
+        # Complexity divergence from continuity metrics
+        if _mon:
+            _cm = getattr(_mon, '_last_continuity_metrics', None)
+            if _cm and hasattr(_cm, 'complexity_divergence'):
+                anomaly_signals["complexity_divergence"] = _cm.complexity_divergence
+
+        anomaly_noise = compute_anomaly_entropy(baseline, anomaly_signals)
+        if anomaly_noise > 0:
+            existing_noise = ctx.agent_state.get("noise_S", 0.0) or 0.0
+            ctx.agent_state["noise_S"] = existing_noise + anomaly_noise
+            logger.debug(
+                f"Anomaly entropy +{anomaly_noise:.3f} for {ctx.agent_id} "
+                f"(total noise_S={ctx.agent_state['noise_S']:.3f})"
+            )
+    except Exception as e:
+        logger.debug(f"Anomaly detection skipped for {ctx.agent_id}: {e}")
+
     # Execute ODE update
     ctx.agent_state["task_type"] = ctx.task_type
 
@@ -782,6 +850,37 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
     ctx.risk_score = ctx.metrics_dict.get('risk_score', None)
     ctx.coherence = ctx.metrics_dict.get('coherence', None)
     void_active = ctx.metrics_dict.get('void_active', False)
+
+    # Record current signals into per-agent behavioral baseline (post-ODE)
+    try:
+        from src.agent_behavioral_baseline import get_agent_behavioral_baseline
+        baseline = get_agent_behavioral_baseline(agent_id)
+        if ctx.coherence is not None:
+            baseline.update("coherence", ctx.coherence)
+        # Tool usage signals
+        try:
+            from src.tool_usage_tracker import get_tool_usage_tracker
+            _tu = get_tool_usage_tracker().get_usage_stats(
+                agent_id=agent_id, window_hours=1,
+            )
+            _tu_total = _tu.get("total_calls", 0)
+            if _tu_total > 0:
+                _tu_failed = sum(
+                    t.get("error_count", 0)
+                    for t in _tu.get("tools", {}).values()
+                )
+                baseline.update("tool_error_rate", _tu_failed / _tu_total)
+                baseline.update("tool_call_velocity", _tu_total / 60.0)
+        except Exception:
+            pass
+        # Complexity divergence
+        monitor = mcp_server.monitors.get(agent_id)
+        if monitor:
+            cm = getattr(monitor, '_last_continuity_metrics', None)
+            if cm and hasattr(cm, 'complexity_divergence'):
+                baseline.update("complexity_divergence", cm.complexity_divergence)
+    except Exception as e:
+        logger.debug(f"Baseline recording skipped for {agent_id}: {e}")
 
     # Post-ODE: Enforce risk_target and coherence_target from dialectic conditions
     try:
