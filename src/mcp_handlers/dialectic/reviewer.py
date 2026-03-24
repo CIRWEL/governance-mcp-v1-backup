@@ -15,7 +15,7 @@ import random
 import json
 import asyncio
 
-from src.dialectic_protocol import calculate_authority_score, DialecticPhase
+from src.dialectic_protocol import calculate_authority_score, DialecticPhase, DialecticSession
 from src.logging_utils import get_logger
 from .session import (
     SESSION_STORAGE_DIR,
@@ -321,3 +321,79 @@ async def select_reviewer(paused_agent_id: str,
 
     return top[0][0]
 
+
+async def select_quorum_reviewers(
+    session: DialecticSession,
+    metadata: Dict[str, Any],
+    min_reviewers: int = 3,
+    max_reviewers: int = 5,
+) -> List[tuple]:
+    """
+    Select a quorum of reviewers for an escalated dialectic session.
+
+    Same eligibility filters as select_reviewer but returns top N by
+    authority score (deterministic, no random). Uses a 6h recently-reviewed
+    window (shorter than the 24h for single reviewer).
+
+    Returns:
+        List of (agent_id, authority_score) tuples sorted by score descending,
+        or empty list if fewer than min_reviewers are eligible.
+    """
+    if not metadata or not isinstance(metadata, dict):
+        return []
+
+    # Agents already involved in the session
+    exclude_ids = {session.paused_agent_id}
+    if session.reviewer_agent_id:
+        exclude_ids.add(session.reviewer_agent_id)
+
+    paused_agent_tags = []
+    if session.paused_agent_state:
+        paused_agent_tags = session.paused_agent_state.get("tags", [])
+
+    candidates = []
+
+    for agent_id, agent_meta in metadata.items():
+        if not isinstance(agent_id, str):
+            continue
+
+        if agent_id in exclude_ids:
+            continue
+
+        if await is_agent_in_active_session(agent_id):
+            continue
+
+        # Shorter cooldown for quorum (6h instead of 24h)
+        if await _has_recently_reviewed(agent_id, session.paused_agent_id, hours=6):
+            continue
+
+        if isinstance(agent_meta, str) or agent_meta is None:
+            continue
+
+        status = agent_meta.get('status') if isinstance(agent_meta, dict) else getattr(agent_meta, 'status', None)
+        if status and status != 'active':
+            continue
+
+        meta_dict = agent_meta if isinstance(agent_meta, dict) else {}
+        if not isinstance(agent_meta, dict):
+            meta_dict = {}
+            for attr in ('tags', 'total_reviews', 'successful_reviews', 'last_update'):
+                val = getattr(agent_meta, attr, None)
+                if val is not None:
+                    meta_dict[attr] = val
+        if paused_agent_tags:
+            meta_dict['paused_agent_tags'] = paused_agent_tags
+
+        try:
+            score = calculate_authority_score(meta_dict)
+        except Exception:
+            score = 0.5
+
+        candidates.append((agent_id, score))
+
+    if len(candidates) < min_reviewers:
+        return []
+
+    # Deterministic: sort by score descending, take top max_reviewers
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    return candidates[:max_reviewers]

@@ -7,11 +7,12 @@ from .handlers import (
     handle_submit_thesis,
     handle_submit_antithesis,
     handle_submit_synthesis,
+    handle_submit_quorum_vote,
     handle_llm_assisted_dialectic,
 )
 from .session import save_session, load_session
 from .resolution import execute_resolution
-from .reviewer import select_reviewer
+from .reviewer import select_reviewer, select_quorum_reviewers
 from .calibration import update_calibration_from_dialectic
 from .enforcement import enforce_complexity_limit, enforce_post_ode_conditions
 
@@ -22,11 +23,13 @@ __all__ = [
     "handle_submit_thesis",
     "handle_submit_antithesis",
     "handle_submit_synthesis",
+    "handle_submit_quorum_vote",
     "handle_llm_assisted_dialectic",
     "save_session",
     "load_session",
     "execute_resolution",
     "select_reviewer",
+    "select_quorum_reviewers",
     "update_calibration_from_dialectic",
     "enforce_complexity_limit",
     "enforce_post_ode_conditions",

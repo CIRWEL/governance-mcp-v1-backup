@@ -139,6 +139,7 @@ TOOL_TIERS: dict[str, Set[str]] = {
         "submit_thesis",
         "submit_antithesis",
         "submit_synthesis",
+        "submit_quorum_vote",
         "mark_response_complete",
         "compare_agents",
         "get_workspace_health",
@@ -244,6 +245,7 @@ TOOL_OPERATIONS: dict[str, str] = {
     "submit_thesis": "write",             # Submit thesis phase
     "submit_antithesis": "write",         # Submit antithesis phase
     "submit_synthesis": "write",          # Submit synthesis phase
+    "submit_quorum_vote": "write",        # Submit quorum vote
     "dialectic": "read",                  # Consolidated: get/list sessions
 
     # SSE-only
@@ -310,6 +312,7 @@ TOOL_CATEGORIES = {
         "submit_thesis",                 # Paused agent explains reasoning
         "submit_antithesis",             # Reviewer raises concerns
         "submit_synthesis",              # Negotiate resolution
+        "submit_quorum_vote",            # Vote in quorum-escalated session
         "dialectic",                     # Consolidated: get/list sessions
     },
 }

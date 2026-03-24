@@ -181,6 +181,7 @@ class DialecticPhase(Enum):
     RESOLVED = "resolved"
     ESCALATED = "escalated"
     FAILED = "failed"
+    QUORUM_VOTING = "quorum_voting"
 
 
 class ResolutionAction(Enum):
@@ -316,6 +317,112 @@ class Resolution:
         """
         resolution_json = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(resolution_json.encode()).hexdigest()
+
+
+@dataclass
+class QuorumVote:
+    """A single vote from a quorum reviewer."""
+    agent_id: str
+    vote: str  # "resume", "block", or "cooldown"
+    authority_weight: float
+    reasoning: str
+    conditions: Optional[List[str]] = None
+    timestamp: Optional[str] = None
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+
+@dataclass
+class QuorumResult:
+    """Tally result from quorum voting."""
+    action: str  # winning action or "no_supermajority"
+    achieved_supermajority: bool
+    margin: float  # winning weight fraction
+    total_weight: float
+    vote_counts: Dict[str, int]  # action -> count
+    votes: List[Dict[str, Any]]
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+
+def tally_quorum_votes(votes: List[QuorumVote]) -> QuorumResult:
+    """
+    Tally quorum votes using authority-weighted 2/3 supermajority.
+
+    Each vote's authority_weight counts toward its action. The action
+    with >= 2/3 of total weight wins. If none reaches 2/3, result
+    is "no_supermajority".
+
+    Args:
+        votes: List of QuorumVote objects
+
+    Returns:
+        QuorumResult with tally outcome
+    """
+    if not votes:
+        return QuorumResult(
+            action="no_supermajority",
+            achieved_supermajority=False,
+            margin=0.0,
+            total_weight=0.0,
+            vote_counts={},
+            votes=[],
+        )
+
+    # Accumulate weighted votes per action
+    weight_by_action: Dict[str, float] = {}
+    count_by_action: Dict[str, int] = {}
+    total_weight = 0.0
+
+    for v in votes:
+        w = max(0.0, v.authority_weight)
+        weight_by_action[v.vote] = weight_by_action.get(v.vote, 0.0) + w
+        count_by_action[v.vote] = count_by_action.get(v.vote, 0) + 1
+        total_weight += w
+
+    if total_weight <= 0:
+        return QuorumResult(
+            action="no_supermajority",
+            achieved_supermajority=False,
+            margin=0.0,
+            total_weight=0.0,
+            vote_counts=count_by_action,
+            votes=[v.to_dict() for v in votes],
+        )
+
+    # Check for 2/3 supermajority
+    threshold = 2.0 / 3.0
+    winner = None
+    winner_fraction = 0.0
+
+    for action, weight in weight_by_action.items():
+        fraction = weight / total_weight
+        if fraction >= threshold and fraction > winner_fraction:
+            winner = action
+            winner_fraction = fraction
+
+    if winner:
+        return QuorumResult(
+            action=winner,
+            achieved_supermajority=True,
+            margin=winner_fraction,
+            total_weight=total_weight,
+            vote_counts=count_by_action,
+            votes=[v.to_dict() for v in votes],
+        )
+
+    # No supermajority — return the leading action for info
+    leading = max(weight_by_action, key=weight_by_action.get)
+    return QuorumResult(
+        action="no_supermajority",
+        achieved_supermajority=False,
+        margin=weight_by_action[leading] / total_weight,
+        total_weight=total_weight,
+        vote_counts=count_by_action,
+        votes=[v.to_dict() for v in votes],
+    )
 
 
 class DialecticSession:

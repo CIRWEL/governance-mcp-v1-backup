@@ -23,6 +23,9 @@ from src.dialectic_protocol import (
     DialecticMessage,
     DialecticPhase,
     Resolution,
+    QuorumVote,
+    QuorumResult,
+    tally_quorum_votes,
 )
 from ..utils import success_response, error_response, require_registered_agent
 from ..decorators import mcp_tool
@@ -30,6 +33,7 @@ from .auth import resolve_dialectic_agent_id
 from .responses import (
     default_cooldown_steps,
     default_escalate_steps,
+    default_quorum_steps,
     default_resume_steps,
     get_agent_not_found_recovery,
     get_reviewer_stuck_recovery,
@@ -45,6 +49,7 @@ from .responses import (
     next_step_execution_failed,
     next_step_negotiate_synthesis,
     next_step_no_consensus,
+    next_step_quorum_initiated,
     next_step_resume_not_applied,
     next_step_resumed,
     next_step_submit_antithesis,
@@ -101,7 +106,7 @@ from .calibration import (
     backfill_calibration_from_historical_sessions
 )
 from .resolution import execute_resolution
-from .reviewer import select_reviewer, is_agent_in_active_session
+from .reviewer import select_reviewer, select_quorum_reviewers, is_agent_in_active_session
 
 # Import PostgreSQL async functions for dialectic session storage
 from src.dialectic_db import (
@@ -989,16 +994,338 @@ async def handle_submit_synthesis(arguments: Dict[str, Any]) -> Sequence[TextCon
             await save_session(session)
 
         elif not result.get("success"):
-            # Max rounds exceeded - conservative default
-            result["autonomous_resolution"] = True
-            result["resolution_type"] = "conservative_default"
-            result["next_step"] = next_step_no_consensus()
-            result["cooldown_until"] = (datetime.now() + timedelta(hours=1)).isoformat()
+            # Max rounds exceeded — try quorum escalation before conservative default
+            quorum_info = await _initiate_quorum(session)
+            if quorum_info:
+                result["autonomous_resolution"] = False
+                result["resolution_type"] = "quorum_escalation"
+                result["quorum"] = quorum_info
+                result["next_step"] = next_step_quorum_initiated(len(quorum_info["reviewer_ids"]))
+                result["next_steps"] = default_quorum_steps()
+            else:
+                # Not enough agents for quorum — fall back to conservative default
+                result["autonomous_resolution"] = True
+                result["resolution_type"] = "conservative_default"
+                result["next_step"] = next_step_no_consensus()
+                result["cooldown_until"] = (datetime.now() + timedelta(hours=1)).isoformat()
 
         return success_response(result)
 
     except Exception as e:
         return [error_response(f"Error submitting synthesis: {str(e)}")]
+
+
+async def _initiate_quorum(session: DialecticSession) -> Optional[Dict[str, Any]]:
+    """
+    Attempt to initiate quorum voting for an escalated dialectic session.
+
+    Selects 3-5 reviewers, sets session phase to QUORUM_VOTING,
+    and persists quorum data to PostgreSQL.
+
+    Returns:
+        Dict with reviewer_ids, scores, and deadline if quorum formed.
+        None if fewer than 3 eligible reviewers.
+    """
+    await mcp_server.load_metadata_async(force=True)
+    metadata = mcp_server.agent_metadata or {}
+
+    reviewers = await select_quorum_reviewers(session, metadata)
+    if not reviewers:
+        return None
+
+    reviewer_ids = [r[0] for r in reviewers]
+    reviewer_scores = {r[0]: r[1] for r in reviewers}
+    deadline = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+
+    session.phase = DialecticPhase.QUORUM_VOTING
+
+    # Persist to PostgreSQL
+    try:
+        from src.db import get_db
+        db = await get_db()
+        await db.execute(
+            """UPDATE core.dialectic_sessions
+               SET phase = 'quorum_voting',
+                   status = 'quorum_voting',
+                   quorum_reviewer_ids = $1::jsonb,
+                   quorum_deadline = $2::timestamptz,
+                   updated_at = NOW()
+             WHERE session_id = $3""",
+            json.dumps(reviewer_ids),
+            deadline,
+            session.session_id,
+        )
+    except Exception as e:
+        logger.warning(f"Could not persist quorum to PostgreSQL: {e}")
+
+    try:
+        await save_session(session)
+    except Exception as e:
+        logger.warning(f"Could not save quorum session to JSON: {e}")
+
+    return {
+        "reviewer_ids": reviewer_ids,
+        "reviewer_scores": reviewer_scores,
+        "deadline": deadline,
+        "session_id": session.session_id,
+    }
+
+
+@mcp_tool("submit_quorum_vote", register=True)
+async def handle_submit_quorum_vote(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """
+    Submit a vote in a quorum-escalated dialectic session.
+
+    Only agents assigned to the quorum may vote. Voting closes when all
+    assigned reviewers have voted or when 3+ votes are received.
+    A 2/3 authority-weighted supermajority decides the outcome.
+
+    Args:
+        session_id: Dialectic session ID
+        vote: "resume", "block", or "cooldown"
+        reasoning: Explanation for your vote
+        conditions: Optional conditions (for resume votes)
+    """
+    try:
+        # Require registered agent
+        agent_id, error = require_registered_agent(arguments)
+        if error:
+            return [error]
+
+        session_id = arguments.get("session_id")
+        if not session_id:
+            return [error_response(
+                "session_id is required",
+                recovery=missing_session_id_recovery(),
+            )]
+
+        vote_value = arguments.get("vote")
+        if vote_value not in ("resume", "block", "cooldown"):
+            return [error_response("vote must be 'resume', 'block', or 'cooldown'")]
+
+        reasoning = arguments.get("reasoning", "")
+        conditions = arguments.get("conditions")
+
+        # Load session
+        session = await load_session(session_id)
+        if not session:
+            return [error_response(
+                f"Session '{session_id}' not found",
+                recovery=session_not_found_recovery(),
+            )]
+
+        # Verify phase
+        if session.phase != DialecticPhase.QUORUM_VOTING:
+            return [error_response(
+                f"Session is in phase '{session.phase.value}', not 'quorum_voting'"
+            )]
+
+        # Load quorum reviewer IDs from PostgreSQL
+        quorum_reviewer_ids = []
+        try:
+            from src.db import get_db
+            db = await get_db()
+            row = await db.fetchrow(
+                "SELECT quorum_reviewer_ids FROM core.dialectic_sessions WHERE session_id = $1",
+                session_id,
+            )
+            if row and row["quorum_reviewer_ids"]:
+                qr = row["quorum_reviewer_ids"]
+                quorum_reviewer_ids = json.loads(qr) if isinstance(qr, str) else qr
+        except Exception as e:
+            logger.warning(f"Could not load quorum_reviewer_ids from PG: {e}")
+
+        if not quorum_reviewer_ids:
+            return [error_response("No quorum reviewers assigned to this session")]
+
+        # Verify agent is in the quorum
+        agent_uuid = arguments.get("_agent_uuid") or agent_id
+        if agent_uuid not in quorum_reviewer_ids and agent_id not in quorum_reviewer_ids:
+            return [error_response(
+                f"Agent '{agent_id}' is not in the quorum for this session"
+            )]
+
+        # Check for duplicate vote
+        existing_votes = [
+            msg for msg in session.transcript
+            if msg.phase == "quorum_vote" and msg.agent_id in (agent_id, agent_uuid)
+        ]
+        if existing_votes:
+            return [error_response(f"Agent '{agent_id}' has already voted in this session")]
+
+        # Get authority weight for this voter
+        await mcp_server.load_metadata_async(force=True)
+        voter_meta = mcp_server.agent_metadata.get(agent_uuid) or mcp_server.agent_metadata.get(agent_id)
+        meta_dict = {}
+        if voter_meta and not isinstance(voter_meta, str):
+            for attr in ('tags', 'total_reviews', 'successful_reviews', 'last_update'):
+                val = getattr(voter_meta, attr, None) if not isinstance(voter_meta, dict) else voter_meta.get(attr)
+                if val is not None:
+                    meta_dict[attr] = val
+        try:
+            from src.dialectic_protocol import calculate_authority_score
+            authority_weight = calculate_authority_score(meta_dict)
+        except Exception:
+            authority_weight = 0.5
+
+        # Store vote as DialecticMessage
+        vote_msg = DialecticMessage(
+            phase="quorum_vote",
+            agent_id=agent_uuid or agent_id,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            reasoning=reasoning,
+            proposed_conditions=conditions,
+            observed_metrics={"authority_weight": authority_weight, "vote": vote_value},
+        )
+        session.transcript.append(vote_msg)
+
+        # Persist message to PostgreSQL
+        try:
+            await pg_add_message(
+                session_id=session_id,
+                agent_id=agent_uuid or agent_id,
+                message_type="quorum_vote",
+                reasoning=reasoning,
+                proposed_conditions=conditions or [],
+                observed_metrics={"authority_weight": authority_weight, "vote": vote_value},
+            )
+        except Exception as e:
+            logger.warning(f"Could not persist quorum vote to PG: {e}")
+
+        await save_session(session)
+
+        # Collect all quorum votes from transcript
+        all_vote_msgs = [
+            msg for msg in session.transcript
+            if msg.phase == "quorum_vote"
+        ]
+        vote_count = len(all_vote_msgs)
+
+        # Tally when: all reviewers voted OR 3+ votes received
+        should_tally = (vote_count >= len(quorum_reviewer_ids)) or (vote_count >= 3)
+
+        result: Dict[str, Any] = {
+            "success": True,
+            "session_id": session_id,
+            "vote_recorded": True,
+            "votes_received": vote_count,
+            "votes_needed": len(quorum_reviewer_ids),
+        }
+
+        if not should_tally:
+            result["status"] = "awaiting_more_votes"
+            result["next_step"] = f"Waiting for more votes ({vote_count}/{len(quorum_reviewer_ids)})"
+            return success_response(result)
+
+        # Build QuorumVote objects and tally
+        quorum_votes = []
+        for msg in all_vote_msgs:
+            metrics = msg.observed_metrics or {}
+            quorum_votes.append(QuorumVote(
+                agent_id=msg.agent_id,
+                vote=metrics.get("vote", "cooldown"),
+                authority_weight=metrics.get("authority_weight", 0.5),
+                reasoning=msg.reasoning or "",
+                conditions=msg.proposed_conditions,
+                timestamp=msg.timestamp,
+            ))
+
+        tally = tally_quorum_votes(quorum_votes)
+        result["quorum_result"] = tally.to_dict()
+
+        # Persist quorum result
+        try:
+            from src.db import get_db
+            db = await get_db()
+            await db.execute(
+                """UPDATE core.dialectic_sessions
+                   SET quorum_result = $1::jsonb, updated_at = NOW()
+                 WHERE session_id = $2""",
+                json.dumps(tally.to_dict()),
+                session_id,
+            )
+        except Exception as e:
+            logger.warning(f"Could not persist quorum_result to PG: {e}")
+
+        if tally.achieved_supermajority and tally.action == "resume":
+            # Merge conditions from resume voters
+            merged_conditions = []
+            for qv in quorum_votes:
+                if qv.vote == "resume" and qv.conditions:
+                    for c in qv.conditions:
+                        if c not in merged_conditions:
+                            merged_conditions.append(c)
+            if not merged_conditions:
+                merged_conditions = ["Monitor coherence for 24h"]
+
+            # Build resolution and execute
+            resolution = Resolution(
+                action="resume",
+                conditions=merged_conditions,
+                root_cause=f"Quorum vote: {tally.vote_counts}",
+                reasoning=f"Quorum supermajority ({tally.margin:.0%}) voted to resume",
+                signature_a="quorum",
+                signature_b="quorum",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+            session.resolution = resolution
+            session.phase = DialecticPhase.RESOLVED
+
+            try:
+                execution_result = await execute_resolution(session, resolution)
+                result["execution"] = execution_result
+                result["next_step"] = next_step_resumed()
+                result["next_steps"] = default_resume_steps()
+            except Exception as e:
+                result["execution_error"] = str(e)
+                result["next_step"] = next_step_execution_failed(e)
+
+            try:
+                await pg_resolve_session(
+                    session_id=session_id,
+                    resolution=resolution.to_dict(),
+                    status="resolved",
+                )
+            except Exception as e:
+                logger.warning(f"Could not mark quorum-resolved session in PG: {e}")
+
+        elif tally.achieved_supermajority and tally.action == "block":
+            session.phase = DialecticPhase.FAILED
+            result["next_step"] = "Quorum voted to block. Agent remains paused."
+            try:
+                await pg_resolve_session(
+                    session_id=session_id,
+                    resolution={"action": "block", "quorum_result": tally.to_dict()},
+                    status="failed",
+                )
+            except Exception as e:
+                logger.warning(f"Could not mark quorum-blocked session in PG: {e}")
+
+        else:
+            # No supermajority (including cooldown majority) — conservative default
+            session.phase = DialecticPhase.ESCALATED
+            result["next_step"] = next_step_no_consensus()
+            result["cooldown_until"] = (datetime.now() + timedelta(hours=1)).isoformat()
+            try:
+                await pg_resolve_session(
+                    session_id=session_id,
+                    resolution={"action": "cooldown", "quorum_result": tally.to_dict()},
+                    status="escalated",
+                )
+            except Exception as e:
+                logger.warning(f"Could not mark quorum-cooldown session in PG: {e}")
+
+        # Invalidate cache
+        for aid in (session.paused_agent_id, session.reviewer_agent_id):
+            if aid and aid in _SESSION_METADATA_CACHE:
+                del _SESSION_METADATA_CACHE[aid]
+
+        await save_session(session)
+        return success_response(result)
+
+    except Exception as e:
+        return [error_response(f"Error submitting quorum vote: {str(e)}")]
+
 
 @mcp_tool("llm_assisted_dialectic", timeout=45.0, register=False)
 async def handle_llm_assisted_dialectic(arguments: Dict[str, Any]) -> Sequence[TextContent]:

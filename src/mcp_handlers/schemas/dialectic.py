@@ -84,6 +84,20 @@ class SubmitSynthesisParams(AgentIdentityMixin):
             self.agrees = self.agrees.lower() in ('true', '1', 'yes')
         return self
 
+class SubmitQuorumVoteParams(AgentIdentityMixin):
+    """
+    Submit a quorum vote on an escalated dialectic session
+    """
+    session_id: str = Field(..., description="Dialectic session ID")
+    vote: Literal["resume", "block", "cooldown"] = Field(
+        ..., description="Vote action: resume the agent, block permanently, or cooldown"
+    )
+    reasoning: str = Field(..., description="Explanation for your vote")
+    conditions: Optional[List[str]] = Field(
+        default=None, description="Conditions for resumption (relevant if vote is 'resume')"
+    )
+
+
 class LlmAssistedDialecticParams(AgentIdentityMixin):
     """
     Run LLM-assisted dialectic recovery
