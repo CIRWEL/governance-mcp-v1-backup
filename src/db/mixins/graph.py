@@ -27,49 +27,77 @@ class GraphMixin:
         self,
         cypher: str,
         params: Optional[Dict[str, Any]] = None,
+        conn=None,
     ) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query against the AGE graph.
 
         Parameters are validated and safely interpolated since AGE doesn't support
         parameterized Cypher queries ($1, $2 style).
+
+        Args:
+            cypher: Cypher query with ${param} placeholders
+            params: Parameter dict for interpolation
+            conn: Optional existing connection (for use within transactions).
+                  When provided, reuses this connection instead of acquiring from pool.
         """
-        async with self.acquire() as conn:
-            try:
-                await conn.execute("LOAD 'age'")
-                await conn.execute(f"SET search_path = ag_catalog, core, audit, public")
+        return await self._execute_graph_query(cypher, params, conn)
 
-                safe_cypher = cypher
-                if params:
-                    for k, v in params.items():
-                        safe_value = self._sanitize_cypher_param(v)
-                        safe_cypher = re.sub(rf'\$\{{{re.escape(k)}\}}', safe_value, safe_cypher)
+    async def _execute_graph_query(
+        self,
+        cypher: str,
+        params: Optional[Dict[str, Any]],
+        conn=None,
+    ) -> List[Dict[str, Any]]:
+        """Internal graph query execution, supports both pooled and passed connections."""
+        if conn is not None:
+            return await self._run_cypher_on_conn(conn, cypher, params)
 
-                rows = await conn.fetch(
-                    f"SELECT * FROM cypher('{self._age_graph}', $$ {safe_cypher} $$) as (result agtype)"
-                )
+        async with self.acquire() as pooled_conn:
+            return await self._run_cypher_on_conn(pooled_conn, cypher, params)
 
-                results = []
-                for row in rows:
-                    result = row["result"]
-                    if isinstance(result, str):
-                        clean_result = result
-                        for suffix in ("::vertex", "::edge", "::agtype"):
-                            if clean_result.endswith(suffix):
-                                clean_result = clean_result[:-len(suffix)]
-                                break
-                        try:
-                            results.append(json.loads(clean_result))
-                        except json.JSONDecodeError:
-                            results.append(result)
-                    elif isinstance(result, (dict, list)):
+    async def _run_cypher_on_conn(
+        self,
+        conn,
+        cypher: str,
+        params: Optional[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Execute a Cypher query on a specific connection."""
+        try:
+            await conn.execute("LOAD 'age'")
+            await conn.execute(f"SET search_path = ag_catalog, core, audit, public")
+
+            safe_cypher = cypher
+            if params:
+                for k, v in params.items():
+                    safe_value = self._sanitize_cypher_param(v)
+                    safe_cypher = re.sub(rf'\$\{{{re.escape(k)}\}}', safe_value, safe_cypher)
+
+            rows = await conn.fetch(
+                f"SELECT * FROM cypher('{self._age_graph}', $$ {safe_cypher} $$) as (result agtype)"
+            )
+
+            results = []
+            for row in rows:
+                result = row["result"]
+                if isinstance(result, str):
+                    clean_result = result
+                    for suffix in ("::vertex", "::edge", "::agtype"):
+                        if clean_result.endswith(suffix):
+                            clean_result = clean_result[:-len(suffix)]
+                            break
+                    try:
+                        results.append(json.loads(clean_result))
+                    except json.JSONDecodeError:
                         results.append(result)
-                    else:
-                        results.append(result)
-                return results
+                elif isinstance(result, (dict, list)):
+                    results.append(result)
+                else:
+                    results.append(result)
+            return results
 
-            except Exception as e:
-                return [{"error": str(e)}]
+        except Exception as e:
+            return [{"error": str(e)}]
 
     def _sanitize_cypher_param(self, value: Any) -> str:
         """

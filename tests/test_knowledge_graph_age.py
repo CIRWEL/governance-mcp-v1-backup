@@ -275,46 +275,22 @@ class TestExecuteAgeSql:
         assert "CREATE INDEX" in calls[2]
 
     @pytest.mark.asyncio
-    async def test_raises_when_pool_unavailable(self):
-        """Should raise RuntimeError when no pool is available."""
+    async def test_uses_acquire_for_age_sql(self):
+        """Should use db.acquire() for proper pool orphan protection."""
         kg = KnowledgeGraphAGE()
-        mock_db = MagicMock()
-        mock_db._pool = None
-        # No _postgres available either
-        mock_db._postgres_available = False
+        mock_conn = AsyncMock()
+        mock_db = AsyncMock()
+        mock_db.acquire = MagicMock(return_value=_AsyncContextManager(mock_conn))
         kg._db = mock_db
         kg._indexes_created = True
-        # Mock _get_db to return the mock synchronously
         kg._get_db = AsyncMock(return_value=mock_db)
 
-        with pytest.raises(RuntimeError, match="PostgreSQL pool unavailable"):
-            await kg._execute_age_sql("SELECT 1")
-
-    @pytest.mark.asyncio
-    async def test_uses_dual_backend_pool(self):
-        """Should use postgres secondary pool when main pool absent."""
-        kg = KnowledgeGraphAGE()
-        mock_db = AsyncMock()
-        mock_db.init = AsyncMock()
-        mock_db.graph_available = AsyncMock(return_value=True)
-        # No direct _pool
-        del mock_db._pool
-
-        # Dual backend: has _postgres secondary
-        mock_conn = AsyncMock()
-        mock_pool = AsyncMock()
-        mock_pool.acquire = MagicMock(return_value=_AsyncContextManager(mock_conn))
-
-        mock_pg = MagicMock()
-        mock_pg._pool = mock_pool
-        mock_db._postgres = mock_pg
-        mock_db._postgres_available = True
-
-        kg._db = mock_db
-        kg._indexes_created = True
-
-        await kg._execute_age_sql("SELECT 1")
+        await kg._execute_age_sql("CREATE INDEX test_idx ON foo(bar)")
         assert mock_conn.execute.await_count == 3
+        calls = [c.args[0] for c in mock_conn.execute.await_args_list]
+        assert calls[0] == "LOAD 'age'"
+        assert "search_path" in calls[1]
+        assert "CREATE INDEX" in calls[2]
 
 
 # ============================================================================
@@ -1176,7 +1152,9 @@ class TestCheckRateLimit:
         """Should raise ValueError when PostgreSQL fallback rate limit exceeded."""
         kg, mock_db = make_kg_with_mock_db()
         mock_conn = mock_db._mock_conn
-        mock_conn.fetchval.return_value = 20  # At limit
+        # Atomic INSERT returns None when limit exceeded (no row inserted),
+        # then the follow-up COUNT query returns the actual count
+        mock_conn.fetchval.side_effect = [None, 20]
 
         with patch(
             "src.cache.get_rate_limiter",
@@ -2326,26 +2304,24 @@ class TestArchiveDiscoveriesBatch:
 
     @pytest.mark.asyncio
     async def test_archives_successfully(self):
-        """Should archive each discovery and return count."""
+        """Should archive all discoveries in a single batch query."""
         kg, mock_db = make_kg_with_mock_db()
-        mock_db.graph_query.side_effect = [
-            [{"id": "d1"}],  # First archive
-            [{"id": "d2"}],  # Second archive
-        ]
+        # Single batch UNWIND query returns all archived IDs
+        mock_db.graph_query.return_value = [{"id": "d1"}, {"id": "d2"}]
 
         result = await kg.archive_discoveries_batch(["d1", "d2"], reason="test_cleanup")
         assert result["success"] is True
         assert result["archived"] == 2
         assert result["reason"] == "test_cleanup"
+        # Should be a single graph_query call (batch UNWIND)
+        assert mock_db.graph_query.await_count == 1
 
     @pytest.mark.asyncio
     async def test_records_errors_for_failed_archives(self):
-        """Should record errors for discoveries that fail to archive."""
+        """Should record errors for discoveries not found in batch result."""
         kg, mock_db = make_kg_with_mock_db()
-        mock_db.graph_query.side_effect = [
-            [{"id": "d1"}],                    # First succeeds
-            Exception("archive failed"),       # Second fails
-        ]
+        # Batch returns only d1 (d2 was not found)
+        mock_db.graph_query.return_value = [{"id": "d1"}]
 
         result = await kg.archive_discoveries_batch(["d1", "d2"])
         assert result["archived"] == 1

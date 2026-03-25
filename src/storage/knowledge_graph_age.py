@@ -17,7 +17,6 @@ from pathlib import Path
 from src.logging_utils import get_logger
 from src.knowledge_graph import DiscoveryNode, ResponseTo
 from src.db import get_db
-from src.db.acquire_compat import compatible_acquire
 from src.db.age_queries import (
     create_discovery_node,
     create_agent_node,
@@ -107,19 +106,10 @@ class KnowledgeGraphAGE:
         """
         Execute a SQL statement against Postgres (used for AGE DDL like CREATE INDEX).
 
-        Supports DB_BACKEND=postgres and DB_BACKEND=dual (uses the Postgres secondary).
+        Uses acquire() for proper pool orphan protection.
         """
         db = await self._get_db()
-        pool = None
-        if hasattr(db, "_pool"):
-            pool = getattr(db, "_pool")
-        elif hasattr(db, "_postgres") and getattr(db, "_postgres_available", False):
-            pg = getattr(db, "_postgres")
-            pool = getattr(pg, "_pool", None)
-        if pool is None:
-            raise RuntimeError("PostgreSQL pool unavailable (AGE SQL execution requires Postgres backend)")
-
-        async with compatible_acquire(pool) as conn:
+        async with db.acquire() as conn:
             await conn.execute("LOAD 'age'")
             await conn.execute("SET search_path = ag_catalog, core, audit, public")
             await conn.execute(sql)
@@ -749,48 +739,47 @@ class KnowledgeGraphAGE:
             logger.debug(f"Redis rate limiting failed, falling back to PostgreSQL: {e}")
         
         # Fallback: Use PostgreSQL for persistent rate limit tracking
+        # Uses atomic check-and-insert to prevent race conditions
         db = await self._get_db()
-        
+
         async with db.acquire() as conn:
             from datetime import datetime, timedelta
             one_hour_ago = datetime.now() - timedelta(hours=1)
 
-            # Count recent stores
-            count = await conn.fetchval(
+            # Atomic check + insert: only insert if under limit
+            # Returns the new row if inserted, NULL if limit exceeded
+            inserted = await conn.fetchval(
                 """
-                SELECT COUNT(*) FROM audit.rate_limits
-                WHERE agent_id = $1 AND timestamp > $2
+                INSERT INTO audit.rate_limits (agent_id, timestamp)
+                SELECT $1, $2
+                WHERE (
+                    SELECT COUNT(*) FROM audit.rate_limits
+                    WHERE agent_id = $1 AND timestamp > $3
+                ) < $4
+                RETURNING agent_id
                 """,
                 agent_id,
+                datetime.now(),
                 one_hour_ago,
+                self.rate_limit_stores_per_hour,
             )
-            
-            count = count or 0
-            if count >= self.rate_limit_stores_per_hour:
+
+            if inserted is None:
+                # Limit exceeded — get actual count for error message
+                count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM audit.rate_limits WHERE agent_id = $1 AND timestamp > $2",
+                    agent_id, one_hour_ago,
+                )
                 raise ValueError(
-                    f"Rate limit exceeded: Agent '{agent_id}' has stored {count} "
+                    f"Rate limit exceeded: Agent '{agent_id}' has stored {count or 0} "
                     f"discoveries in the last hour (limit: {self.rate_limit_stores_per_hour}/hour). "
                     f"This prevents knowledge graph poisoning flood attacks. "
                     f"Please wait before storing more discoveries."
                 )
-            
-            # Record this store for rate limiting
-            await conn.execute(
-                """
-                INSERT INTO audit.rate_limits (agent_id, timestamp)
-                VALUES ($1, $2)
-                ON CONFLICT DO NOTHING
-                """,
-                agent_id,
-                datetime.now(),
-            )
-            
+
             # Cleanup old rate limit entries (older than 1 hour)
             await conn.execute(
-                """
-                DELETE FROM audit.rate_limits
-                WHERE timestamp < $1
-                """,
+                "DELETE FROM audit.rate_limits WHERE timestamp < $1",
                 one_hour_ago,
             )
 
@@ -1521,7 +1510,7 @@ class KnowledgeGraphAGE:
 
         cypher = """
             MATCH (d:Discovery)
-            WHERE d.id < ${cutoff}
+            WHERE d.timestamp < ${cutoff}
             OPTIONAL MATCH (other:Discovery)-[:RELATED_TO]->(d)
             OPTIONAL MATCH (resp:Discovery)-[:RESPONDS_TO]->(d)
             WITH d, count(other) + count(resp) as inbound_count
@@ -1581,7 +1570,7 @@ class KnowledgeGraphAGE:
 
         cypher = f"""
             MATCH (d:Discovery)
-            WHERE d.id < ${{cutoff}} {status_clause}
+            WHERE d.timestamp < ${{cutoff}} {status_clause}
             RETURN {{
                 id: d.id,
                 summary: d.summary,
@@ -1637,38 +1626,46 @@ class KnowledgeGraphAGE:
         from datetime import datetime
         archived_at = datetime.now().isoformat()
 
-        # Archive in batches
-        archived = 0
-        errors = []
+        # Archive all discoveries in a single batch query
+        cypher = """
+            UNWIND ${ids} AS disc_id
+            MATCH (d:Discovery {id: disc_id})
+            SET d.status = 'archived',
+                d.archived_at = ${archived_at},
+                d.archive_reason = ${reason}
+            RETURN d.id as id
+        """
 
-        for disc_id in discovery_ids:
-            cypher = """
-                MATCH (d:Discovery {id: ${discovery_id}})
-                SET d.status = 'archived',
-                    d.archived_at = ${archived_at},
-                    d.archive_reason = ${reason}
-                RETURN d.id as id
-            """
+        try:
+            results = await db.graph_query(cypher, {
+                "ids": discovery_ids,
+                "archived_at": archived_at,
+                "reason": reason,
+            })
+            archived_ids = set()
+            for r in results:
+                if isinstance(r, dict) and "error" not in r:
+                    rid = r.get("id") or r.get("discovery", {}).get("id")
+                    if rid:
+                        archived_ids.add(rid)
 
-            try:
-                result = await db.graph_query(cypher, {
-                    "discovery_id": disc_id,
-                    "archived_at": archived_at,
-                    "reason": reason,
-                })
-                if result and not (isinstance(result[0], dict) and "error" in result[0]):
-                    archived += 1
-                else:
-                    errors.append({"id": disc_id, "error": "Not found or update failed"})
-            except Exception as e:
-                errors.append({"id": disc_id, "error": str(e)})
-
-        return {
-            "success": len(errors) == 0,
-            "archived": archived,
-            "errors": errors,
-            "reason": reason,
-        }
+            errors = [
+                {"id": did, "error": "Not found or update failed"}
+                for did in discovery_ids if did not in archived_ids
+            ]
+            return {
+                "success": len(errors) == 0,
+                "archived": len(archived_ids),
+                "errors": errors,
+                "reason": reason,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "archived": 0,
+                "errors": [{"id": "batch", "error": str(e)}],
+                "reason": reason,
+            }
 
     async def cleanup_stale_discoveries(
         self,

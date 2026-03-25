@@ -23,13 +23,14 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from governance_core.dynamics import (
-    compute_dynamics, compute_equilibrium, State,
+    compute_dynamics, compute_equilibrium, State, _derivatives,
 )
 from governance_core.parameters import (
     DynamicsParams, Theta, get_active_params, DEFAULT_THETA,
     get_i_dynamics_mode,
 )
 from governance_core.coherence import coherence, lambda1, lambda2
+from governance_core.utils import drift_norm
 
 
 # ---------------------------------------------------------------------------
@@ -54,19 +55,17 @@ def compute_rhs(
     complexity: float = 0.5,
 ) -> np.ndarray:
     """
-    Extract the derivative vector F(x) = (x_new - x) / dt.
+    Extract the derivative vector F(x) = (dE/dt, dI/dt, dS/dt, dV/dt).
 
-    Uses compute_dynamics to get the next state, then backs out the derivative.
+    Uses _derivatives directly for the true ODE right-hand side,
+    independent of the integration method (Euler/RK4).
     """
     if delta_eta is None:
         delta_eta = [0.0] * 5
-    x = state_to_vec(state)
-    new_state = compute_dynamics(
-        state=state, delta_eta=delta_eta, theta=theta,
-        params=params, dt=dt, complexity=complexity,
-    )
-    x_new = state_to_vec(new_state)
-    return (x_new - x) / dt
+    d_eta = drift_norm(delta_eta)
+    d_eta_sq = d_eta * d_eta
+    derivs = _derivatives(state, d_eta_sq, theta, params, 0.0, complexity, None)
+    return np.array(derivs)
 
 
 # ---------------------------------------------------------------------------

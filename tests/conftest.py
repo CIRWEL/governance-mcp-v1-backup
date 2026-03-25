@@ -103,6 +103,11 @@ def _isolate_db_backend(monkeypatch):
         __aenter__=AsyncMock(return_value=mock_conn),
         __aexit__=AsyncMock(return_value=False),
     ))
+    # transaction() — same as acquire() for tests (returns same mock conn)
+    mock_backend.transaction = MagicMock(return_value=AsyncMock(
+        __aenter__=AsyncMock(return_value=mock_conn),
+        __aexit__=AsyncMock(return_value=False),
+    ))
 
     # Set mock as the singleton — ALL get_db() calls return this
     monkeypatch.setattr(db_module, "_db_instance", mock_backend)

@@ -221,6 +221,50 @@ class PostgresBackend(
 
         return _AcquireContext(self, timeout)
 
+    def transaction(self, timeout: float = None):
+        """
+        Get a connection from the pool wrapped in an explicit transaction.
+
+        Usage:
+            async with self.transaction() as conn:
+                await conn.execute("INSERT ...")
+                await conn.execute("UPDATE ...")
+                # auto-commits on exit, auto-rollbacks on exception
+
+        This provides atomicity for multi-statement operations. The
+        connection is acquired via acquire() (preserving pool orphan
+        protection) and wrapped in asyncpg's conn.transaction().
+        """
+        class _TransactionContext:
+            def __init__(ctx_self, backend, timeout):
+                ctx_self.backend = backend
+                ctx_self.timeout = timeout
+                ctx_self._acquire_ctx = None
+                ctx_self._txn = None
+                ctx_self.conn = None
+
+            async def __aenter__(ctx_self):
+                ctx_self._acquire_ctx = ctx_self.backend.acquire(timeout=ctx_self.timeout)
+                ctx_self.conn = await ctx_self._acquire_ctx.__aenter__()
+                ctx_self._txn = ctx_self.conn.transaction()
+                await ctx_self._txn.start()
+                return ctx_self.conn
+
+            async def __aexit__(ctx_self, exc_type, exc_val, exc_tb):
+                try:
+                    if exc_type is not None:
+                        await ctx_self._txn.rollback()
+                    else:
+                        await ctx_self._txn.commit()
+                except Exception as e:
+                    logger.warning(f"Transaction cleanup error: {e}")
+                finally:
+                    # Release connection back to pool
+                    await ctx_self._acquire_ctx.__aexit__(exc_type, exc_val, exc_tb)
+                return False
+
+        return _TransactionContext(self, timeout)
+
     async def init(self) -> None:
         """Initialize connection pool and verify schema."""
         already_existed = self._pool is not None

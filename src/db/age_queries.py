@@ -534,6 +534,36 @@ def create_concept_relates_to_edge(
     return cypher, params
 
 
+def create_temporally_near_edge(
+    from_discovery_id: str,
+    to_discovery_id: str,
+    delta_seconds: int = 0,
+) -> tuple[str, Dict[str, Any]]:
+    """
+    Build Cypher query to create TEMPORALLY_NEAR edge between discoveries.
+
+    Used to link self_observation discoveries with nearby work discoveries
+    for entropy-work correlation queries.
+
+    Returns:
+        (cypher_query, params_dict)
+    """
+    params = {
+        "from_id": from_discovery_id,
+        "to_id": to_discovery_id,
+        "delta_seconds": delta_seconds,
+    }
+
+    cypher = """
+        MATCH (d1:Discovery {id: ${from_id}})
+        MATCH (d2:Discovery {id: ${to_id}})
+        MERGE (d1)-[r:TEMPORALLY_NEAR {delta_seconds: ${delta_seconds}}]->(d2)
+        RETURN r
+    """
+
+    return cypher, params
+
+
 def create_indexes(graph_name: str = "governance_graph") -> List[tuple[str, Dict[str, Any]]]:
     """
     Build SQL statements to create indexes on the AGE graph schema.

@@ -28,7 +28,7 @@ class DialecticMixin:
         synthesis_round: Optional[int] = None,
         paused_agent_state: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        async with self.acquire() as conn:
+        async with self.transaction() as conn:
             try:
                 await conn.execute(
                     """
@@ -233,7 +233,7 @@ class DialecticMixin:
         agrees: Optional[bool] = None,
         signature: Optional[str] = None,
     ) -> int:
-        async with self.acquire() as conn:
+        async with self.transaction() as conn:
             message_id = await conn.fetchval("""
                 INSERT INTO core.dialectic_messages (
                     session_id, agent_id, message_type, timestamp,
