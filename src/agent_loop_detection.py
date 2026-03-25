@@ -177,8 +177,15 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
         except (ValueError, TypeError):
             pass
 
+    # Exempt autonomous/embodied agents from decision-based patterns (4-6).
+    # These agents can't change behavior in response to pause decisions —
+    # blocking updates prevents EISV recovery. Rapid-fire patterns (1-3)
+    # still apply to prevent actual runaway loops.
+    agent_tags = set(t.lower() for t in (getattr(meta, 'tags', None) or []))
+    is_autonomous = bool({"autonomous", "embodied", "anima"} & agent_tags)
+
     # Pattern 4: Decision loop - same decision repeated 5+ times
-    if len(recent_decisions) >= 5:
+    if not is_autonomous and len(recent_decisions) >= 5:
         decision_window = recent_decisions[-10:] if len(recent_decisions) >= 10 else recent_decisions
         decision_counts = Counter(decision_window)
 
@@ -191,7 +198,7 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
             return True, f"Decision loop detected: {proceed_count} consecutive 'proceed' decisions (agent may be stuck in feedback loop)"
 
     # Pattern 5: Slow-stuck pattern - 3+ updates in 60s with 2+ rejects
-    if not in_recovery_grace and len(recent_timestamps) >= 3:
+    if not is_autonomous and not in_recovery_grace and len(recent_timestamps) >= 3:
         last_three_timestamps = recent_timestamps[-3:]
         last_three_decisions = recent_decisions[-3:]
 
@@ -207,7 +214,7 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
             pass
 
     # Pattern 6: Extended rapid pattern - 5+ updates in 120s with concerning decisions
-    if not in_recovery_grace and len(recent_timestamps) >= 5:
+    if not is_autonomous and not in_recovery_grace and len(recent_timestamps) >= 5:
         last_five_timestamps = recent_timestamps[-5:]
         last_five_decisions = recent_decisions[-5:]
         try:

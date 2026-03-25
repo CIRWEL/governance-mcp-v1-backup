@@ -28,6 +28,7 @@ from src.health_thresholds import HealthThresholds
 # Module-level stability cache (shared across all monitors, keyed by agent_id)
 _stability_cache: Dict[str, Dict[str, Any]] = {}
 _STABILITY_CACHE_TTL = 300  # 5 minutes
+_STABILITY_CACHE_MAX = 256  # max entries before eviction
 
 
 def get_monitor_metrics(monitor: Any, include_state: bool = True) -> Dict:
@@ -66,6 +67,10 @@ def get_monitor_metrics(monitor: Any, include_state: bool = True) -> Dict:
         )
         stability_result["_ts"] = now
         _stability_cache[monitor.agent_id] = stability_result
+        # Evict oldest entries if cache exceeds max size
+        if len(_stability_cache) > _STABILITY_CACHE_MAX:
+            oldest_key = min(_stability_cache, key=lambda k: _stability_cache[k].get("_ts", 0))
+            del _stability_cache[oldest_key]
 
     # Calculate status consistently with process_update()
     # Health status uses RECENT TREND (mean of last 10 risk scores), not overall mean

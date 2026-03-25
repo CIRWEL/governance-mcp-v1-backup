@@ -24,6 +24,7 @@ from src.auto_ground_truth import (
     evaluate_lint_outcome,
     evaluate_objective_outcomes,
     evaluate_decision_outcome,
+    has_exogenous_signals,
     collect_ground_truth_automatically,
 )
 
@@ -606,6 +607,56 @@ def _patch_modules(mock_checker, mock_audit, mock_mcp_server):
                     _src_pkg.audit_log = orig_aud
 
     return ctx()
+
+
+class TestHasExogenousSignals:
+    """Tests for the hard gate that prevents calibration without exogenous data."""
+
+    def test_empty_entry(self):
+        assert has_exogenous_signals({}) is False
+
+    def test_no_details_key(self):
+        assert has_exogenous_signals({"confidence": 0.8}) is False
+
+    def test_details_not_dict(self):
+        assert has_exogenous_signals({"details": "string"}) is False
+        assert has_exogenous_signals({"details": 42}) is False
+        assert has_exogenous_signals({"details": None}) is False
+
+    def test_empty_details(self):
+        assert has_exogenous_signals({"details": {}}) is False
+
+    def test_tests_signal(self):
+        assert has_exogenous_signals({"details": {"tests": [{"passed": 5}]}}) is True
+
+    def test_commands_signal(self):
+        assert has_exogenous_signals({"details": {"commands": [{"exit_code": 0}]}}) is True
+
+    def test_files_signal(self):
+        assert has_exogenous_signals({"details": {"files": [{"path": "x.py"}]}}) is True
+
+    def test_lint_signal(self):
+        assert has_exogenous_signals({"details": {"lint": {"errors": 0}}}) is True
+
+    def test_tool_usage_signal(self):
+        assert has_exogenous_signals({"details": {"tool_usage": [{"tool": "read"}]}}) is True
+
+    def test_tool_results_signal(self):
+        assert has_exogenous_signals({"details": {"tool_results": [{"ok": True}]}}) is True
+
+    def test_outcome_events_signal(self):
+        assert has_exogenous_signals({"details": {"outcome_events": [{"type": "test"}]}}) is True
+
+    def test_empty_lists_are_falsy(self):
+        assert has_exogenous_signals({"details": {"tests": [], "commands": []}}) is False
+
+    def test_only_endogenous_data(self):
+        # EISV trajectory data is NOT exogenous
+        assert has_exogenous_signals({"details": {"E": 0.8, "I": 0.7, "S": 0.1}}) is False
+
+    def test_mixed_endogenous_and_exogenous(self):
+        entry = {"details": {"E": 0.8, "commands": [{"exit_code": 0}]}}
+        assert has_exogenous_signals(entry) is True
 
 
 class TestCollectGroundTruthAutomatically:

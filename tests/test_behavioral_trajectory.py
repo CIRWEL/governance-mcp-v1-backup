@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from src.behavioral_trajectory import (
     compute_behavioral_trajectory,
+    project_eisv_trajectory,
     _compute_preferences,
     _compute_beliefs,
     _compute_attractor,
@@ -257,3 +258,100 @@ class TestTrajectoryInjection:
                 compute_behavioral_trajectory(**make_histories(n=20))
             except Exception:
                 pass  # Simulates the try/except in enrichment
+
+
+class TestProjectEISVTrajectory:
+    def test_insufficient_history_returns_none(self):
+        assert project_eisv_trajectory([], [], [], []) is None
+        assert project_eisv_trajectory([0.5], [0.5], [0.1], [0.0]) is None
+        assert project_eisv_trajectory([0.5, 0.5], [0.5, 0.5], [0.1, 0.1], [0.0, 0.0]) is None
+
+    def test_returns_projected_values(self):
+        E = [0.8] * 10
+        I = [0.7] * 10
+        S = [0.1] * 10
+        V = [0.05] * 10
+        result = project_eisv_trajectory(E, I, S, V, steps=5)
+        assert result is not None
+        assert result["steps"] == 5
+        assert result["dt"] == 0.1
+        assert len(result["projected"]["E"]) == 5
+        assert len(result["projected"]["I"]) == 5
+        assert len(result["projected"]["S"]) == 5
+        assert len(result["projected"]["V"]) == 5
+
+    def test_current_state_matches_last_history(self):
+        E = [0.8, 0.85, 0.9]
+        I = [0.7, 0.72, 0.74]
+        S = [0.1, 0.08, 0.06]
+        V = [0.0, 0.01, 0.02]
+        result = project_eisv_trajectory(E, I, S, V)
+        assert result["current"]["E"] == 0.9
+        assert result["current"]["I"] == 0.74
+        assert result["current"]["S"] == 0.06
+        assert result["current"]["V"] == 0.02
+
+    def test_entropy_rising_warning(self):
+        E = [0.3] * 5
+        I = [0.3] * 5
+        S = [0.8] * 5  # High entropy
+        V = [0.0] * 5
+        result = project_eisv_trajectory(E, I, S, V, steps=20)
+        # With high initial S, projection may warn about entropy
+        assert result is not None
+        assert isinstance(result["warnings"], list)
+
+    def test_integrity_falling_warning(self):
+        E = [0.5] * 5
+        I = [0.35] * 5  # Low integrity
+        S = [0.3] * 5
+        V = [0.0] * 5
+        result = project_eisv_trajectory(E, I, S, V, steps=20)
+        assert result is not None
+        # I < 0.4 should trigger integrity_falling warning
+        if result["projected"]["I"][-1] < 0.4:
+            assert "integrity_falling" in result["warnings"]
+
+    def test_void_accumulating_warning(self):
+        E = [0.9] * 5
+        I = [0.3] * 5  # E >> I causes void accumulation
+        S = [0.1] * 5
+        V = [0.4] * 5
+        result = project_eisv_trajectory(E, I, S, V, steps=20)
+        assert result is not None
+
+    def test_custom_steps_and_dt(self):
+        E = [0.8] * 5
+        I = [0.7] * 5
+        S = [0.1] * 5
+        V = [0.0] * 5
+        result = project_eisv_trajectory(E, I, S, V, steps=3, dt=0.05)
+        assert result["steps"] == 3
+        assert result["dt"] == 0.05
+        assert len(result["projected"]["E"]) == 3
+
+    def test_fallback_without_governance_core(self):
+        """When governance_core is unavailable, falls back to EWMA extrapolation."""
+        import importlib
+        import sys
+        E = [0.8] * 10
+        I = [0.7] * 10
+        S = [0.1] * 10
+        V = [0.0] * 10
+
+        # Temporarily remove governance_core from sys.modules to force ImportError
+        saved = sys.modules.get("governance_core")
+        sys.modules["governance_core"] = None  # forces ImportError on from X import Y
+        try:
+            # Re-import to pick up the blocked module
+            import src.behavioral_trajectory as bt
+            importlib.reload(bt)
+            result = bt.project_eisv_trajectory(E, I, S, V, steps=5)
+            assert result is not None
+            assert len(result["projected"]["E"]) == 5
+        finally:
+            if saved is not None:
+                sys.modules["governance_core"] = saved
+            else:
+                sys.modules.pop("governance_core", None)
+            importlib.reload(bt)

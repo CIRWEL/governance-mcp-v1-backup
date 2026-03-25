@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 import re
+import weakref
 from typing import Any, Dict, List, Optional
 
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
+
+# Track connections that have already run LOAD 'age' + SET search_path.
+# WeakSet so entries are automatically removed when connections are released.
+_age_initialized_conns: weakref.WeakSet = weakref.WeakSet()
 
 
 class GraphMixin:
@@ -64,8 +69,15 @@ class GraphMixin:
     ) -> List[Dict[str, Any]]:
         """Execute a Cypher query on a specific connection."""
         try:
-            await conn.execute("LOAD 'age'")
-            await conn.execute(f"SET search_path = ag_catalog, core, audit, public")
+            # Only LOAD + SET on first use per connection (avoids 2 extra
+            # round-trips per query when running multiple queries in a txn).
+            if conn not in _age_initialized_conns:
+                await conn.execute("LOAD 'age'")
+                await conn.execute("SET search_path = ag_catalog, core, audit, public")
+                try:
+                    _age_initialized_conns.add(conn)
+                except TypeError:
+                    pass  # Unhashable mock in tests — safe to skip
 
             safe_cypher = cypher
             if params:

@@ -38,13 +38,7 @@ class StateMixin:
                 regime, coherence, json.dumps(state_json or {}),
                 GovernanceConfig.CURRENT_EPOCH,
             )
-            # Refresh materialized view (non-blocking, best-effort)
-            try:
-                await conn.execute(
-                    "REFRESH MATERIALIZED VIEW CONCURRENTLY core.mv_latest_agent_states"
-                )
-            except Exception:
-                pass  # View may not exist yet (pre-migration)
+            # Matview refresh moved to periodic_matview_refresh() in background_tasks.py
             return state_id
 
     async def get_latest_agent_state(

@@ -60,6 +60,8 @@
         <string>1</string>
         <key>UNITARES_HTTP_API_TOKEN</key>
         <string>QUGz-6QPKoOwrBDn1hWZmWOk1U0q5g2I5Bkad2MCvtY</string>
+        <key>UNITARES_CONTINUITY_TOKEN_SECRET</key>
+        <string>cTkfjCrRaPIa2bEfE__aVHGWpCAopaO6D1ko4j99dPQ</string>
     </dict>
 </dict>
 </plist>

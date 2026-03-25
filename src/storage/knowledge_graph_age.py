@@ -132,14 +132,11 @@ class KnowledgeGraphAGE:
         if discovery.tags:
             discovery.tags = normalize_tags(discovery.tags)
 
-        # Rate limiting check (security measure)
-        await self._check_rate_limit(discovery.agent_id)
-        
         db = await self._get_db()
-        
+
         if not await db.graph_available():
             raise RuntimeError("AGE graph not available. Check PostgreSQL AGE extension.")
-        
+
         # Extract EISV fields if this is a self_observation
         eisv_e = None
         eisv_i = None
@@ -147,7 +144,7 @@ class KnowledgeGraphAGE:
         eisv_v = None
         regime = None
         coherence = None
-        
+
         if discovery.type == "self_observation" and discovery.provenance:
             prov = discovery.provenance
             eisv_e = prov.get("E") or prov.get("eisv_e")
@@ -156,7 +153,7 @@ class KnowledgeGraphAGE:
             eisv_v = prov.get("V") or prov.get("eisv_v")
             regime = prov.get("regime")
             coherence = prov.get("coherence")
-        
+
         # Parse timestamp
         timestamp = None
         if discovery.timestamp:
@@ -166,14 +163,14 @@ class KnowledgeGraphAGE:
                 timestamp = datetime.now()
         else:
             timestamp = datetime.now()
-        
+
         resolved_at = None
         if discovery.resolved_at:
             try:
                 resolved_at = datetime.fromisoformat(discovery.resolved_at.replace('Z', '+00:00'))
             except Exception:
                 pass
-        
+
         # Create discovery node
         cypher, params = create_discovery_node(
             discovery_id=discovery.id,
@@ -198,12 +195,14 @@ class KnowledgeGraphAGE:
                 "confidence": discovery.confidence,
                 "provenance": discovery.provenance,
                 "provenance_chain": discovery.provenance_chain,
-            } if any([discovery.related_to, discovery.references_files, 
+            } if any([discovery.related_to, discovery.references_files,
                      discovery.confidence, discovery.provenance, discovery.provenance_chain]) else None,
         )
-        
-        # Execute all graph operations in a single transaction
+
+        # Execute rate limit + all graph operations in a single transaction
         async with db.transaction() as conn:
+            # Rate limiting inside transaction — if limit exceeded, entire txn rolls back
+            await self._check_rate_limit(discovery.agent_id, conn=conn)
             await db.graph_query(cypher, params, conn=conn)
 
             # Create/update agent node
@@ -700,11 +699,15 @@ class KnowledgeGraphAGE:
                 "backend": "age",
             }
 
-    async def _check_rate_limit(self, agent_id: str) -> None:
+    async def _check_rate_limit(self, agent_id: str, conn=None) -> None:
         """
         Check if agent has exceeded rate limit (20 stores/hour).
         Raises ValueError if limit exceeded.
-        
+
+        Args:
+            agent_id: Agent to check.
+            conn: Optional DB connection to reuse (e.g. from a transaction).
+
         Uses Redis for fast rate limiting, falls back to PostgreSQL.
         """
         # Try Redis first (fast path)
@@ -743,13 +746,11 @@ class KnowledgeGraphAGE:
         # Uses atomic check-and-insert to prevent race conditions
         db = await self._get_db()
 
-        async with db.acquire() as conn:
+        async def _do_rate_limit_check(c):
             from datetime import datetime, timedelta
             one_hour_ago = datetime.now() - timedelta(hours=1)
 
-            # Atomic check + insert: only insert if under limit
-            # Returns the new row if inserted, NULL if limit exceeded
-            inserted = await conn.fetchval(
+            inserted = await c.fetchval(
                 """
                 INSERT INTO audit.rate_limits (agent_id, timestamp)
                 SELECT $1, $2
@@ -766,8 +767,7 @@ class KnowledgeGraphAGE:
             )
 
             if inserted is None:
-                # Limit exceeded — get actual count for error message
-                count = await conn.fetchval(
+                count = await c.fetchval(
                     "SELECT COUNT(*) FROM audit.rate_limits WHERE agent_id = $1 AND timestamp > $2",
                     agent_id, one_hour_ago,
                 )
@@ -778,11 +778,16 @@ class KnowledgeGraphAGE:
                     f"Please wait before storing more discoveries."
                 )
 
-            # Cleanup old rate limit entries (older than 1 hour)
-            await conn.execute(
+            await c.execute(
                 "DELETE FROM audit.rate_limits WHERE timestamp < $1",
                 one_hour_ago,
             )
+
+        if conn is not None:
+            await _do_rate_limit_check(conn)
+        else:
+            async with db.acquire() as pooled_conn:
+                await _do_rate_limit_check(pooled_conn)
 
     async def load(self) -> None:
         """

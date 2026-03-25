@@ -166,6 +166,26 @@ async def concept_extraction_background_task(interval_hours: float = 24.0):
 
 
 # ---------------------------------------------------------------------------
+# Materialized view refresh (moved from per-insert to periodic)
+# ---------------------------------------------------------------------------
+
+async def periodic_matview_refresh():
+    """Refresh mv_latest_agent_states periodically instead of per-insert."""
+    await asyncio.sleep(30.0)
+    while True:
+        try:
+            from src.db import get_db
+            db = get_db()
+            async with db.acquire() as conn:
+                await conn.execute(
+                    "REFRESH MATERIALIZED VIEW CONCURRENTLY core.mv_latest_agent_states"
+                )
+        except Exception as e:
+            logger.debug(f"Matview refresh skipped: {e}")
+        await asyncio.sleep(60)
+
+
+# ---------------------------------------------------------------------------
 # Partition maintenance
 # ---------------------------------------------------------------------------
 
@@ -527,6 +547,7 @@ def start_all_background_tasks(connection_tracker, set_ready):
     _supervised_create_task(startup_auto_calibration(), name="auto_calibration")
     _supervised_create_task(startup_kg_lifecycle(), name="kg_lifecycle")
     _supervised_create_task(concept_extraction_background_task(), name="concept_extraction")
+    _supervised_create_task(periodic_matview_refresh(), name="matview_refresh")
     _supervised_create_task(periodic_partition_maintenance(), name="partition_maintenance")
     _supervised_create_task(background_metadata_load(), name="metadata_load")
     _supervised_create_task(periodic_orphan_cleanup(), name="orphan_cleanup")

@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-**Last Updated:** February 7, 2026
+**Last Updated:** March 2026
 
 ---
 
@@ -276,9 +276,8 @@ launchctl load ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
 ### Documentation
 
 1. [START_HERE.md](START_HERE.md) — Agent onboarding
-2. [MCP_SETUP.md](MCP_SETUP.md) — Client configuration
-3. [DEPLOYMENT.md](DEPLOYMENT.md) — Deployment guide
-4. [database_architecture.md](../database_architecture.md) — Database details
+2. [Ngrok Deployment](NGROK_DEPLOYMENT.md) — Client configuration and remote access
+3. [database_architecture.md](../database_architecture.md) — Database details
 
 ### Health Monitoring
 
@@ -289,4 +288,4 @@ curl http://localhost:8767/health | python3 -m json.tool
 
 ---
 
-*Last updated: February 7, 2026*
+*Last updated: March 2026*

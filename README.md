@@ -3,7 +3,7 @@
 ### Digital proprioception for AI agents.
 
 [![Tests](https://github.com/CIRWEL/unitares/actions/workflows/tests.yml/badge.svg)](https://github.com/CIRWEL/unitares/actions/workflows/tests.yml)
-[![Coverage](https://img.shields.io/badge/coverage-78%25-brightgreen.svg)](https://github.com/CIRWEL/unitares)
+[![Coverage](https://img.shields.io/badge/coverage-77%25-brightgreen.svg)](https://github.com/CIRWEL/unitares)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -36,6 +36,8 @@ dV/dt = κ(E - I) - δ·V             Void accumulates E-I mismatch, decays towa
 ```
 
 The key insight: **coherence C(V)** creates nonlinear feedback that stabilizes the system. Global exponential convergence follows from contraction theory (Theorem 3.2).
+
+> **Note:** These ODEs are implemented in the compiled [`unitares-core`](CONTRIBUTING.md#compiled-dependency) package, not in this repo. See [CONTRIBUTING.md](CONTRIBUTING.md) for build details.
 
 Check-ins are speech acts — an agent reporting its state in a shared vocabulary. Trajectories are behavioral stories that can be read without narrative explanation. Twenty minutes before an agent fails, the trajectory tells you.
 
@@ -98,7 +100,7 @@ python src/mcp_server_std.py
 
 ## Production Validation
 
-Deployed since December 2025. Current system: **844 registered agents**, **536 knowledge discoveries**, **41 dialectic sessions**, **5,588 tests** at 78% coverage.
+Deployed since December 2025. Current system: **844 registered agents**, **536 knowledge discoveries**, **41 dialectic sessions**, **5,622 tests** at 77% coverage.
 
 Production readiness is context-dependent. The core platform is running in production, but teams adopting it should still do their own security review, load testing, observability setup, and rollback planning.
 
@@ -182,7 +184,7 @@ graph LR
 ```
 src/                   MCP server, agent state, knowledge graph, dialectic
 dashboard/             Web dashboard (vanilla JS + Chart.js)
-tests/                 5,588 tests
+tests/                 5,622 tests
 ```
 
 The mathematical engine (`governance_core`) — ODEs, coherence, scoring — is distributed as a compiled package (unitares-core).

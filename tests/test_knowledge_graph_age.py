@@ -311,7 +311,11 @@ class TestAddDiscovery:
         discovery = make_discovery()
         await kg.add_discovery(discovery)
 
-        kg._check_rate_limit.assert_awaited_once_with("agent-1")
+        # Rate limit now called inside transaction with conn=
+        kg._check_rate_limit.assert_awaited_once()
+        call_args = kg._check_rate_limit.await_args
+        assert call_args[0][0] == "agent-1"
+        assert "conn" in call_args[1]
         # At minimum: discovery node + agent node + authored edge = 3 calls
         assert mock_db.graph_query.await_count >= 3
 
