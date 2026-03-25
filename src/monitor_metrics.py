@@ -15,6 +15,8 @@ import math
 from collections import Counter
 from typing import Dict, Any
 
+import time as _time
+
 import numpy as np
 
 from config.governance_config import config
@@ -22,6 +24,10 @@ from governance_core.parameters import get_active_params, get_params_profile_nam
 from governance_core.scoring import phi_objective, verdict_from_phi
 from governance_core import approximate_stability_check
 from src.health_thresholds import HealthThresholds
+
+# Module-level stability cache (shared across all monitors, keyed by agent_id)
+_stability_cache: Dict[str, Dict[str, Any]] = {}
+_STABILITY_CACHE_TTL = 300  # 5 minutes
 
 
 def get_monitor_metrics(monitor: Any, include_state: bool = True) -> Dict:
@@ -48,13 +54,18 @@ def get_monitor_metrics(monitor: Any, include_state: bool = True) -> Dict:
             'total': len(decision_history)
         }
 
-    # Check stability using UNITARES Phase-3 approximate_stability_check()
-    stability_result = approximate_stability_check(
-        theta=state.unitaires_theta,
-        samples=200,
-        steps_per_sample=20,
-        dt=config.DT
-    )
+    # Check stability (Lyapunov eigenvalue analysis, cached 5 min per agent)
+    now = _time.monotonic()
+    cached = _stability_cache.get(monitor.agent_id)
+    if cached and (now - cached["_ts"]) < _STABILITY_CACHE_TTL:
+        stability_result = cached
+    else:
+        stability_result = approximate_stability_check(
+            theta=state.unitaires_theta,
+            dt=config.DT,
+        )
+        stability_result["_ts"] = now
+        _stability_cache[monitor.agent_id] = stability_result
 
     # Calculate status consistently with process_update()
     # Health status uses RECENT TREND (mean of last 10 risk scores), not overall mean

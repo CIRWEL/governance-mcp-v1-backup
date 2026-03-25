@@ -6,6 +6,7 @@ and returns a dict compatible with TrajectorySignature.from_dict().
 
 import math
 from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 
 def compute_behavioral_trajectory(
@@ -190,3 +191,89 @@ def _compute_stability(coherence_history: list) -> float:
     std = math.sqrt(variance)
 
     return max(0.0, min(1.0, 1.0 - std * 5.0))
+
+
+# --- Forward Projection ---
+
+def project_eisv_trajectory(
+    E_history: List[float],
+    I_history: List[float],
+    S_history: List[float],
+    V_history: List[float],
+    steps: int = 5,
+    dt: float = 0.1,
+) -> Optional[Dict]:
+    """Project EISV forward using ODE dynamics from current state.
+
+    Uses governance_core.step_state for physics-based projection with
+    zero drift input (assumes no new perturbation). Falls back to
+    EWMA extrapolation if governance_core is unavailable.
+
+    Args:
+        E_history, I_history, S_history, V_history: Recent EISV histories
+        steps: Number of steps to project forward
+        dt: Time step for projection
+
+    Returns:
+        Dict with projected E/I/S/V lists and crossing warnings, or None
+        if insufficient history.
+    """
+    if not E_history or len(E_history) < 3:
+        return None
+
+    current = {
+        "E": E_history[-1],
+        "I": I_history[-1],
+        "S": S_history[-1],
+        "V": V_history[-1],
+    }
+
+    projected = {"E": [], "I": [], "S": [], "V": []}
+
+    try:
+        from governance_core import step_state, State, DEFAULT_THETA
+
+        state = State(
+            E=current["E"], I=current["I"],
+            S=current["S"], V=current["V"],
+        )
+        for _ in range(steps):
+            state = step_state(
+                state, DEFAULT_THETA,
+                delta_eta=[0.0, 0.0, 0.0],
+                dt=dt, noise_S=0.0,
+            )
+            projected["E"].append(round(state.E, 4))
+            projected["I"].append(round(state.I, 4))
+            projected["S"].append(round(state.S, 4))
+            projected["V"].append(round(state.V, 4))
+    except ImportError:
+        # Fallback: EWMA extrapolation toward attractor
+        attractor = _compute_attractor(E_history, I_history, S_history, V_history)
+        center = attractor["center"]
+        decay = 0.9  # Exponential decay toward center per step
+
+        vals = [current["E"], current["I"], current["S"], current["V"]]
+        for _ in range(steps):
+            vals = [v + (c - v) * (1 - decay) for v, c in zip(vals, center)]
+            projected["E"].append(round(vals[0], 4))
+            projected["I"].append(round(vals[1], 4))
+            projected["S"].append(round(vals[2], 4))
+            projected["V"].append(round(vals[3], 4))
+
+    # Detect concerning trends in projection
+    warnings = []
+    if projected["S"] and projected["S"][-1] > 0.5:
+        warnings.append("entropy_rising")
+    if projected["I"] and projected["I"][-1] < 0.4:
+        warnings.append("integrity_falling")
+    if projected["V"] and abs(projected["V"][-1]) > 0.5:
+        warnings.append("void_accumulating")
+
+    return {
+        "current": current,
+        "projected": projected,
+        "steps": steps,
+        "dt": dt,
+        "warnings": warnings,
+    }

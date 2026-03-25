@@ -832,6 +832,55 @@ def enrich_saturation_diagnostics(ctx: UpdateContext) -> None:
     except Exception as e:
         logger.debug(f"Could not compute saturation diagnostics: {e}")
 
+# ─── Drift Forecast ────────────────────────────────────────────────────
+
+@enrichment(order=185)
+def enrich_drift_forecast(ctx: UpdateContext) -> None:
+    """Predict drift threshold crossings and project EISV forward."""
+    try:
+        monitor = ctx.monitor
+        if monitor is None or getattr(monitor.state, 'update_count', 0) < 5:
+            return
+
+        from src.event_detector import predict_drift_crossing, DRIFT_AXES
+        from src.behavioral_trajectory import project_eisv_trajectory
+
+        # Drift EWMA forecast per axis
+        drift_forecast = {}
+        prev_state = None
+        try:
+            from src.event_detector import event_detector
+            prev_state = event_detector._prev_state.get(ctx.agent_id)
+        except Exception:
+            pass
+
+        if prev_state:
+            drift_history = prev_state.get("drift_history", {})
+            for axis in DRIFT_AXES:
+                axis_hist = drift_history.get(axis, [])
+                if len(axis_hist) >= 3:
+                    forecast = predict_drift_crossing(axis_hist)
+                    if forecast["predicted_crossing_steps"] is not None:
+                        drift_forecast[axis] = forecast
+
+        # EISV forward projection
+        state = monitor.state
+        eisv_proj = project_eisv_trajectory(
+            E_history=list(state.E_history[-20:]),
+            I_history=list(state.I_history[-20:]),
+            S_history=list(state.S_history[-20:]),
+            V_history=list(state.V_history[-20:]),
+            steps=5,
+        )
+
+        if drift_forecast or (eisv_proj and eisv_proj.get("warnings")):
+            ctx.response_data["drift_forecast"] = {
+                "axis_forecasts": drift_forecast if drift_forecast else None,
+                "eisv_projection": eisv_proj,
+            }
+    except Exception as e:
+        logger.debug(f"Could not compute drift forecast: {e}")
+
 # ─── Pending Dialectic ─────────────────────────────────────────────────
 
 @enrichment(order=190)

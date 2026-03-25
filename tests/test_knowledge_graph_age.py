@@ -107,6 +107,7 @@ def make_mock_db(graph_available: bool = True) -> AsyncMock:
 
     db._pool.acquire = MagicMock(return_value=_AsyncContextManager(mock_conn))
     db.acquire = MagicMock(return_value=_AsyncContextManager(mock_conn))
+    db.transaction = MagicMock(return_value=_AsyncContextManager(mock_conn))
     db._mock_conn = mock_conn  # Expose for test assertions
     return db
 

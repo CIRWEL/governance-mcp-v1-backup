@@ -202,48 +202,49 @@ class KnowledgeGraphAGE:
                      discovery.confidence, discovery.provenance, discovery.provenance_chain]) else None,
         )
         
-        # Execute via graph_query
-        await db.graph_query(cypher, params)
-        
-        # Create/update agent node
-        agent_cypher, agent_params = create_agent_node(
-            agent_id=discovery.agent_id,
-            created_at=timestamp,
-            updated_at=timestamp,
-        )
-        await db.graph_query(agent_cypher, agent_params)
-        
-        # Create AUTHORED edge
-        authored_cypher, authored_params = create_authored_edge(
-            agent_id=discovery.agent_id,
-            discovery_id=discovery.id,
-            at=timestamp,
-        )
-        await db.graph_query(authored_cypher, authored_params)
-        
-        # Create RESPONDS_TO edge if response_to exists
-        if discovery.response_to:
-            responds_cypher, responds_params = create_responds_to_edge(
-                from_discovery_id=discovery.id,
-                to_discovery_id=discovery.response_to.discovery_id,
+        # Execute all graph operations in a single transaction
+        async with db.transaction() as conn:
+            await db.graph_query(cypher, params, conn=conn)
+
+            # Create/update agent node
+            agent_cypher, agent_params = create_agent_node(
+                agent_id=discovery.agent_id,
+                created_at=timestamp,
+                updated_at=timestamp,
             )
-            await db.graph_query(responds_cypher, responds_params)
-        
-        # Create RELATED_TO edges
-        for related_id in discovery.related_to:
-            related_cypher, related_params = create_related_to_edge(
-                from_discovery_id=discovery.id,
-                to_discovery_id=related_id,
-            )
-            await db.graph_query(related_cypher, related_params)
-        
-        # Create TAGGED edges
-        for tag in discovery.tags:
-            tagged_cypher, tagged_params = create_tagged_edge(
+            await db.graph_query(agent_cypher, agent_params, conn=conn)
+
+            # Create AUTHORED edge
+            authored_cypher, authored_params = create_authored_edge(
+                agent_id=discovery.agent_id,
                 discovery_id=discovery.id,
-                tag_name=tag,
+                at=timestamp,
             )
-            await db.graph_query(tagged_cypher, tagged_params)
+            await db.graph_query(authored_cypher, authored_params, conn=conn)
+
+            # Create RESPONDS_TO edge if response_to exists
+            if discovery.response_to:
+                responds_cypher, responds_params = create_responds_to_edge(
+                    from_discovery_id=discovery.id,
+                    to_discovery_id=discovery.response_to.discovery_id,
+                )
+                await db.graph_query(responds_cypher, responds_params, conn=conn)
+
+            # Create RELATED_TO edges
+            for related_id in discovery.related_to:
+                related_cypher, related_params = create_related_to_edge(
+                    from_discovery_id=discovery.id,
+                    to_discovery_id=related_id,
+                )
+                await db.graph_query(related_cypher, related_params, conn=conn)
+
+            # Create TAGGED edges
+            for tag in discovery.tags:
+                tagged_cypher, tagged_params = create_tagged_edge(
+                    discovery_id=discovery.id,
+                    tag_name=tag,
+                )
+                await db.graph_query(tagged_cypher, tagged_params, conn=conn)
 
         # Store embedding for semantic search (async, best-effort)
         if await self._pgvector_available():

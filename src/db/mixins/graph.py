@@ -99,26 +99,56 @@ class GraphMixin:
         except Exception as e:
             return [{"error": str(e)}]
 
-    def _sanitize_cypher_param(self, value: Any) -> str:
+    # Maximum byte length for a single string parameter (10 KB)
+    _MAX_PARAM_LENGTH = 10_240
+    # Maximum recursion depth for nested list/dict params
+    _MAX_PARAM_DEPTH = 8
+
+    def _sanitize_cypher_param(self, value: Any, _depth: int = 0) -> str:
         """
         Sanitize a parameter value for safe inclusion in a Cypher query.
 
         AGE doesn't support parameterized queries, so we must validate values.
+        Enforces length limits, rejects null bytes, and escapes all dangerous chars.
         """
+        if _depth > self._MAX_PARAM_DEPTH:
+            raise ValueError(f"Cypher param nesting too deep (>{self._MAX_PARAM_DEPTH})")
+
         if value is None:
             return "NULL"
         elif isinstance(value, bool):
             return "true" if value else "false"
         elif isinstance(value, (int, float)):
+            import math as _math
+            if isinstance(value, float) and (_math.isnan(value) or _math.isinf(value)):
+                raise ValueError(f"Cypher param cannot be NaN or Inf: {value}")
             return str(value)
         elif isinstance(value, str):
-            escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+            if '\x00' in value:
+                raise ValueError("Cypher param contains null byte")
+            if len(value) > self._MAX_PARAM_LENGTH:
+                raise ValueError(
+                    f"Cypher param too long ({len(value)} > {self._MAX_PARAM_LENGTH})"
+                )
+            escaped = (
+                value
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace('"', '\\"')
+            )
             return f"'{escaped}'"
         elif isinstance(value, list):
-            sanitized_elements = [self._sanitize_cypher_param(item) for item in value]
+            sanitized_elements = [
+                self._sanitize_cypher_param(item, _depth + 1) for item in value
+            ]
             return f"[{', '.join(sanitized_elements)}]"
         elif isinstance(value, dict):
-            json_str = json.dumps(value).replace("'", "\\'")
-            return f"'{json_str}'"
+            json_str = json.dumps(value)
+            if len(json_str) > self._MAX_PARAM_LENGTH:
+                raise ValueError(
+                    f"Cypher dict param too long ({len(json_str)} > {self._MAX_PARAM_LENGTH})"
+                )
+            escaped = json_str.replace("\\", "\\\\").replace("'", "\\'")
+            return f"'{escaped}'"
         else:
             raise ValueError(f"Unsupported Cypher param type: {type(value)}")

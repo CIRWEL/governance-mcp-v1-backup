@@ -88,6 +88,82 @@ def classify_drift_trend(history: List[float]) -> Tuple[str, float]:
     return TREND_STABLE, 0.5
 
 
+def predict_drift_crossing(
+    history: List[float],
+    threshold: float = DRIFT_ALERT_THRESHOLD,
+    alpha: float = 0.3,
+    forecast_steps: int = 10,
+) -> Dict[str, Any]:
+    """
+    Predict when drift will cross a threshold using EWMA forecasting.
+
+    Args:
+        history: Recent drift values for one axis
+        threshold: Drift threshold to predict crossing for
+        alpha: EWMA smoothing factor (higher = more weight on recent)
+        forecast_steps: How many steps ahead to project
+
+    Returns:
+        Dict with ewma_current, ewma_slope, predicted_crossing_steps, confidence
+    """
+    if not history or len(history) < 3:
+        return {
+            "ewma_current": 0.0,
+            "ewma_slope": 0.0,
+            "predicted_crossing_steps": None,
+            "confidence": 0.0,
+        }
+
+    # Compute EWMA series
+    ewma = [history[0]]
+    for val in history[1:]:
+        ewma.append(alpha * val + (1 - alpha) * ewma[-1])
+
+    ewma_current = ewma[-1]
+
+    # Estimate slope from last few EWMA values
+    n_slope = min(5, len(ewma))
+    if n_slope >= 2:
+        recent = ewma[-n_slope:]
+        # Simple linear regression slope
+        x_mean = (n_slope - 1) / 2.0
+        y_mean = sum(recent) / n_slope
+        num = sum((i - x_mean) * (recent[i] - y_mean) for i in range(n_slope))
+        den = sum((i - x_mean) ** 2 for i in range(n_slope))
+        ewma_slope = num / den if den > 1e-10 else 0.0
+    else:
+        ewma_slope = 0.0
+
+    # Project forward to find crossing
+    predicted_crossing_steps = None
+    if abs(ewma_slope) > 1e-6:
+        # Will absolute EWMA cross the threshold?
+        current_abs = abs(ewma_current)
+        if current_abs < threshold and ewma_slope != 0:
+            # Steps to cross going up (absolute value increasing)
+            if ewma_current >= 0 and ewma_slope > 0:
+                steps = (threshold - ewma_current) / ewma_slope
+            elif ewma_current <= 0 and ewma_slope < 0:
+                steps = (-threshold - ewma_current) / ewma_slope
+            else:
+                steps = None
+
+            if steps is not None and 0 < steps <= forecast_steps:
+                predicted_crossing_steps = int(steps) + 1
+
+    # Confidence based on history length and slope consistency
+    confidence = min(1.0, len(history) / 10.0)
+    if abs(ewma_slope) < 1e-4:
+        confidence *= 0.3  # Low confidence when nearly flat
+
+    return {
+        "ewma_current": round(ewma_current, 6),
+        "ewma_slope": round(ewma_slope, 6),
+        "predicted_crossing_steps": predicted_crossing_steps,
+        "confidence": round(confidence, 3),
+    }
+
+
 class GovernanceEventDetector:
     """Detects governance events by comparing current state to previous state."""
 

@@ -150,28 +150,28 @@ def evaluate_lint_outcome(lint_result: Dict) -> Optional[bool]:
 def evaluate_objective_outcomes(outcomes: Dict) -> Optional[bool]:
     """
     Evaluate ground truth from multiple objective outcomes.
-    
+
     Uses weighted voting - any failure signal = failure (conservative).
-    
+
     Args:
         outcomes: Dict with optional keys: 'tests', 'commands', 'files', 'lint'
-        
+
     Returns:
         True if all signals pass, False if any fail, None if no signals
     """
     results = []
-    
+
     if 'tests' in outcomes:
         result = evaluate_test_outcome(outcomes['tests'])
         if result is not None:
             results.append(('tests', result))
-    
+
     if 'commands' in outcomes:
         for cmd in (outcomes['commands'] if isinstance(outcomes['commands'], list) else [outcomes['commands']]):
             result = evaluate_command_outcome(cmd)
             if result is not None:
                 results.append(('command', result))
-    
+
     if 'files' in outcomes:
         for file_check in outcomes['files']:
             path = file_check.get('path')
@@ -180,22 +180,58 @@ def evaluate_objective_outcomes(outcomes: Dict) -> Optional[bool]:
                 result = evaluate_file_operation(path, expected)
                 if result is not None:
                     results.append(('file', result))
-    
+
     if 'lint' in outcomes:
         result = evaluate_lint_outcome(outcomes['lint'])
         if result is not None:
             results.append(('lint', result))
-    
+
     if not results:
         return None
-    
+
     # Conservative: any failure = overall failure
     if any(not r[1] for r in results):
         logger.info(f"Objective evaluation FAILED: {[r for r in results if not r[1]]}")
         return False
-    
+
     logger.info(f"Objective evaluation PASSED: {len(results)} signals all positive")
     return True
+
+
+def has_exogenous_signals(entry: Dict) -> bool:
+    """
+    Check whether a decision has any exogenous ground truth signals.
+
+    Exogenous signals are objective, external observations — not the agent's
+    own EISV trajectory or self-reported state. Without these, calibration
+    updates would be the system grading its own homework.
+
+    Returns True if any of: test results, command outcomes, file operations,
+    lint results, or tool_usage records exist for this entry.
+    """
+    details = entry.get('details', {})
+    if not isinstance(details, dict):
+        return False
+
+    # Check for objective outcome signals
+    if details.get('tests'):
+        return True
+    if details.get('commands'):
+        return True
+    if details.get('files'):
+        return True
+    if details.get('lint'):
+        return True
+
+    # Tool usage counts as exogenous (exit codes are objective)
+    if details.get('tool_usage') or details.get('tool_results'):
+        return True
+
+    # Outcome events recorded by the hook system
+    if details.get('outcome_events'):
+        return True
+
+    return False
 
 
 def evaluate_decision_outcome(entry: Dict, metadata: Dict) -> Optional[bool]:
@@ -370,45 +406,55 @@ async def collect_ground_truth_automatically(
     # Process entries (limit if max_decisions > 0)
     entries_to_process = entries if max_decisions == 0 else entries[:max_decisions]
     
+    exogenous_count = 0
+    endogenous_only_count = 0
+
     for entry in entries_to_process:
         timestamp = entry.get('timestamp')
         if not timestamp or timestamp in seen_timestamps:
             continue
-        
+
         seen_timestamps.add(timestamp)
         processed += 1
-        
+
         try:
+            # HARD GATE: Skip calibration when no exogenous signals exist.
+            # Without objective external signals (test results, command outcomes,
+            # file operations), calibration would be grading its own homework —
+            # using the agent's self-reported trajectory to evaluate its own
+            # confidence accuracy.
+            if not has_exogenous_signals(entry):
+                endogenous_only_count += 1
+                skipped += 1
+                continue
+
+            exogenous_count += 1
+
             # Evaluate outcome
             actual_correct = evaluate_decision_outcome(entry, metadata)
-            
+
             if actual_correct is None:
                 skipped += 1
                 continue
-            
+
             if dry_run:
                 updated += 1
                 confidence = entry.get('confidence', 0.0)
-                # Use confidence-based prediction: high confidence = predicted correct
                 predicted_correct = float(confidence) >= 0.5
                 logger.info(f"[DRY RUN] Would update: {timestamp} -> confidence={confidence:.2f}, predicted_correct={predicted_correct}, actual_correct={actual_correct}")
             else:
-                # Update calibration (STRATEGIC: trajectory health)
                 confidence = entry.get('confidence', 0.0)
-                # FIXED: Use confidence-based prediction, not decision-based
-                # High confidence (>=0.5) = we predicted correct
-                # Low confidence (<0.5) = we predicted incorrect
                 predicted_correct = float(confidence) >= 0.5
-                
+
                 calibration_checker.update_ground_truth(
                     confidence=float(confidence),
                     predicted_correct=bool(predicted_correct),
                     actual_correct=bool(actual_correct)
                 )
-                
+
                 updated += 1
                 logger.info(f"Auto-updated ground truth: {timestamp} -> actual_correct={actual_correct}")
-        
+
         except Exception as e:
             errors += 1
             logger.error(f"Error processing decision {timestamp}: {e}", exc_info=True)
@@ -417,12 +463,16 @@ async def collect_ground_truth_automatically(
         # Save calibration state
         calibration_checker.save_state()
     
+    exogenous_fraction = exogenous_count / max(1, processed)
     return {
         "processed": processed,
         "updated": updated,
         "skipped": skipped,
         "errors": errors,
-        "dry_run": dry_run
+        "dry_run": dry_run,
+        "exogenous_signals": exogenous_count,
+        "endogenous_only_skipped": endogenous_only_count,
+        "exogenous_fraction": round(exogenous_fraction, 3),
     }
 
 

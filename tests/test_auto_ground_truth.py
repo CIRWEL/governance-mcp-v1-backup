@@ -625,8 +625,10 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_dry_run_with_entries(self):
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1"},
-            {"timestamp": "2026-01-01T01:00:00", "confidence": 0.7, "agent_id": "a2"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"commands": [{"exit_code": 0}]}},
+            {"timestamp": "2026-01-01T01:00:00", "confidence": 0.7, "agent_id": "a2",
+             "details": {"tests": {"passed": 5, "failed": 0}}},
         ]
         metadata = {
             "a1": {"status": "active", "update_count": 5},
@@ -644,7 +646,8 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_live_run_updates_calibration(self):
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"commands": [{"exit_code": 0}]}},
         ]
         metadata = {"a1": {"status": "active", "update_count": 3}}
         mock_checker, mock_audit, mock_mcp = _make_mocks(entries, metadata)
@@ -661,7 +664,8 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_live_run_low_confidence_prediction(self):
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.3, "agent_id": "a1"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.3, "agent_id": "a1",
+             "details": {"commands": [{"exit_code": 1}]}},
         ]
         metadata = {"a1": {"status": "active", "update_count": 0}}
         mock_checker, mock_audit, mock_mcp = _make_mocks(entries, metadata)
@@ -687,9 +691,12 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_deduplicates_timestamps(self):
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1"},
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1"},
-            {"timestamp": "2026-01-01T01:00:00", "confidence": 0.7, "agent_id": "a1"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"tool_usage": True}},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"tool_usage": True}},
+            {"timestamp": "2026-01-01T01:00:00", "confidence": 0.7, "agent_id": "a1",
+             "details": {"tool_usage": True}},
         ]
         metadata = {"a1": {"status": "active", "update_count": 5}}
         mock_checker, mock_audit, mock_mcp = _make_mocks(entries, metadata)
@@ -711,7 +718,8 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_max_decisions_limits_processing(self):
         entries = [
-            {"timestamp": f"2026-01-01T{i:02d}:00:00", "confidence": 0.8, "agent_id": "a1"}
+            {"timestamp": f"2026-01-01T{i:02d}:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"tool_usage": True}}
             for i in range(10)
         ]
         metadata = {"a1": {"status": "active", "update_count": 5}}
@@ -724,7 +732,8 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_rebuild_resets_calibration(self):
         entries = [
-            {"timestamp": f"2026-01-01T{i:02d}:00:00", "confidence": 0.8, "agent_id": "a1"}
+            {"timestamp": f"2026-01-01T{i:02d}:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"tool_usage": True}}
             for i in range(5)
         ]
         metadata = {"a1": {"status": "active", "update_count": 5}}
@@ -748,7 +757,8 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_error_in_entry_processing_increments_errors(self):
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"commands": [{"exit_code": 0}]}},
         ]
         metadata = {"a1": {"status": "active", "update_count": 5}}
         mock_checker, mock_audit, mock_mcp = _make_mocks(entries, metadata)
@@ -761,7 +771,8 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_metadata_dict_passthrough(self):
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"tool_usage": True}},
         ]
         metadata = {"a1": {"status": "active", "update_count": 5}}
         mock_checker, mock_audit, mock_mcp = _make_mocks(entries, metadata, use_dict_metadata=True)
@@ -786,7 +797,8 @@ class TestCollectGroundTruthAutomatically:
         mock_checker.save_state = MagicMock()
 
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"commands": [{"exit_code": 0}]}},
         ]
         mock_audit = MagicMock()
         mock_audit.query_audit_log = MagicMock(return_value=entries)
@@ -835,9 +847,11 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_mixed_evaluable_and_skipped_entries(self):
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1"},
-            {"timestamp": "2026-01-01T01:00:00", "agent_id": "unknown"},
-            {"timestamp": "2026-01-01T02:00:00", "confidence": 0.9, "agent_id": "a2"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.8, "agent_id": "a1",
+             "details": {"commands": [{"exit_code": 0}]}},
+            {"timestamp": "2026-01-01T01:00:00", "agent_id": "unknown"},  # no exogenous signals
+            {"timestamp": "2026-01-01T02:00:00", "confidence": 0.9, "agent_id": "a2",
+             "details": {"tests": {"passed": 1, "failed": 0}}},
         ]
         metadata = {
             "a1": {"status": "active", "update_count": 5},
@@ -863,7 +877,8 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_actual_correct_reflects_overconfidence(self):
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.9, "agent_id": "a1"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.9, "agent_id": "a1",
+             "details": {"commands": [{"exit_code": 1}]}},
         ]
         metadata = {"a1": {"status": "paused"}}
         mock_checker, mock_audit, mock_mcp = _make_mocks(entries, metadata)
@@ -875,7 +890,8 @@ class TestCollectGroundTruthAutomatically:
     @pytest.mark.asyncio
     async def test_actual_correct_true_for_well_calibrated(self):
         entries = [
-            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.85, "agent_id": "a1"},
+            {"timestamp": "2026-01-01T00:00:00", "confidence": 0.85, "agent_id": "a1",
+             "details": {"tests": {"passed": 10, "failed": 0}}},
         ]
         metadata = {"a1": {"status": "archived"}}
         mock_checker, mock_audit, mock_mcp = _make_mocks(entries, metadata)
