@@ -183,6 +183,8 @@ def detect_loop_pattern(agent_id: str) -> tuple[bool, str]:
     # still apply to prevent actual runaway loops.
     agent_tags = set(t.lower() for t in (getattr(meta, 'tags', None) or []))
     is_autonomous = bool({"autonomous", "embodied", "anima"} & agent_tags)
+    if is_autonomous:
+        logger.debug("Agent '%s' is autonomous — skipping decision-based loop patterns (4-6)", agent_id[:8])
 
     # Pattern 4: Decision loop - same decision repeated 5+ times
     if not is_autonomous and len(recent_decisions) >= 5:
