@@ -1069,28 +1069,28 @@ class TestHandleOnboardV2:
         assert "what_this_does" not in data
 
     @pytest.mark.asyncio
-    async def test_onboard_creates_new_identity_by_default(self, patch_onboard_deps, mock_db, mock_redis, mock_raw_redis):
-        """onboard() creates a new identity by default (resume=False)."""
+    async def test_onboard_resumes_existing_identity_by_default(self, patch_onboard_deps, mock_db, mock_redis, mock_raw_redis):
+        """onboard() resumes existing identity by default (resume=True)."""
         from src.mcp_handlers.identity.handlers import handle_onboard_v2
 
-        predecessor_uuid = str(uuid.uuid4())
+        existing_uuid = str(uuid.uuid4())
         mock_redis.get.return_value = {
-            "agent_id": predecessor_uuid,
+            "agent_id": existing_uuid,
             "display_agent_id": "Claude_20260207",
         }
-        mock_db.get_identity.side_effect = [
-            SimpleNamespace(identity_id="i1", metadata={}),  # predecessor lookup
-            None,  # ensure_agent_persisted check
-            SimpleNamespace(identity_id="new-ident", metadata={}),  # after upsert
-        ]
-        mock_db.get_agent_label.return_value = "PredecessorAgent"
+        mock_db.get_identity.return_value = SimpleNamespace(
+            identity_id="i1", metadata={"agent_id": "Claude_20260207"}
+        )
+        mock_db.get_agent_label.return_value = "ExistingAgent"
+        mock_db.get_agent_status = AsyncMock(return_value="active")
+        mock_db.create_session = AsyncMock()
 
         result = await handle_onboard_v2({"client_session_id": "onboard-resume"})
         data = _parse(result)
 
         assert data["success"] is True
-        assert data["is_new"] is True
-        assert data["uuid"] != predecessor_uuid
+        assert data["is_new"] is False
+        assert data["uuid"] == existing_uuid
 
     @pytest.mark.asyncio
     async def test_onboard_resume_false_creates_new_identity(self, patch_onboard_deps, mock_db, mock_redis, mock_raw_redis):

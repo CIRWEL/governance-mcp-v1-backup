@@ -330,12 +330,13 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
 
     Optional: Pass name='...' to set your display name.
     Optional: Pass model_type='...' to create distinct identity per model.
-    Optional: Pass resume=true to explicitly resume existing identity (after prompt).
-    Optional: Pass force_new=true to create new identity even if one exists.
+    Optional: Pass resume=false to force a new identity (with predecessor link).
+    Optional: Pass force_new=true to create new identity with no predecessor link.
+    Defaults to resuming existing identity if one exists for this session.
     """
     arguments = arguments or {}
     force_new = arguments.get("force_new", False)
-    resume = arguments.get("resume", False)
+    resume = arguments.get("resume", True)
     model_type = arguments.get("model_type")
 
     # Derive base session key (unified)
@@ -430,55 +431,8 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
                 "hint": "Use force_new=true to create a new identity instead"
             })
 
-    # STEP 2: No existing identity under base key - use model differentiation if provided
-    # This only affects NEW identity creation, not resumption
-    if model_type:
-        normalized_model = _normalize_model_type(model_type)
-        session_key = f"{base_session_key}:{normalized_model}"
-        logger.info(f"[IDENTITY] Creating NEW identity with model-specific session_key: {session_key}")
-
-    # STEP 3: Check for existing identity under model-suffixed key (for resume=true case)
-    # This handles the case where identity was created with model_type previously
-    if not force_new and resume and model_type and session_key != base_session_key:
-        existing_identity = await resolve_session_identity(session_key, persist=False, resume=True)
-        if not existing_identity.get("created"):
-            agent_uuid = existing_identity.get("agent_uuid")
-            agent_id = existing_identity.get("agent_id", agent_uuid)
-            label = existing_identity.get("label")
-
-            # FIX: Don't silently resume archived agents
-            if existing_identity.get("archived"):
-                logger.info(f"[IDENTITY] Found archived agent {agent_uuid[:8]}... (model-suffixed key) — returning warning")
-                return success_response({
-                    "uuid": agent_uuid,
-                    "agent_id": agent_id,
-                    "display_name": label,
-                    "archived": True,
-                    "resumed": False,
-                    "message": f"Session maps to archived agent '{label or agent_id}'. Use onboard() to reactivate or force_new=true for a fresh identity.",
-                    "hint": "onboard() will auto-reactivate this agent. force_new=true creates a new one.",
-                    "options": {
-                        "reactivate": "Call onboard() to resume this archived agent",
-                        "fresh": "Call identity(force_new=true) or onboard(force_new=true) for a new identity"
-                    }
-                })
-
-            logger.info(f"[IDENTITY] Resuming existing agent {agent_uuid[:8]}... (model-suffixed key)")
-
-            # Update label if requested
-            if arguments.get("name") and arguments.get("name") != label:
-                success = await set_agent_label(agent_uuid, arguments.get("name"), session_key=session_key)
-                if success:
-                    label = arguments.get("name")
-
-            return success_response({
-                "uuid": agent_uuid,
-                "agent_id": agent_id,
-                "display_name": label,
-                "resumed": True,
-                "message": f"Welcome back! Resumed identity '{label or agent_id}'",
-                "hint": "Use force_new=true to create a new identity instead"
-            })
+    # model_type is passed through for agent_id generation, but does NOT fork session keys.
+    # All identities for a session use the base session key to prevent fragmentation.
 
     # Call simplified handler with model_type for agent_id generation
     result = await handle_identity_v2(arguments, session_key, model_type=model_type)
@@ -796,12 +750,12 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     base_session_key = await derive_session_key(signals, arguments)
     normalized_model = None
 
-    # Identity honesty: new UUID per conversation by default.
-    # Agents must explicitly pass resume=true to reuse an existing identity.
-    resume = coerce_bool(arguments.get("resume"), default=False)
+    # Session continuity: resume existing identity by default.
+    # Agents can pass resume=false for a new identity, or force_new=true for a clean break.
+    resume = coerce_bool(arguments.get("resume"), default=True)
 
     # STEP 1: Check if an identity already exists for this session (base key)
-    # When resume=True: reuse existing identity (explicit opt-in)
+    # When resume=True (default): reuse existing identity
     # When resume=False: create new identity with predecessor link
     existing_identity = None
     created_fresh_identity = False  # Track if we got a fresh identity to persist
@@ -887,19 +841,11 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
                     _spawn_reason = "new_session"
             logger.info(f"[ONBOARD] Created fresh identity {agent_uuid[:8]}... (will persist)")
 
-            # Adjust session_key for fleet tracking
+            # Use base session key — model_type goes into metadata, not session key
             session_key = base_session_key
-            if model_type:
-                normalized_model = _normalize_model_type(model_type)
-                session_key = f"{base_session_key}:{normalized_model}"
-                logger.info(f"[ONBOARD] NEW agent with model_type={model_type} -> session_key includes model: {session_key}")
     else:
-        # force_new requested - use model-suffixed key if model_type provided
+        # force_new requested — use base session key
         session_key = base_session_key
-        if model_type:
-            normalized_model = _normalize_model_type(model_type)
-            session_key = f"{base_session_key}:{normalized_model}"
-            logger.info(f"[ONBOARD] force_new with model_type={model_type} -> session_key: {session_key}")
 
     # STEP 2: Handle resume flag (explicit consent to resume existing identity)
     # (resume was extracted earlier at STEP 1)
