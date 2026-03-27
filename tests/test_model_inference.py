@@ -1159,3 +1159,151 @@ class TestEnergyTracking:
 
         parsed = _parse_text_content(result)
         assert parsed["success"] is True
+
+
+# =============================================================================
+# Tests: Provider routing - Qwen
+# =============================================================================
+
+class TestQwenRouting:
+    """Tests for Qwen model routing.
+
+    Qwen models route through HF (cloud) or Ollama (local).
+    All HF tests must use privacy="cloud" to bypass the Ollama shortcut.
+    """
+
+    @pytest.mark.asyncio
+    async def test_qwen_hf_prefix_routes_to_huggingface(self):
+        """Model starting with Qwen/ auto-routes to HF."""
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create.return_value = _make_mock_response(
+            model="Qwen/Qwen2.5-72B-Instruct:fastest"
+        )
+
+        env = {"HF_TOKEN": "hf_test_token"}
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance) as mock_openai, \
+             patch.dict("os.environ", env, clear=False):
+            from src.mcp_handlers.support.model_inference import handle_call_model
+            result = await handle_call_model({
+                "prompt": "Hello",
+                "provider": "auto",
+                "model": "Qwen/Qwen2.5-72B-Instruct",
+                "privacy": "cloud",
+            })
+
+        call_kwargs = mock_openai.call_args[1]
+        assert "router.huggingface.co" in call_kwargs["base_url"]
+
+        parsed = _parse_text_content(result)
+        assert parsed["success"] is True
+        assert parsed["routed_via"] == "huggingface"
+
+    @pytest.mark.asyncio
+    async def test_qwen_shorthand_expands_to_full_model(self):
+        """Bare 'qwen' expands to Qwen/Qwen2.5-72B-Instruct:fastest."""
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create.return_value = _make_mock_response(
+            model="Qwen/Qwen2.5-72B-Instruct:fastest"
+        )
+
+        env = {"HF_TOKEN": "hf_test_token"}
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
+             patch.dict("os.environ", env, clear=False):
+            from src.mcp_handlers.support.model_inference import handle_call_model
+            result = await handle_call_model({
+                "prompt": "Hello",
+                "provider": "hf",
+                "model": "qwen",
+                "privacy": "cloud",
+            })
+
+        call_kwargs = mock_client_instance.chat.completions.create.call_args[1]
+        assert call_kwargs["model"] == "Qwen/Qwen2.5-72B-Instruct:fastest"
+
+    @pytest.mark.asyncio
+    async def test_qwen25_shorthand_also_expands(self):
+        """Bare 'qwen2.5' expands to full HF model ID."""
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create.return_value = _make_mock_response()
+
+        env = {"HF_TOKEN": "hf_test_token"}
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
+             patch.dict("os.environ", env, clear=False):
+            from src.mcp_handlers.support.model_inference import handle_call_model
+            result = await handle_call_model({
+                "prompt": "Hello",
+                "provider": "hf",
+                "model": "qwen2.5",
+                "privacy": "cloud",
+            })
+
+        call_kwargs = mock_client_instance.chat.completions.create.call_args[1]
+        assert call_kwargs["model"] == "Qwen/Qwen2.5-72B-Instruct:fastest"
+
+    @pytest.mark.asyncio
+    async def test_qwen_preserves_explicit_model_with_suffix(self):
+        """Explicit Qwen model with :cheapest suffix is not modified."""
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create.return_value = _make_mock_response()
+
+        env = {"HF_TOKEN": "hf_test_token"}
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance), \
+             patch.dict("os.environ", env, clear=False):
+            from src.mcp_handlers.support.model_inference import handle_call_model
+            result = await handle_call_model({
+                "prompt": "Hello",
+                "provider": "hf",
+                "model": "Qwen/Qwen2.5-72B-Instruct:cheapest",
+                "privacy": "cloud",
+            })
+
+        call_kwargs = mock_client_instance.chat.completions.create.call_args[1]
+        assert call_kwargs["model"] == "Qwen/Qwen2.5-72B-Instruct:cheapest"
+
+    @pytest.mark.asyncio
+    async def test_qwen_ollama_passes_model_through(self):
+        """Qwen model with provider=ollama passes model name through to Ollama."""
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create.return_value = _make_mock_response(
+            model="qwen2.5:14b"
+        )
+
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
+            result = await handle_call_model({
+                "prompt": "Hello",
+                "provider": "ollama",
+                "model": "qwen2.5:14b",
+            })
+
+        call_kwargs = mock_client_instance.chat.completions.create.call_args[1]
+        assert call_kwargs["model"] == "qwen2.5:14b"
+
+        parsed = _parse_text_content(result)
+        assert parsed["success"] is True
+        assert parsed["routed_via"] == "ollama"
+
+    @pytest.mark.asyncio
+    async def test_qwen_energy_cost_free_tier(self):
+        """Qwen models get free-tier energy cost (0.01)."""
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create.return_value = _make_mock_response(
+            model="qwen2.5:14b"
+        )
+
+        with patch("src.mcp_handlers.support.model_inference.OPENAI_AVAILABLE", True), \
+             patch("src.mcp_handlers.support.model_inference.OpenAI", return_value=mock_client_instance):
+            from src.mcp_handlers.support.model_inference import handle_call_model
+            result = await handle_call_model({
+                "prompt": "Hello",
+                "provider": "ollama",
+                "model": "qwen2.5:14b",
+            })
+
+        parsed = _parse_text_content(result)
+        assert parsed["energy_cost"] == 0.01

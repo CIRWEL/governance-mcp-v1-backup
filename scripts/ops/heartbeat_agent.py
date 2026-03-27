@@ -203,6 +203,15 @@ def detect_changes(prev: Dict[str, Any], current: Dict[str, Any]) -> List[Dict[s
                 "tags": ["vigil", "verdict", curr_verdict],
             })
 
+    # Groundskeeper: staleness spike detection
+    prev_stale = prev.get("groundskeeper_stale", 0)
+    curr_stale = current.get("groundskeeper_stale", 0)
+    if curr_stale > prev_stale + 10:
+        notes.append({
+            "summary": f"KG staleness spike: {prev_stale} -> {curr_stale} stale entries",
+            "tags": ["vigil", "groundskeeper", "drift"],
+        })
+
     return notes
 
 
@@ -268,12 +277,14 @@ class HeartbeatAgent:
         label: str = "Vigil",
         heartbeat_interval: int = 1800,
         with_tests: bool = False,
+        with_audit: bool = True,
         force_new: bool = False,
     ):
         self.mcp_url = mcp_url
         self.label = label
         self.heartbeat_interval = heartbeat_interval
         self.with_tests = with_tests
+        self.with_audit = with_audit
         self.force_new = force_new
         self.client_session_id: Optional[str] = None
         self.running = True
@@ -411,6 +422,72 @@ class HeartbeatAgent:
             log(f"Identity error: {e}")
             return False
 
+    async def _run_groundskeeper(self, session: ClientSession) -> Dict[str, Any]:
+        """Run groundskeeper duties: KG audit, stale cleanup, orphan archival.
+
+        Returns a summary dict with audit results and actions taken.
+        """
+        summary: Dict[str, Any] = {
+            "audit_run": False,
+            "stale_found": 0,
+            "archived": 0,
+            "orphans_archived": 0,
+            "errors": [],
+        }
+
+        try:
+            # 1. Run KG audit
+            audit_result = await self.call_tool(session, "knowledge", {
+                "action": "audit",
+                "scope": "open",
+                "top_n": "10",
+                "use_model": "true",
+            })
+
+            if audit_result.get("success") or "audit" in audit_result:
+                summary["audit_run"] = True
+                audit_data = audit_result.get("audit", {})
+                buckets = audit_data.get("buckets", {})
+                summary["stale_found"] = buckets.get("stale", 0) + buckets.get("candidate_for_archive", 0)
+
+                # 2. If archive candidates exist, trigger lifecycle cleanup
+                if buckets.get("candidate_for_archive", 0) > 0:
+                    cleanup_result = await self.call_tool(session, "knowledge", {
+                        "action": "cleanup",
+                        "dry_run": "false",
+                    })
+                    if cleanup_result.get("success") or "cleanup_result" in cleanup_result:
+                        cleanup_data = cleanup_result.get("cleanup_result", {})
+                        summary["archived"] = (
+                            cleanup_data.get("ephemeral_archived", 0)
+                            + cleanup_data.get("discoveries_archived", 0)
+                        )
+            else:
+                summary["errors"].append(f"Audit: {audit_result.get('error', 'unknown')}")
+
+            # 3. Trigger orphan agent cleanup
+            orphan_result = await self.call_tool(session, "archive_orphan_agents", {})
+            if orphan_result.get("success"):
+                summary["orphans_archived"] = orphan_result.get("archived_count", 0)
+
+        except Exception as e:
+            summary["errors"].append(str(e))
+
+        # 4. Leave summary note in KG
+        if summary["audit_run"]:
+            note_text = (
+                f"Groundskeeper: {summary['stale_found']} stale, "
+                f"{summary['archived']} archived, "
+                f"{summary['orphans_archived']} orphans cleaned"
+            )
+            await self.call_tool(session, "leave_note", {
+                "summary": note_text,
+                "tags": ["vigil", "groundskeeper", "audit"],
+            })
+            log(f"GROUNDSKEEPER: {note_text}")
+
+        return summary
+
     async def run_cycle(self) -> str:
         """Run one heartbeat cycle. Returns summary string."""
         findings: List[str] = []
@@ -487,9 +564,26 @@ class HeartbeatAgent:
                         log("SKIP: identity failed")
                         return f"SKIP (identity failed) | {summary}"
 
+                    # --- Groundskeeper duties (optional) ---
+                    groundskeeper_summary: Dict[str, Any] = {}
+                    if self.with_audit:
+                        groundskeeper_summary = await self._run_groundskeeper(session)
+                        if groundskeeper_summary.get("stale_found", 0) > 0:
+                            findings.append(
+                                f"KG: {groundskeeper_summary['stale_found']} stale, "
+                                f"{groundskeeper_summary['archived']} archived"
+                            )
+                            summary = " | ".join(findings)
+
                     test_info = f" Tests: {total_passed} passed, {total_failed} failed." if self.with_tests else ""
+                    gk_info = ""
+                    if groundskeeper_summary.get("audit_run"):
+                        gk_info = (
+                            f" Groundskeeper: {groundskeeper_summary['stale_found']} stale, "
+                            f"{groundskeeper_summary['archived']} archived."
+                        )
                     checkin_text = (
-                        f"Heartbeat cycle: {summary}.{test_info} "
+                        f"Heartbeat cycle: {summary}.{test_info}{gk_info} "
                         f"Issues: {issues}"
                     )
 
@@ -530,6 +624,8 @@ class HeartbeatAgent:
                         "coherence": coherence,
                         "verdict": verdict,
                         "cycle_time": datetime.now(timezone.utc).isoformat(),
+                        "groundskeeper_stale": groundskeeper_summary.get("stale_found", 0),
+                        "groundskeeper_archived": groundskeeper_summary.get("archived", 0),
                     }
 
                     # Detect changes and leave notes
@@ -607,6 +703,7 @@ async def main():
     parser.add_argument("--once", action="store_true", default=True, help="Run one cycle (default)")
     parser.add_argument("--daemon", action="store_true", help="Run continuously")
     parser.add_argument("--with-tests", action="store_true", help="Also run pytest suites (~15 min)")
+    parser.add_argument("--no-audit", action="store_true", help="Skip KG audit/groundskeeper duties")
     parser.add_argument("--force-new", action="store_true", help="Bootstrap fresh identity (use once, then remove flag)")
     parser.add_argument("--url", default=os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8767/mcp/"), help="MCP URL")
     parser.add_argument("--label", default="Vigil", help="Agent label")
@@ -618,6 +715,7 @@ async def main():
         label=args.label,
         heartbeat_interval=args.interval,
         with_tests=args.with_tests,
+        with_audit=not args.no_audit,
         force_new=args.force_new,
     )
 

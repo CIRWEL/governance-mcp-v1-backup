@@ -351,6 +351,160 @@ async def get_kg_lifecycle_stats() -> Dict[str, Any]:
     return await lifecycle.get_lifecycle_stats()
 
 
+# Staleness thresholds (days)
+AUDIT_HEALTHY_DAYS = 7
+AUDIT_AGING_DAYS = 14
+AUDIT_STALE_DAYS = 30
+
+
+def _score_discovery(discovery, lifecycle: KnowledgeGraphLifecycle) -> Dict[str, Any]:
+    """Score a single discovery for staleness."""
+    now = datetime.now()
+
+    age_days = 0
+    try:
+        created = datetime.fromisoformat(discovery.timestamp.replace("Z", "+00:00")) if discovery.timestamp else now
+        age_days = (now - created.replace(tzinfo=None)).days
+    except (ValueError, TypeError):
+        pass
+
+    last_activity_days = age_days
+    if getattr(discovery, "updated_at", None):
+        try:
+            updated = datetime.fromisoformat(discovery.updated_at.replace("Z", "+00:00"))
+            last_activity_days = (now - updated.replace(tzinfo=None)).days
+        except (ValueError, TypeError):
+            pass
+
+    responses = getattr(discovery, "responses_from", []) or []
+    related = getattr(discovery, "related_to", []) or []
+    activity_score = len(responses) + len(related)
+
+    # Bucket classification
+    if last_activity_days <= AUDIT_HEALTHY_DAYS or len(responses) > 0:
+        bucket = "healthy"
+    elif last_activity_days <= AUDIT_AGING_DAYS:
+        bucket = "aging"
+    elif last_activity_days <= AUDIT_STALE_DAYS:
+        bucket = "stale"
+    else:
+        bucket = "candidate_for_archive"
+
+    # Permanent entries are always healthy
+    if lifecycle.get_lifecycle_policy(discovery) == "permanent":
+        bucket = "healthy"
+
+    return {
+        "id": discovery.id,
+        "summary": getattr(discovery, "summary", ""),
+        "type": getattr(discovery, "type", ""),
+        "agent_id": getattr(discovery, "agent_id", None),
+        "age_days": age_days,
+        "last_activity_days": last_activity_days,
+        "activity_score": activity_score,
+        "bucket": bucket,
+        "tags": getattr(discovery, "tags", []) or [],
+    }
+
+
+async def run_kg_audit(
+    scope: str = "open",
+    top_n: int = 10,
+    use_model: bool = False,
+    agent_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Audit the knowledge graph for staleness.
+
+    Read-only: scores entries by age/activity, groups into health buckets.
+    Optionally uses call_model for relevance assessment of stale entries.
+
+    Args:
+        scope: "open" (default), "all", "by_agent"
+        top_n: Number of stale entries to return in detail
+        use_model: If True, feed stale entries to call_model for relevance check
+        agent_id: Filter by agent (used when scope="by_agent")
+
+    Returns:
+        Structured audit report with bucket counts and top stale entries.
+    """
+    from src.knowledge_graph import get_knowledge_graph
+    graph = await get_knowledge_graph()
+    lifecycle = KnowledgeGraphLifecycle()
+    now = datetime.now()
+
+    # Query based on scope
+    discoveries = []
+    if scope == "open":
+        discoveries = await graph.query(status="open", limit=10000)
+    elif scope == "all":
+        for status in ("open", "resolved", "archived"):
+            discoveries.extend(await graph.query(status=status, limit=5000))
+    elif scope == "by_agent" and agent_id:
+        all_open = await graph.query(status="open", limit=10000)
+        discoveries = [d for d in all_open if getattr(d, "agent_id", None) == agent_id]
+    else:
+        discoveries = await graph.query(status="open", limit=10000)
+
+    # Score each discovery
+    scored = [_score_discovery(d, lifecycle) for d in discoveries]
+
+    # Aggregate into buckets
+    buckets: Dict[str, int] = {"healthy": 0, "aging": 0, "stale": 0, "candidate_for_archive": 0}
+    for s in scored:
+        buckets[s["bucket"]] = buckets.get(s["bucket"], 0) + 1
+
+    # Top stale entries (stale + candidate_for_archive, sorted by last_activity_days desc)
+    stale_entries = [s for s in scored if s["bucket"] in ("stale", "candidate_for_archive")]
+    stale_entries.sort(key=lambda x: x["last_activity_days"], reverse=True)
+    top_stale = stale_entries[:top_n]
+
+    # Optional model assessment
+    model_assessment = None
+    if use_model and top_stale:
+        try:
+            from src.mcp_handlers.support.model_inference import handle_call_model
+            import json as _json
+
+            prompt_lines = ["Given these knowledge graph entries, which are still relevant and which should be archived?\n"]
+            for entry in top_stale:
+                prompt_lines.append(
+                    f"- [{entry['id'][:8]}] {entry['summary']} "
+                    f"(age: {entry['age_days']}d, type: {entry['type']}, "
+                    f"last activity: {entry['last_activity_days']}d ago)"
+                )
+            prompt_lines.append("\nFor each, reply: KEEP or ARCHIVE with a brief reason.")
+
+            result = await handle_call_model({
+                "prompt": "\n".join(prompt_lines),
+                "model": "auto",
+                "task_type": "analysis",
+                "max_tokens": 1000,
+            })
+            # Parse response
+            if isinstance(result, list) and hasattr(result[0], "text"):
+                data = _json.loads(result[0].text)
+                if data.get("success"):
+                    model_assessment = data.get("response")
+        except Exception as e:
+            logger.warning(f"Model assessment failed during audit: {e}")
+            model_assessment = f"(model unavailable: {e})"
+
+    return {
+        "timestamp": now.isoformat(),
+        "scope": scope,
+        "total_audited": len(scored),
+        "buckets": buckets,
+        "top_stale": top_stale,
+        "model_assessment": model_assessment,
+        "thresholds": {
+            "healthy_days": AUDIT_HEALTHY_DAYS,
+            "aging_days": AUDIT_AGING_DAYS,
+            "stale_days": AUDIT_STALE_DAYS,
+        },
+    }
+
+
 async def kg_lifecycle_background_task(interval_hours: float = 24.0):
     """
     Background task that periodically runs lifecycle cleanup.

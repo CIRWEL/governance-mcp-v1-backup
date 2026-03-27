@@ -1772,3 +1772,39 @@ async def handle_supersede_discovery(arguments: Dict[str, Any]) -> Sequence[Text
     except Exception as e:
         return [error_response(f"Failed to supersede discovery: {str(e)}")]
 
+
+@mcp_tool("audit_knowledge_graph", timeout=60.0, register=False)
+async def handle_audit_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """Audit knowledge graph for staleness and health.
+
+    Read-only analysis that scores open KG entries by age, activity,
+    and type, grouping them into health buckets. Does NOT modify anything.
+
+    Args:
+        scope: "open" (default), "all", "by_agent"
+        top_n: Number of stale entries to return (default: 10)
+        use_model: If true, use call_model to assess relevance (default: false)
+
+    Returns audit report with bucket counts and top stale entries.
+    """
+    scope = arguments.get("scope", "open")
+    top_n = int(arguments.get("top_n", 10))
+    use_model = arguments.get("use_model", False)
+    if isinstance(use_model, str):
+        use_model = use_model.lower() in ("true", "1", "yes")
+
+    try:
+        from src.knowledge_graph_lifecycle import run_kg_audit
+        result = await run_kg_audit(
+            scope=scope,
+            top_n=top_n,
+            use_model=use_model,
+            agent_id=arguments.get("agent_id"),
+        )
+        return success_response({
+            "message": f"KG audit complete ({scope} scope, {result['total_audited']} entries)",
+            "audit": result,
+        }, arguments=arguments)
+    except Exception as e:
+        return [error_response(f"Failed to run KG audit: {str(e)}")]
+
