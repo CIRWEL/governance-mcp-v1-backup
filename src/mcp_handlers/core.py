@@ -547,8 +547,6 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             ctx.response_data = ctx.result.copy()
             ctx.response_data["agent_id"] = ctx.agent_id
             ctx.response_data["identity_assurance"] = ctx.identity_assurance
-            from src.governance_monitor import UNITARESMonitor
-            ctx.response_data["eisv_labels"] = UNITARESMonitor.get_eisv_labels()
 
             # Run enrichments (each is fail-safe internally)
             await run_enrichment_pipeline(ctx)
@@ -568,7 +566,8 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
             except Exception as fmt_err:
                 logger.error(f"Response formatting failed: {fmt_err}", exc_info=True)
 
-            # Serialize and return
+            # Serialize and return (skip agent_signature — duplicates response content)
+            ctx.arguments["lite_response"] = True
             try:
                 return success_response(ctx.response_data, agent_id=ctx.agent_uuid, arguments=ctx.arguments)
             except Exception as serialization_error:

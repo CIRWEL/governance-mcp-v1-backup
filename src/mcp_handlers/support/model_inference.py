@@ -96,7 +96,7 @@ async def handle_call_model(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         api_key = "ollama"  # Dummy key - Ollama ignores it but OpenAI SDK requires non-None
         provider = "ollama"
         logger.info(f"Privacy mode: local - routing to Ollama with model {model}")
-    elif provider == "hf" or (provider == "auto" and (model.startswith("deepseek-ai/") or model.startswith("openai/gpt-oss") or model.startswith("hf:"))):
+    elif provider == "hf" or (provider == "auto" and (model.startswith("deepseek-ai/") or model.startswith("openai/gpt-oss") or model.startswith("hf:") or model.startswith("Qwen/") or model.startswith("qwen/"))):
         # Hugging Face Inference Providers (free tier, OpenAI-compatible)
         base_url = "https://router.huggingface.co/v1"
         api_key = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
@@ -122,6 +122,9 @@ async def handle_call_model(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         # Default model if auto
         if model == "auto":
             model = "deepseek-ai/DeepSeek-R1:fastest"  # Default HF model
+        # Qwen shorthand: bare "qwen" or "qwen2.5" → full HF model ID
+        elif model.lower() in ("qwen", "qwen2.5"):
+            model = "Qwen/Qwen2.5-72B-Instruct:fastest"
         # Use HF model with :fastest or :cheapest suffix for auto-selection (if not already present)
         elif ":" not in model:
             model = f"{model}:fastest"  # Auto-select fastest provider
@@ -249,7 +252,7 @@ async def handle_call_model(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         # Estimate Energy cost (simple: +0.01 per call, can refine later based on tokens)
         # Free models (gemini-flash, llama-3.1-8b): minimal cost
         # Low-cost models (gemini-pro): slightly higher
-        if "flash" in model.lower() or "llama" in model.lower():
+        if "flash" in model.lower() or "llama" in model.lower() or "qwen" in model.lower():
             energy_cost = 0.01  # Free tier
         elif "pro" in model.lower():
             energy_cost = 0.02  # Low-cost tier
@@ -322,7 +325,7 @@ async def handle_call_model(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             recovery_hint = "Wait a moment and retry, or use a different model"
         elif "not found" in error_msg.lower() or "invalid" in error_msg.lower():
             error_code = "MODEL_NOT_AVAILABLE"
-            recovery_hint = f"Model '{model}' not available. Try 'gemini-flash' or 'llama-3.1-8b'"
+            recovery_hint = f"Model '{model}' not available. Try 'gemini-flash', 'qwen2.5:14b', or 'llama-3.1-8b'"
         else:
             error_code = "INFERENCE_ERROR"
             recovery_hint = "Check ngrok.ai configuration and model availability"

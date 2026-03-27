@@ -493,74 +493,50 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
         continuity_source = None
     continuity_support = continuity_token_support_status()
 
+    verbose = coerce_bool(arguments.get("verbose"), default=False) if arguments else False
+
     response_data = {
         "uuid": agent_uuid,
         "agent_id": final_agent_id,
         "display_name": user_name,
-        "label": user_name,
+        "client_session_id": client_session_id,
     }
     if model_type:
         response_data["model_type"] = model_type
-
-    # UX ENHANCEMENT: Comprehensive identity summary (all fields in one place)
-    response_data["identity_summary"] = {
-        "uuid": {
-            "value": agent_uuid,
-            "description": "Immutable technical identifier (primary key, never changes)",
-            "usage": "Internal lookup and persistence - don't expose in user-facing content"
-        },
-        "agent_id": {
-            "value": final_agent_id,
-            "description": "Structured auto-generated ID (model+date format, e.g., 'Claude_Opus_20251227')",
-            "usage": "Display in knowledge graph entries, logs, reports"
-        },
-        "display_name": {
-            "value": user_name,
-            "description": "User-chosen display name (set via identity(name='...'))",
-            "usage": "Human-readable attribution in knowledge graph and reports",
-            "set_via": "identity(name='YourName')"
-        },
-        "client_session_id": {
-            "value": client_session_id,
-            "description": "Session continuity token - include in ALL future tool calls",
-            "usage": "Echo this value back in all tool calls to maintain identity across sessions",
-            "critical": True
-        },
-    }
     if continuity_token:
-        response_data["identity_summary"]["continuity_token"] = {
-            "value": continuity_token,
-            "description": "Signed continuity token for robust resume across transport/session changes",
-            "usage": "Prefer this over raw client_session_id when available",
-            "critical": False,
-        }
+        response_data["continuity_token"] = continuity_token
+    if result.get("created"):
+        response_data["resumed"] = False
+    elif result.get("source"):
+        response_data["resumed"] = True
 
-    # Add quick reference for common use cases
-    response_data["quick_reference"] = {
-        "for_knowledge_graph": user_name or final_agent_id,
-        "for_session_continuity": client_session_id,
-        "for_internal_lookup": agent_uuid,
-        "to_set_display_name": "identity(name='YourName')"
-    }
-    if continuity_token:
-        response_data["quick_reference"]["for_strong_resume"] = continuity_token
-
-    # Session continuity guidance (if not already set)
-    if result.get("session_continuity"):
-        response_data["session_continuity"] = dict(result["session_continuity"])
-    else:
-        response_data["session_continuity"] = {
-            "client_session_id": client_session_id,
-            "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
+    # Verbose fields — gated behind verbose=true
+    if verbose:
+        response_data["quick_reference"] = {
+            "for_knowledge_graph": user_name or final_agent_id,
+            "for_session_continuity": client_session_id,
+            "for_internal_lookup": agent_uuid,
+            "to_set_display_name": "identity(name='YourName')"
         }
         if continuity_token:
-            response_data["session_continuity"]["continuity_token"] = continuity_token
-            response_data["session_continuity"]["instruction"] = (
-                "Prefer continuity_token for robust resume. "
-                "Use client_session_id when token support is unavailable."
-            )
-    response_data["session_continuity"]["resolution_source"] = continuity_source
-    response_data["session_continuity"]["token_support"] = continuity_support
+            response_data["quick_reference"]["for_strong_resume"] = continuity_token
+
+        # Session continuity guidance
+        if result.get("session_continuity"):
+            response_data["session_continuity"] = dict(result["session_continuity"])
+        else:
+            response_data["session_continuity"] = {
+                "client_session_id": client_session_id,
+                "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
+            }
+            if continuity_token:
+                response_data["session_continuity"]["continuity_token"] = continuity_token
+                response_data["session_continuity"]["instruction"] = (
+                    "Prefer continuity_token for robust resume. "
+                    "Use client_session_id when token support is unavailable."
+                )
+        response_data["session_continuity"]["resolution_source"] = continuity_source
+        response_data["session_continuity"]["token_support"] = continuity_support
 
     # Use lite_response to skip redundant agent_signature (identity already contains all that info)
     if arguments is None:
@@ -1054,6 +1030,7 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         logger.debug(f"[THREAD] Could not build thread context: {e}")
 
     # STEP 6: Build response
+    verbose = coerce_bool(arguments.get("verbose"), default=False)
     result = _build_onboard_response(
         agent_uuid=agent_uuid,
         agent_id=agent_id,
@@ -1068,6 +1045,7 @@ async def handle_onboard_v2(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         _parent_agent_id=_parent_agent_id,
         _spawn_reason=_spawn_reason,
         thread_context=thread_context,
+        verbose=verbose,
     )
 
     # Temporal narrator — contextual time awareness (silence by default)
@@ -1104,6 +1082,7 @@ def _build_onboard_response(
     _parent_agent_id: Optional[str],
     _spawn_reason: Optional[str],
     thread_context: Optional[dict] = None,
+    verbose: bool = False,
 ) -> dict:
     """Build the onboard response payload (templates, tips, welcome, thread context)."""
     try:
@@ -1220,7 +1199,6 @@ def _build_onboard_response(
     result = {
         "success": True,
         "welcome": welcome,
-        "welcome_message": welcome_message,
 
         # Three-tier identity model
         "uuid": agent_uuid,
@@ -1228,72 +1206,72 @@ def _build_onboard_response(
         "display_name": agent_label,
 
         "is_new": is_new,
-        "force_new_applied": force_new,
 
         # Session continuity
         "client_session_id": stable_session_id,
-        "session_continuity": {
+
+        # Date context (trimmed to ground truth)
+        "date_context": date_context,
+
+        # Single-line next step
+        "next_step": "Call process_agent_update with response_text describing your work",
+    }
+
+    # Verbose fields — gated behind verbose=true
+    if verbose:
+        result["welcome_message"] = welcome_message
+        result["force_new_applied"] = force_new
+        result["session_continuity"] = {
             "client_session_id": stable_session_id,
             "instruction": "Your session is auto-bound. You only need client_session_id if tools don't recognize you.",
             "tip": client_tips.get(client_hint, client_tips["unknown"]),
             "resolution_source": continuity_source,
             "token_support": continuity_support,
-        },
-
-        # Next calls as URI reference
-        "next_calls_ref": "unitares://skill#workflow",
-        "next_calls": next_calls,
-
-        # Date context (trimmed to ground truth)
-        "date_context": date_context,
-
-        # Real system activity data (replaces editorializing)
-        "system_activity": _get_system_evidence(),
-
-        # Skill document resource (eliminates 3-5 orientation tool calls)
-        "skill_resource": {
+        }
+        result["next_calls_ref"] = "unitares://skill#workflow"
+        result["next_calls"] = next_calls
+        result["system_activity"] = _get_system_evidence()
+        result["skill_resource"] = {
             "uri": "unitares://skill",
             "tip": "Read this MCP resource for full framework orientation instead of calling list_tools/describe_tool",
-        },
-    }
+        }
 
     # Add thread context to response (honest forking)
     if thread_context:
         result["thread_context"] = thread_context
     if continuity_token:
         result["continuity_token"] = continuity_token
-        result["session_continuity"]["continuity_token"] = continuity_token
-        result["session_continuity"]["instruction"] = (
-            "Prefer continuity_token for robust resume across session-key changes. "
-            "Use client_session_id when token support is unavailable."
-        )
+        if "session_continuity" in result:
+            result["session_continuity"]["continuity_token"] = continuity_token
+            result["session_continuity"]["instruction"] = (
+                "Prefer continuity_token for robust resume across session-key changes. "
+                "Use client_session_id when token support is unavailable."
+            )
 
-    # Add tool mode info so agents know what subset they're seeing
-    try:
-        from src.tool_modes import TOOL_MODE, get_tools_for_mode
-        from src.tool_schemas import get_tool_definitions
-        all_tools = get_tool_definitions()
-        mode_tools = get_tools_for_mode(TOOL_MODE)
-        result["tool_mode"] = {
-            "current_mode": TOOL_MODE,
-            "visible_tools": len(mode_tools),
-            "total_tools": len(all_tools),
-            "available_modes": ["minimal", "lite", "full"],
-            "tip": f"You're seeing {len(mode_tools)}/{len(all_tools)} tools in '{TOOL_MODE}' mode. Use list_tools() for discovery, or ask for ?mode=full if you need more."
-        }
-    except Exception as e:
-        logger.debug(f"Could not add tool_mode info: {e}")
+    # Add tool mode and workflow guidance only in verbose mode
+    if verbose:
+        try:
+            from src.tool_modes import TOOL_MODE, get_tools_for_mode
+            from src.tool_schemas import get_tool_definitions
+            all_tools = get_tool_definitions()
+            mode_tools = get_tools_for_mode(TOOL_MODE)
+            result["tool_mode"] = {
+                "current_mode": TOOL_MODE,
+                "visible_tools": len(mode_tools),
+                "total_tools": len(all_tools),
+                "available_modes": ["minimal", "lite", "full"],
+                "tip": f"You're seeing {len(mode_tools)}/{len(all_tools)} tools in '{TOOL_MODE}' mode. Use list_tools() for discovery, or ask for ?mode=full if you need more."
+            }
+        except Exception as e:
+            logger.debug(f"Could not add tool_mode info: {e}")
 
-    # Add workflow guidance for new agents
-    if is_new or force_new:
-        result.update({
-            "workflow": {
+        if is_new or force_new:
+            result["workflow"] = {
                 "step_1": "Copy client_session_id from above",
                 "step_2": "Do your work",
                 "step_3": "Call process_agent_update with response_text describing what you did",
                 "loop": "Repeat steps 2-3. Check metrics with get_governance_metrics when curious."
-            },
-        })
+            }
 
     # Add predecessor info for new instances continuing a trajectory
     if _parent_agent_id and not force_new:

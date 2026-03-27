@@ -38,7 +38,7 @@ async def test_missing_required_parameters():
     response_data = json.loads(result[0].text)
     # With identity_v2, this succeeds - agent_id is auto-generated
     assert response_data.get("success") == True, "Should succeed with auto-binding"
-    assert "agent_signature" in response_data, "Should have agent_signature"
+    assert "caller_agent_id" in response_data, "Should have caller_agent_id"
     print("✅ process_agent_update auto-binds identity (identity_v2)")
 
     # Test get_governance_metrics without agent_id - uses bound identity

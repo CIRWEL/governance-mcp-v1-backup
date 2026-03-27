@@ -765,9 +765,11 @@ class TestHandleIdentityAdapter:
         assert data["success"] is True
         assert "uuid" in data
         assert "agent_id" in data
-        assert "identity_summary" in data
-        assert "quick_reference" in data
-        assert "session_continuity" in data
+        assert "client_session_id" in data
+        # identity_summary, quick_reference, session_continuity moved behind verbose=true
+        assert "identity_summary" not in data
+        assert "quick_reference" not in data
+        assert "session_continuity" not in data
 
     @pytest.mark.asyncio
     async def test_identity_name_claim_resolves_existing(self, patch_identity_deps, mock_db, mock_redis, mock_raw_redis):
@@ -1062,10 +1064,12 @@ class TestHandleOnboardV2:
         assert data["is_new"] is True
         assert "uuid" in data
         assert "client_session_id" in data
-        assert "next_calls" in data
         assert "date_context" in data
-        assert "session_continuity" in data
-        assert "workflow" in data
+        assert "next_step" in data
+        # next_calls, session_continuity, workflow moved behind verbose=true
+        assert "next_calls" not in data
+        assert "session_continuity" not in data
+        assert "workflow" not in data
         assert "what_this_does" not in data
 
     @pytest.mark.asyncio

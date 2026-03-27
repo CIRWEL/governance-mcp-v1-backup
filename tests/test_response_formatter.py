@@ -61,12 +61,37 @@ def _sample_response():
         "history": {"decision_history": []},
         # Context fields that may be stripped
         "eisv_labels": {"E": "energy"},
+        "sampling_params_note": "note",
         "learning_context": {"key": "value"},
         "relevant_discoveries": [{"id": "d1"}],
         "onboarding": {"step": 1},
         "welcome": "Hello!",
         "api_key_hint": "sk-***",
         "_onboarding": True,
+        # Enrichment bloat (stripped for established agents)
+        "convergence_guidance": {"lines": 20},
+        "calibration_feedback": {"nested": "dict"},
+        "drift_forecast": {"heavy": True},
+        "saturation_diagnostics": {"medium": True},
+        "perturbation": {"medium": True},
+        "actionable_feedback": {"medium": True},
+        "state": {"interpretation": "duplicate"},
+        "cirs_void_alert": {"internal": True},
+        "cirs_state_announce": {"internal": True},
+        "outcome_event": {"internal": True},
+        "temporal_context": {"low_value": True},
+        "identity_reminder": "first 3 only",
+        "unitares_v41": {"passthrough": True},
+        "pending_dialectic": {"conditional": True},
+        "llm_coaching": {"heavy": True},
+        "recovery_coaching": {"heavy": True},
+        # Internal signals (stripped unconditionally by _strip_context)
+        "_mirror_signals": [],
+        "_mirror_kg_results": [],
+        "_mirror_reflection": None,
+        "_has_sensor_data": False,
+        "_eisv_validation_warning": "warning",
+        "advisories": [],
     }
 
 
@@ -236,6 +261,11 @@ class TestStripContext:
         _strip_context(data, is_new_agent=False, key_was_generated=False, api_key_auto_retrieved=False)
         assert "eisv_labels" not in data
 
+    def test_strips_sampling_params_note(self):
+        data = _sample_response()
+        _strip_context(data, is_new_agent=False, key_was_generated=False, api_key_auto_retrieved=False)
+        assert "sampling_params_note" not in data
+
     def test_strips_learning_context_for_established(self):
         data = _sample_response()
         _strip_context(data, is_new_agent=False, key_was_generated=False, api_key_auto_retrieved=False)
@@ -244,11 +274,50 @@ class TestStripContext:
         assert "onboarding" not in data
         assert "welcome" not in data
 
-    def test_preserves_learning_context_for_new_agent(self):
+    def test_strips_enrichment_bloat_for_established(self):
+        data = _sample_response()
+        _strip_context(data, is_new_agent=False, key_was_generated=False, api_key_auto_retrieved=False)
+        for key in [
+            "convergence_guidance", "calibration_feedback", "trajectory_identity",
+            "drift_forecast", "saturation_diagnostics", "perturbation",
+            "actionable_feedback", "state", "cirs_void_alert",
+            "cirs_state_announce", "outcome_event", "temporal_context",
+            "identity_reminder", "unitares_v41", "pending_dialectic",
+            "llm_coaching", "recovery_coaching",
+        ]:
+            assert key not in data, f"{key} should be stripped for established agents"
+
+    def test_preserves_enrichment_for_new_agent(self):
         data = _sample_response()
         _strip_context(data, is_new_agent=True, key_was_generated=False, api_key_auto_retrieved=False)
         assert "learning_context" in data
         assert "onboarding" in data
+        assert "convergence_guidance" in data
+        assert "calibration_feedback" in data
+
+    def test_strips_internal_signals_unconditionally(self):
+        data = _sample_response()
+        # Set non-empty values to verify they get stripped
+        data["_mirror_signals"] = ["signal"]
+        data["_mirror_kg_results"] = [{"summary": "result"}]
+        data["_mirror_reflection"] = "reflect"
+        _strip_context(data, is_new_agent=True, key_was_generated=False, api_key_auto_retrieved=False)
+        assert "_mirror_signals" not in data
+        assert "_mirror_kg_results" not in data
+        assert "_mirror_reflection" not in data
+        assert "_has_sensor_data" not in data
+        assert "_eisv_validation_warning" not in data
+
+    def test_strips_empty_advisories(self):
+        data = _sample_response()
+        _strip_context(data, is_new_agent=True, key_was_generated=False, api_key_auto_retrieved=False)
+        assert "advisories" not in data
+
+    def test_preserves_nonempty_advisories(self):
+        data = _sample_response()
+        data["advisories"] = [{"msg": "important"}]
+        _strip_context(data, is_new_agent=True, key_was_generated=False, api_key_auto_retrieved=False)
+        assert "advisories" in data
 
     def test_strips_api_key_hint_for_established(self):
         data = _sample_response()

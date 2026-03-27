@@ -379,15 +379,54 @@ def _format_compact(response_data: dict, using_default_mode: bool, saved_trust_t
     return result
 
 def _strip_context(response_data: dict, is_new_agent: bool, key_was_generated: bool, api_key_auto_retrieved: bool):
-    """Strip optional context fields for minimal/compact modes (in-place)."""
+    """Strip optional context fields for minimal/compact/mirror modes (in-place)."""
+    # Unconditional strips (always noise in filtered modes)
     response_data.pop("eisv_labels", None)
     response_data.pop("sampling_params_note", None)
+
+    # Internal mirror signals (consumed during _format_mirror, not needed after)
+    response_data.pop("_mirror_signals", None)
+    response_data.pop("_mirror_kg_results", None)
+    response_data.pop("_mirror_reflection", None)
+    response_data.pop("_has_sensor_data", None)
+    response_data.pop("_eisv_validation_warning", None)
+
+    # Strip empty advisories (non-empty ones are kept)
+    advisories = response_data.get("advisories")
+    if isinstance(advisories, list) and len(advisories) == 0:
+        response_data.pop("advisories", None)
 
     if not is_new_agent:
         response_data.pop("learning_context", None)
         response_data.pop("relevant_discoveries", None)
         response_data.pop("onboarding", None)
         response_data.pop("welcome", None)
+
+        # Enrichment bloat — heavy nested dicts with low signal for established agents
+        response_data.pop("convergence_guidance", None)
+        response_data.pop("calibration_feedback", None)
+        response_data.pop("trajectory_identity", None)
+        response_data.pop("drift_forecast", None)
+        response_data.pop("saturation_diagnostics", None)
+        response_data.pop("perturbation", None)
+        response_data.pop("actionable_feedback", None)
+        response_data.pop("state", None)
+
+        # CIRS internals
+        response_data.pop("cirs_void_alert", None)
+        response_data.pop("cirs_state_announce", None)
+        response_data.pop("outcome_event", None)
+
+        # Low-value for established agents
+        response_data.pop("temporal_context", None)
+        response_data.pop("identity_reminder", None)
+        response_data.pop("unitares_v41", None)
+        response_data.pop("pending_dialectic", None)
+
+        # Coaching (only valuable on non-proceed, but strip unconditionally in filtered modes)
+        response_data.pop("llm_coaching", None)
+        response_data.pop("recovery_coaching", None)
+
         if not (key_was_generated or api_key_auto_retrieved):
             response_data.pop("api_key_hint", None)
             response_data.pop("_onboarding", None)
