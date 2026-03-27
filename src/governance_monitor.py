@@ -430,9 +430,8 @@ class UNITARESMonitor:
             # Maintain epistemic humility: "I could be wrong about something I can't see"
             self.state.unitaires_state.S = 0.001
 
-        # V bounds: match ODE's built-in range [-2, 2]
-        # Negative V is physically meaningful: coherence(V) is designed for V ∈ [-2, 2]
-        self.state.unitaires_state.V = max(-2.0, min(2.0, self.state.unitaires_state.V))
+        # V bounds: soft barrier in _derivatives() handles this now; clip is safety net only
+        # (kept in ODE integrators as defense-in-depth)
 
         # Update coherence from governance_core coherence function (pure thermodynamic)
         # Removed param_coherence blend - using pure C(V) signal for honest calibration

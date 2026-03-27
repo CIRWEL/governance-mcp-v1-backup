@@ -1166,7 +1166,7 @@ class TestHandleOnboardV2:
         data = _parse(result)
 
         assert data["success"] is True
-        assert data["force_new_applied"] is True
+        assert data["is_new"] is True  # force_new_applied moved behind verbose=true
 
     @pytest.mark.asyncio
     async def test_onboard_force_new_with_model_type(self, patch_onboard_deps, mock_db, mock_redis):
@@ -1393,7 +1393,7 @@ class TestHandleOnboardV2:
         with patch("src.tool_modes.TOOL_MODE", "lite"), \
              patch("src.tool_modes.get_tools_for_mode", return_value=["t1", "t2", "t3"]), \
              patch("src.tool_schemas.get_tool_definitions", return_value={"t1": {}, "t2": {}, "t3": {}, "t4": {}, "t5": {}}):
-            result = await handle_onboard_v2({"client_session_id": "tool-mode-test", "resume": True})
+            result = await handle_onboard_v2({"client_session_id": "tool-mode-test", "resume": True, "verbose": True})
         data = _parse(result)
 
         assert data["success"] is True
@@ -1435,7 +1435,7 @@ class TestHandleOnboardV2:
         mock_db.get_agent_label.return_value = None
 
         with patch("src.mcp_handlers.context.get_context_client_hint", return_value="chatgpt"):
-            result = await handle_onboard_v2({"client_session_id": "chatgpt-tips", "resume": True})
+            result = await handle_onboard_v2({"client_session_id": "chatgpt-tips", "resume": True, "verbose": True})
         data = _parse(result)
 
         assert data["success"] is True
@@ -1522,7 +1522,7 @@ class TestHandleOnboardV2:
         assert data["is_new"] is False
         assert data.get("auto_resumed") is True
         assert data.get("previous_status") == "archived"
-        assert "reactivated" in data.get("welcome_message", "").lower()
+        assert "reactivated" in data.get("welcome", "").lower()
         # Verify DB update was called
         mock_db.update_agent_fields.assert_called_with(test_uuid, status="active")
 
