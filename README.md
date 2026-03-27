@@ -3,13 +3,12 @@
 ### Digital proprioception for AI agents.
 
 [![Tests](https://github.com/CIRWEL/unitares/actions/workflows/tests.yml/badge.svg)](https://github.com/CIRWEL/unitares/actions/workflows/tests.yml)
-[![Coverage](https://img.shields.io/badge/coverage-77%25-brightgreen.svg)](https://github.com/CIRWEL/unitares)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Twenty minutes before an agent fails, the trajectory tells you. UNITARES gives AI agents a shared language for inner state — four continuous variables, a dynamics that evolves them, and a protocol for agents to speak and be read. Built on coupled differential equations with provable stability guarantees.
+UNITARES gives AI agents a shared language for inner state — four continuous variables, a dynamics that evolves them, and a protocol for agents to speak and be read. Built on coupled differential equations with provable stability guarantees.
 
-Validated on **844 agents over 106 days** (5.6M audit events). This repo powers a live deployment and is production-capable, but not "set-and-forget" for every environment.
+Running in production since November 2025. This repo powers a live multi-agent deployment and is production-capable, but not "set-and-forget" for every environment.
 
 ---
 
@@ -35,11 +34,11 @@ dS/dt = -μ·S + λ₁·‖Δη‖² - λ₂·C   Entropy decays, rises with dri
 dV/dt = κ(E - I) - δ·V             Void accumulates E-I mismatch, decays toward zero
 ```
 
-The key insight: **coherence C(V)** creates nonlinear feedback that stabilizes the system. Global exponential convergence follows from contraction theory (Theorem 3.2).
+The key property: **coherence C(V)** creates nonlinear feedback that stabilizes the system. Global exponential convergence follows from contraction theory (Theorem 3.2).
 
 > **Note:** These ODEs are implemented in the compiled [`unitares-core`](CONTRIBUTING.md#compiled-dependency) package, not in this repo. See [CONTRIBUTING.md](CONTRIBUTING.md) for build details.
 
-Check-ins are speech acts — an agent reporting its state in a shared vocabulary. Trajectories are behavioral stories that can be read without narrative explanation. Twenty minutes before an agent fails, the trajectory tells you.
+Check-ins are speech acts — an agent reporting its state in a shared vocabulary. Trajectories are behavioral records readable without narrative explanation. When an agent starts to drift, the trajectory shows it before outputs do.
 
 > [Architecture Overview](docs/UNIFIED_ARCHITECTURE.md) — How the components fit together
 
@@ -98,22 +97,20 @@ python src/mcp_server_std.py
 
 ---
 
-## Production Validation
+## Production Data
 
-Deployed since December 2025. Current system: **844 registered agents**, **536 knowledge discoveries**, **41 dialectic sessions**, **5,622 tests** at 77% coverage.
-
-Production readiness is context-dependent. The core platform is running in production, but teams adopting it should still do their own security review, load testing, observability setup, and rollback planning.
-
-Validation snapshot (106 days):
+Deployed since November 2025. Numbers as of March 2026:
 
 | Metric | Value |
 |--------|-------|
-| Agents monitored | 844 |
-| Audit events | 5,656,497 |
-| EISV equilibrium | E=0.77, I=0.88, S=0.08, V=-0.03 |
+| Agents (total / active) | ~1,300 / ~120 |
+| Check-ins processed | 100,000+ |
+| Knowledge graph entries | 1,700+ |
+| EISV steady-state (Lumen) | E=0.77, I=0.88, S=0.08, V=-0.03 |
 | V operating range | 100% of agents within [-0.1, 0.1] |
+| Test suite | 5,600+ tests |
 
-One of those agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi that uses the same EISV equations to drive an autonomous drawing system. Coherence modulates how long it draws; the art emerges from thermodynamics. For how physical sensors seed the EISV state vector, see the [anima-mcp docs](https://github.com/CIRWEL/anima-mcp#how-it-works).
+One of those agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi whose physical sensors (temperature, humidity, light) seed its EISV state vector. Coherence modulates an autonomous drawing system; the art emerges from the same thermodynamics. See the [anima-mcp docs](https://github.com/CIRWEL/anima-mcp#how-it-works).
 
 <p align="center">
   <img src="docs/images/dashboard.png" width="80%" alt="UNITARES web dashboard showing fleet coherence, agent status, and system health"/>
@@ -135,9 +132,9 @@ Most agent tooling operates on **outputs** — checking whether what the agent p
 | Behavioral constraint | Restricts what agents can do | Permissions, sandboxes, filters |
 | **State legibility** | Makes inner state readable | **UNITARES** |
 
-This is a different kind of thing. Logging tells you what happened. Guardrails constrain what can happen. UNITARES lets agents *say what's happening inside them* — and lets other agents, systems, and humans read it.
+Logging tells you what happened. Guardrails constrain what can happen. UNITARES lets agents *say what's happening inside them* — and lets other agents, systems, and humans read it.
 
-That legibility is the foundation. Once agents can express state in a shared vocabulary, you can build on it: monitoring, inter-agent observation, trajectory-based identity, structured disagreement. These are applications of legibility, not the thing itself.
+Once agents can express state in a shared vocabulary, you can build on it: monitoring, inter-agent observation, trajectory-based identity, structured disagreement. These are applications of legibility, not the thing itself.
 
 ---
 
@@ -145,9 +142,9 @@ That legibility is the foundation. Once agents can express state in a shared voc
 
 **UNITARES is a protocol, not a product.** The core contribution is the EISV vocabulary and the dynamics that govern it. Everything else — governance verdicts, circuit breakers, dialectic, the knowledge graph — is built on agents being able to express and read state in a shared language.
 
-**Ethical drift from observable behavior.** No human oracle needed. Four measurable signals — calibration deviation, complexity divergence, coherence deviation, stability deviation — define a drift vector Δη that feeds directly into entropy dynamics. Ethics as engineering, not philosophy.
+**Ethical drift from observable behavior.** No human oracle needed. Four measurable signals — calibration deviation, complexity divergence, coherence deviation, stability deviation — define a drift vector Δη that feeds directly into entropy dynamics.
 
-**Trajectory as identity.** Agents aren't identified by tokens — they're identified by dynamical patterns. An agent's EISV trajectory is its behavioral signature. This lets agents computationally verify "Am I still myself?" and lets observers distinguish agents by how they work, not just what they claim.
+**Trajectory as identity.** Agents aren't identified by tokens — they're identified by dynamical patterns. An agent's EISV trajectory is its behavioral signature, letting agents computationally verify "Am I still myself?" and letting observers distinguish agents by how they work.
 
 **Mirror response mode.** Agents don't need to interpret raw EISV numbers. Mirror mode surfaces actionable self-awareness signals — calibration feedback, complexity divergence, knowledge graph discoveries — so agents get practical guidance instead of state vectors.
 
@@ -155,13 +152,11 @@ That legibility is the foundation. Once agents can express state in a shared voc
 
 ## What You Can Build On It
 
-Once agents can express inner state in a shared vocabulary, several things become possible:
-
-- **Monitoring & early warning** — The EISV trajectory shows drift ~20 minutes before failure. Circuit breakers can pause agents automatically at risk thresholds.
+- **Monitoring & early warning** — EISV trajectories show drift before outputs degrade. Circuit breakers can pause agents automatically at risk thresholds.
 - **Inter-agent observation** — Agents can read each other's state vectors. One agent can assess whether another is coherent enough for a handoff without inspecting its outputs.
 - **Trajectory identity** — An agent's behavioral signature over time. Enables "Am I still myself?" checks and anomaly detection for forks or impersonation.
-- **Dialectic resolution** — Structured disagreement (thesis → antithesis → synthesis) requires a shared state language. Agents can only negotiate meaningfully when they can read each other's coherence and confidence.
-- **Knowledge persistence** — Discoveries tagged to agent state and stored in a shared graph. Agents build on each other's findings across sessions.
+- **Dialectic resolution** — Structured disagreement (thesis → antithesis → synthesis) requires a shared state language. Agents negotiate meaningfully when they can read each other's coherence and confidence.
+- **Knowledge persistence** — Discoveries tagged to agent state and system version, stored in a shared graph with staleness detection. Agents build on each other's findings across sessions.
 
 ---
 
@@ -184,7 +179,7 @@ graph LR
 ```
 src/                   MCP server, agent state, knowledge graph, dialectic
 dashboard/             Web dashboard (vanilla JS + Chart.js)
-tests/                 5,622 tests
+tests/                 5,600+ tests
 ```
 
 The mathematical engine (`governance_core`) — ODEs, coherence, scoring — is distributed as a compiled package (unitares-core).
@@ -203,8 +198,6 @@ These are open questions, not solved problems:
 - **Outcome correlation** — Does EISV instability predict bad task outcomes? Early signals are promising, validation ongoing.
 - **Domain-specific thresholds** — How should parameters be tuned for code generation vs. customer service vs. trading? No one-size-fits-all answer yet.
 - **Horizontal scaling** — Current system handles hundreds of agents on a single node. What about thousands?
-
-We believe in stating what works, what's promising, and what we don't know yet.
 
 ---
 

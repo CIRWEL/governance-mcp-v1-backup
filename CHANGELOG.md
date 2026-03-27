@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — Knowledge Graph
 
+- **System version in discoveries** — `system_version` auto-populated in provenance at store time. Surfaced as top-level field in search results. Pre-v2.8.0 entries show `null`.
+- **Staleness warnings** — KG search flags open entries >60 days old or 2+ minor versions behind current with `staleness_warning` per discovery.
 - **Concept extraction** — background task automatically extracts concepts from agent check-ins and creates knowledge graph entries with spawned edges linking related discoveries.
 - **Spawned edges** — knowledge graph entries can now track provenance via `SPAWNED_BY` edges and tag-based queries.
 - **Pool guard improvements** — connection pool health checks prevent stale connections from corrupting KG operations.
@@ -73,6 +75,11 @@ Additional refactors:
 - Extracted background tasks, flattened `lifecycle_stuck`, renamed `response_formatting`
 - **LazyMCPServer singleton** — deduplicated `_LazyMCPServer` into `shared.lazy_mcp_server`, Pydantic runtime validation, `ConnectionTracker` extraction
 - Deleted dead code, organized scripts, decoupled transport, split `admin.py`
+
+### Changed — First Check-in Guidance
+
+- **Convergence guidance suppressed for early check-ins** — When `update_count ≤ 3`, EISV-derived guidance replaced with honest "Not enough data yet" message. Prevents misleading advice based on initialization defaults.
+- **Restorative block suppressed for early check-ins** — Same threshold, prevents false complexity divergence alerts on new agents.
 
 ### Changed — Agent-Facing Response Trimming
 
