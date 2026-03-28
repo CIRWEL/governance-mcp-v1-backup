@@ -8,7 +8,7 @@
 
 UNITARES gives AI agents a shared language for inner state — four continuous variables, a dynamics that evolves them, and a protocol for agents to speak and be read. Built on coupled differential equations with provable stability guarantees.
 
-Running in production since November 2025. This repo powers a live multi-agent deployment and is production-capable, but not "set-and-forget" for every environment.
+Running in production since November 2025. Originally built during a hackathon, then developed into a live multi-agent deployment. This repo powers that deployment and is production-capable, but not "set-and-forget" for every environment.
 
 ---
 
@@ -36,11 +36,67 @@ dV/dt = κ(E - I) - δ·V             Void accumulates E-I mismatch, decays towa
 
 The key property: **coherence C(V)** creates nonlinear feedback that stabilizes the system. Global exponential convergence follows from contraction theory (Theorem 3.2).
 
-> **Note:** These ODEs are implemented in the compiled [`unitares-core`](CONTRIBUTING.md#compiled-dependency) package, not in this repo. See [CONTRIBUTING.md](CONTRIBUTING.md) for build details.
+> **Note:** These ODEs are implemented in the compiled [`unitares-core`](CONTRIBUTING.md#compiled-dependency) package, not in this repo. The EISV dynamics engine is distributed as a compiled wheel — the mathematical core is proprietary, while the server and all tooling around it are MIT-licensed. See [Licensing](#licensing) for details and [CONTRIBUTING.md](CONTRIBUTING.md) for build setup.
 
-Check-ins are speech acts — an agent reporting its state in a shared vocabulary. Trajectories are behavioral records readable without narrative explanation. When an agent starts to drift, the trajectory shows it before outputs do.
+Check-ins are speech acts — an agent reporting its state in a shared vocabulary. Trajectories are behavioral records that make agent state legible over time. In practice, the ODE's strong convergence means agents with similar workloads tend toward similar EISV values; differentiation currently comes more from workload variance and drift signals than from the steady-state values themselves. Improving per-agent differentiation is an [active research area](#active-research).
 
 > [Architecture Overview](docs/UNIFIED_ARCHITECTURE.md) — How the components fit together
+
+---
+
+## What UNITARES Provides
+
+Most agent tooling operates on **outputs** — checking whether what the agent produced is correct, safe, or useful. UNITARES operates on **inner state** — making visible what the agent can't otherwise express.
+
+| Layer | What it does | Example tools |
+|-------|-------------|---------------|
+| Output validation | Checks results after the fact | Guardrails, evals, logging |
+| Behavioral constraint | Restricts what agents can do | Permissions, sandboxes, filters |
+| **State legibility** | Makes inner state readable | **UNITARES** |
+
+Logging tells you what happened. Guardrails constrain what can happen. UNITARES lets agents *say what's happening inside them* — and lets other agents, systems, and humans read it.
+
+Once agents can express state in a shared vocabulary, you can build on it: monitoring, inter-agent observation, trajectory-based identity, structured disagreement. These are applications of legibility, not the thing itself.
+
+---
+
+## What Makes It Different
+
+**UNITARES is a protocol, not a product.** The core contribution is the EISV vocabulary and the dynamics that govern it. Everything else — governance verdicts, circuit breakers, dialectic, the knowledge graph — is built on agents being able to express and read state in a shared language.
+
+**Ethical drift from observable behavior.** No human oracle needed. Four measurable signals — calibration deviation, complexity divergence, coherence deviation, stability deviation — define a drift vector Δη that feeds directly into entropy dynamics.
+
+**Trajectory as identity.** Agents aren't identified by tokens — they're identified by dynamical patterns. An agent's EISV trajectory is its behavioral signature, letting agents computationally verify "Am I still myself?" and letting observers distinguish agents by how they work.
+
+**Mirror response mode.** Agents don't need to interpret raw EISV numbers. Mirror mode surfaces actionable self-awareness signals — calibration feedback, complexity divergence, knowledge graph discoveries — so agents get practical guidance instead of state vectors.
+
+---
+
+## Production Data
+
+Deployed since November 2025. Live numbers as of March 28, 2026:
+
+| Metric | Value |
+|--------|-------|
+| Agents (total created / active in last 7 days) | 1,300+ / ~60 |
+| Check-ins processed | 100,000+ |
+| Knowledge graph entries | 1,700+ |
+| EISV typical range (Lumen, 95k check-ins) | E≈0.72, I≈0.75, S≈0.20, V≈-0.04 |
+| V operating range | All active agents within [-0.1, 0.1] |
+| Calibration accuracy | ~50% (see [Active Research](#active-research)) |
+| Test suite | 5,800+ tests |
+
+The large gap between total and active agents reflects the testing lifecycle — most agents are created by automated test runs, CI, and development sessions, not long-lived deployments. The ~60 active agents include production agents (Lumen, Vigil), development agents (Claude Code sessions), and integration test agents.
+
+One of those agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi whose physical sensors (temperature, humidity, light) seed its EISV state vector. Coherence modulates an autonomous drawing system; the art emerges from the same thermodynamics. See the [anima-mcp docs](https://github.com/CIRWEL/anima-mcp#how-it-works).
+
+<p align="center">
+  <img src="docs/images/dashboard.png" width="80%" alt="UNITARES web dashboard showing fleet coherence, agent status, and system health"/>
+</p>
+
+<p align="center">
+  <em>Web dashboard — fleet coherence, agent status, calibration, anomaly detection.</em>
+</p>
 
 ---
 
@@ -97,62 +153,9 @@ python src/mcp_server_std.py
 
 ---
 
-## Production Data
-
-Deployed since November 2025. Numbers as of March 2026:
-
-| Metric | Value |
-|--------|-------|
-| Agents (total / active) | ~1,300 / ~120 |
-| Check-ins processed | 100,000+ |
-| Knowledge graph entries | 1,700+ |
-| EISV steady-state (Lumen) | E=0.77, I=0.88, S=0.08, V=-0.03 |
-| V operating range | 100% of agents within [-0.1, 0.1] |
-| Test suite | 5,600+ tests |
-
-One of those agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi whose physical sensors (temperature, humidity, light) seed its EISV state vector. Coherence modulates an autonomous drawing system; the art emerges from the same thermodynamics. See the [anima-mcp docs](https://github.com/CIRWEL/anima-mcp#how-it-works).
-
-<p align="center">
-  <img src="docs/images/dashboard.png" width="80%" alt="UNITARES web dashboard showing fleet coherence, agent status, and system health"/>
-</p>
-
-<p align="center">
-  <em>Web dashboard — fleet coherence, agent status, calibration, anomaly detection.</em>
-</p>
-
----
-
-## What UNITARES Provides
-
-Most agent tooling operates on **outputs** — checking whether what the agent produced is correct, safe, or useful. UNITARES operates on **inner state** — making visible what the agent can't otherwise express.
-
-| Layer | What it does | Example tools |
-|-------|-------------|---------------|
-| Output validation | Checks results after the fact | Guardrails, evals, logging |
-| Behavioral constraint | Restricts what agents can do | Permissions, sandboxes, filters |
-| **State legibility** | Makes inner state readable | **UNITARES** |
-
-Logging tells you what happened. Guardrails constrain what can happen. UNITARES lets agents *say what's happening inside them* — and lets other agents, systems, and humans read it.
-
-Once agents can express state in a shared vocabulary, you can build on it: monitoring, inter-agent observation, trajectory-based identity, structured disagreement. These are applications of legibility, not the thing itself.
-
----
-
-## What Makes It Different
-
-**UNITARES is a protocol, not a product.** The core contribution is the EISV vocabulary and the dynamics that govern it. Everything else — governance verdicts, circuit breakers, dialectic, the knowledge graph — is built on agents being able to express and read state in a shared language.
-
-**Ethical drift from observable behavior.** No human oracle needed. Four measurable signals — calibration deviation, complexity divergence, coherence deviation, stability deviation — define a drift vector Δη that feeds directly into entropy dynamics.
-
-**Trajectory as identity.** Agents aren't identified by tokens — they're identified by dynamical patterns. An agent's EISV trajectory is its behavioral signature, letting agents computationally verify "Am I still myself?" and letting observers distinguish agents by how they work.
-
-**Mirror response mode.** Agents don't need to interpret raw EISV numbers. Mirror mode surfaces actionable self-awareness signals — calibration feedback, complexity divergence, knowledge graph discoveries — so agents get practical guidance instead of state vectors.
-
----
-
 ## What You Can Build On It
 
-- **Monitoring & early warning** — EISV trajectories show drift before outputs degrade. Circuit breakers can pause agents automatically at risk thresholds.
+- **Monitoring & early warning** — EISV trajectories show state changes as they happen. Circuit breakers can pause agents automatically at risk thresholds.
 - **Inter-agent observation** — Agents can read each other's state vectors. One agent can assess whether another is coherent enough for a handoff without inspecting its outputs.
 - **Trajectory identity** — An agent's behavioral signature over time. Enables "Am I still myself?" checks and anomaly detection for forks or impersonation.
 - **Dialectic resolution** — Structured disagreement (thesis → antithesis → synthesis) requires a shared state language. Agents negotiate meaningfully when they can read each other's coherence and confidence.
@@ -179,7 +182,7 @@ graph LR
 ```
 src/                   MCP server, agent state, knowledge graph, dialectic
 dashboard/             Web dashboard (vanilla JS + Chart.js)
-tests/                 5,600+ tests
+tests/                 5,800+ tests
 ```
 
 The mathematical engine (`governance_core`) — ODEs, coherence, scoring — is distributed as a compiled package (unitares-core).
@@ -195,7 +198,9 @@ The mathematical engine (`governance_core`) — ODEs, coherence, scoring — is 
 
 These are open questions, not solved problems:
 
-- **Outcome correlation** — Does EISV instability predict bad task outcomes? Early signals are promising, validation ongoing.
+- **Outcome correlation** — Does EISV instability predict bad task outcomes? Calibration accuracy is currently ~50%, which means the system's confidence estimates are not yet reliably predictive. Validation is ongoing.
+- **Agent differentiation** — The ODE has strong convergence guarantees, which means agents with similar workloads converge to similar EISV steady states. This is mathematically correct but limits how much the state vector alone can distinguish between agents. Behavioral EISV (EMA-smoothed observations without ODE contraction) is in development as a parallel system to address this.
+- **Identity fragmentation** — Session-based identity means the same human or system can accumulate many agent IDs across sessions. The 1,300+ total agents in production reflect this — most are ephemeral. Identity consolidation and trajectory-based re-identification are active work.
 - **Domain-specific thresholds** — How should parameters be tuned for code generation vs. customer service vs. trading? No one-size-fits-all answer yet.
 - **Horizontal scaling** — Current system handles hundreds of agents on a single node. What about thousands?
 
@@ -223,4 +228,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and code 
 
 ---
 
-Built by [@CIRWEL](https://github.com/CIRWEL) | Server: MIT License — see [LICENSE](LICENSE) | Core engine: proprietary (unitares-core) | **v2.8.0**
+## Licensing
+
+The MCP server, dashboard, tooling, and all code in this repo are **MIT licensed** — see [LICENSE](LICENSE). The EISV dynamics engine (`unitares-core`) is a **proprietary compiled dependency**. It's included as a wheel in `requirements-core.txt` and installs automatically, but its source is not in this repo. This means you can freely use, modify, and deploy the server, but the mathematical core is not open source. See [CONTRIBUTING.md](CONTRIBUTING.md#compiled-dependency) for details on working with this split.
+
+---
+
+Built by [@CIRWEL](https://github.com/CIRWEL) | **v2.8.0**
