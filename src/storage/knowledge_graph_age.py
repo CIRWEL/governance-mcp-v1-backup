@@ -804,34 +804,32 @@ class KnowledgeGraphAGE:
     ) -> List[DiscoveryNode]:
         """
         Find similar discoveries by tag overlap.
-        
+
         Args:
             discovery: Discovery to find similar ones for
             limit: Maximum number of results
-            
+
         Returns:
             List of similar DiscoveryNodes
         """
         if not discovery.tags:
             return []
-        
-        # Find discoveries with overlapping tags
+
+        # AGE doesn't support ORDER BY on WITH-clause aliases,
+        # so we fetch all matches and rank by tag overlap in Python.
         db = await self._get_db()
-        
+
         cypher = f"""
             MATCH (d:Discovery)-[:TAGGED]->(t:Tag)
             WHERE t.name IN ${{tags}}
               AND d.id <> ${{exclude_id}}
-            WITH d, count(DISTINCT t) AS shared_tags
-            ORDER BY shared_tags DESC
-            LIMIT ${{limit}}
+            WITH DISTINCT d
             RETURN d
         """
-        
+
         params = {
             "tags": discovery.tags,
             "exclude_id": discovery.id,
-            "limit": limit,
         }
 
         results = await db.graph_query(cypher, params)
@@ -847,7 +845,10 @@ class KnowledgeGraphAGE:
             if disc:
                 similar.append(disc)
 
-        return similar
+        # Rank by tag overlap count (descending)
+        input_tags = set(discovery.tags)
+        similar.sort(key=lambda d: len(set(d.tags or []) & input_tags), reverse=True)
+        return similar[:limit]
 
     async def find_similar_by_tags(
         self,
@@ -857,34 +858,33 @@ class KnowledgeGraphAGE:
     ) -> List[DiscoveryNode]:
         """
         Find discoveries with overlapping tags.
-        
+
         Args:
             tags: List of tags to match
             exclude_id: Discovery ID to exclude from results
             limit: Maximum number of results
-            
+
         Returns:
             List of similar DiscoveryNodes
         """
         if not tags:
             return []
-        
+
         db = await self._get_db()
-        
+
         exclude_clause = " AND d.id <> ${exclude_id}" if exclude_id else ""
-        
+
+        # AGE doesn't support ORDER BY on WITH-clause aliases,
+        # so we fetch all matches and rank by tag overlap in Python.
         cypher = f"""
             MATCH (d:Discovery)-[:TAGGED]->(t:Tag)
             WHERE t.name IN ${{tags}}{exclude_clause}
-            WITH d, count(DISTINCT t) AS shared_tags
-            ORDER BY shared_tags DESC
-            LIMIT ${{limit}}
+            WITH DISTINCT d
             RETURN d
         """
-        
+
         params = {
             "tags": tags,
-            "limit": limit,
         }
         if exclude_id:
             params["exclude_id"] = exclude_id
@@ -902,7 +902,10 @@ class KnowledgeGraphAGE:
             if disc:
                 similar.append(disc)
 
-        return similar
+        # Rank by tag overlap count (descending)
+        input_tags = set(tags)
+        similar.sort(key=lambda d: len(set(d.tags or []) & input_tags), reverse=True)
+        return similar[:limit]
 
     async def _pgvector_available(self) -> bool:
         """Check if pgvector extension and embeddings table exist."""

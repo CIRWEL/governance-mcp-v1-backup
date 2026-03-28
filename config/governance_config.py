@@ -295,7 +295,7 @@ class GovernanceConfig:
     # =================================================================
     # When True, behavioral assessment becomes PRIMARY verdict source
     # (ODE verdict still computed and returned as diagnostic)
-    BEHAVIORAL_VERDICT_ENABLED = os.environ.get('GOVERNANCE_BEHAVIORAL_VERDICT', 'false').lower() == 'true'
+    BEHAVIORAL_VERDICT_ENABLED = os.environ.get('GOVERNANCE_BEHAVIORAL_VERDICT', 'true').lower() == 'true'
 
     # =================================================================
     # Error Handling Constants

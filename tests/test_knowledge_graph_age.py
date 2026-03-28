@@ -1213,12 +1213,11 @@ class TestFindSimilar:
         assert len(result) == 1
         assert result[0].id == "similar-1"
 
-        # Verify params
+        # Verify params (limit applied in Python, not Cypher)
         call_args = mock_db.graph_query.await_args
         params = call_args.args[1]
         assert params["tags"] == ["python", "bug"]
         assert params["exclude_id"] == "disc-001"
-        assert params["limit"] == 5
 
     @pytest.mark.asyncio
     async def test_handles_dict_d_key_result(self):
@@ -1262,7 +1261,6 @@ class TestFindSimilarByTags:
         call_args = mock_db.graph_query.await_args
         params = call_args.args[1]
         assert params["tags"] == ["python", "testing"]
-        assert params["limit"] == 10
 
     @pytest.mark.asyncio
     async def test_includes_exclude_clause_when_provided(self):
