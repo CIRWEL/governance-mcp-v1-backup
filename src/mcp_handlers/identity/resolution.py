@@ -168,6 +168,69 @@ def _normalize_model_type(model_type: str) -> str:
 
 
 # =============================================================================
+# SOFT TRAJECTORY VERIFICATION (v2.8)
+# =============================================================================
+
+async def _soft_verify_trajectory(
+    agent_uuid: str,
+    trajectory_signature: Optional[dict],
+    source: str,
+) -> Dict[str, Any]:
+    """Soft trajectory verification for PATH 1/2 resumption.
+
+    Checks whether a resumed identity can be verified via trajectory signature.
+    Fail-open: exceptions or missing data never block resumption.
+
+    Returns:
+        {"verified": bool, "warning": str|None, "checked": bool}
+    """
+    try:
+        from src.trajectory_identity import get_trajectory_status
+        traj_status = await get_trajectory_status(agent_uuid)
+
+        has_genesis = bool(
+            traj_status
+            and not traj_status.get("error")
+            and traj_status.get("has_genesis")
+        )
+
+        if not has_genesis:
+            # Nothing to verify against
+            return {"verified": True, "checked": False, "warning": None}
+
+        if not trajectory_signature or not isinstance(trajectory_signature, dict):
+            logger.info(
+                f"[TRAJECTORY] Soft warning on {source} resume for {agent_uuid[:8]}... — "
+                f"genesis exists but no signature provided"
+            )
+            return {"verified": False, "checked": False, "warning": "trajectory_unverified"}
+
+        # Signature provided — verify it
+        from src.trajectory_identity import verify_trajectory_identity
+        verification = await verify_trajectory_identity(agent_uuid, trajectory_signature)
+
+        if verification and not verification.get("verified", True):
+            lineage_sim = verification.get("tiers", {}).get("lineage", {}).get("similarity", 1.0)
+            logger.info(
+                f"[TRAJECTORY] Soft verification failed on {source} resume for {agent_uuid[:8]}... "
+                f"(lineage={lineage_sim:.3f})"
+            )
+            return {
+                "verified": False,
+                "checked": True,
+                "warning": "trajectory_mismatch",
+                "lineage_similarity": lineage_sim,
+            }
+
+        logger.debug(f"[TRAJECTORY] Soft verification passed on {source} resume for {agent_uuid[:8]}...")
+        return {"verified": True, "checked": True, "warning": None}
+
+    except Exception as e:
+        logger.debug(f"[TRAJECTORY] Soft verification exception on {source} resume: {e}")
+        return {"verified": True, "checked": False, "warning": None}
+
+
+# =============================================================================
 # CORE IDENTITY RESOLUTION (3 paths)
 # =============================================================================
 
@@ -341,6 +404,9 @@ async def resolve_session_identity(
                         agent_status = await _get_agent_status(agent_uuid) if persisted else None
                         is_archived = agent_status == "archived"
 
+                        # Soft trajectory verification (v2.8)
+                        traj_result = await _soft_verify_trajectory(agent_uuid, trajectory_signature, "redis")
+
                         # SLIDING TTL: Refresh Redis expiry on every hit (v2.5.5)
 
                         try:
@@ -375,6 +441,10 @@ async def resolve_session_identity(
                             "archived": is_archived,
 
                             "source": "redis",
+
+                            "trajectory_verified": traj_result.get("verified"),
+
+                            "trajectory_warning": traj_result.get("warning"),
 
                         }
 
@@ -441,11 +511,17 @@ async def resolve_session_identity(
                         agent_status = await _get_agent_status(agent_uuid)
                         is_archived = agent_status == "archived"
 
+                        # Soft trajectory verification (v2.8)
+                        traj_result = await _soft_verify_trajectory(agent_uuid, trajectory_signature, "postgres")
+
                         # Warm Redis cache for next time (cache UUID + display agent_id)
 
                         # This also resets the TTL to 24h (sliding window)
 
-                        await _cache_session(session_key, agent_uuid, display_agent_id=agent_id)
+                        await _cache_session(
+                            session_key, agent_uuid, display_agent_id=agent_id,
+                            trajectory_required=traj_result.get("checked", False),
+                        )
 
 
 
@@ -478,6 +554,10 @@ async def resolve_session_identity(
                             "archived": is_archived,
 
                             "source": "postgres",
+
+                            "trajectory_verified": traj_result.get("verified"),
+
+                            "trajectory_warning": traj_result.get("warning"),
 
                         }
 

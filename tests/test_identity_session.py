@@ -1042,6 +1042,308 @@ class TestCacheSessionEdgeCases:
 
 
 # ============================================================================
+# Soft Trajectory Verification (v2.8) — PATH 1/2
+# ============================================================================
+
+class TestSoftTrajectoryVerification:
+    """Test soft trajectory verification for PATH 1 (Redis) and PATH 2 (PostgreSQL) resumption."""
+
+    # -- _soft_verify_trajectory unit tests --
+
+    @pytest.mark.asyncio
+    async def test_helper_no_genesis_returns_verified_unchecked(self):
+        """No stored genesis → verified=True, checked=False, no warning."""
+        from src.mcp_handlers.identity.resolution import _soft_verify_trajectory
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": False}):
+            result = await _soft_verify_trajectory("uuid-1", {"sig": "data"}, "redis")
+
+        assert result["verified"] is True
+        assert result["checked"] is False
+        assert result["warning"] is None
+
+    @pytest.mark.asyncio
+    async def test_helper_genesis_exists_no_signature_warns(self):
+        """Genesis exists but no signature → verified=False, warning=trajectory_unverified."""
+        from src.mcp_handlers.identity.resolution import _soft_verify_trajectory
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}):
+            result = await _soft_verify_trajectory("uuid-2", None, "postgres")
+
+        assert result["verified"] is False
+        assert result["checked"] is False
+        assert result["warning"] == "trajectory_unverified"
+
+    @pytest.mark.asyncio
+    async def test_helper_genesis_exists_signature_verified(self):
+        """Genesis exists + valid signature → verified=True, checked=True."""
+        from src.mcp_handlers.identity.resolution import _soft_verify_trajectory
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}), \
+             patch("src.trajectory_identity.verify_trajectory_identity",
+                   new_callable=AsyncMock, return_value={"verified": True}):
+            result = await _soft_verify_trajectory("uuid-3", {"sig": "ok"}, "redis")
+
+        assert result["verified"] is True
+        assert result["checked"] is True
+        assert result["warning"] is None
+
+    @pytest.mark.asyncio
+    async def test_helper_genesis_exists_signature_mismatch(self):
+        """Genesis exists + mismatched signature → verified=False, warning=trajectory_mismatch."""
+        from src.mcp_handlers.identity.resolution import _soft_verify_trajectory
+
+        mock_verification = {
+            "verified": False,
+            "tiers": {"lineage": {"similarity": 0.3}},
+        }
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}), \
+             patch("src.trajectory_identity.verify_trajectory_identity",
+                   new_callable=AsyncMock, return_value=mock_verification):
+            result = await _soft_verify_trajectory("uuid-4", {"sig": "bad"}, "postgres")
+
+        assert result["verified"] is False
+        assert result["checked"] is True
+        assert result["warning"] == "trajectory_mismatch"
+        assert result["lineage_similarity"] == 0.3
+
+    @pytest.mark.asyncio
+    async def test_helper_exception_fails_open(self):
+        """Any exception → fail-open: verified=True, checked=False."""
+        from src.mcp_handlers.identity.resolution import _soft_verify_trajectory
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, side_effect=Exception("DB down")):
+            result = await _soft_verify_trajectory("uuid-5", {"sig": "x"}, "redis")
+
+        assert result["verified"] is True
+        assert result["checked"] is False
+        assert result["warning"] is None
+
+    @pytest.mark.asyncio
+    async def test_helper_trajectory_status_error_field(self):
+        """get_trajectory_status returns error → treated as no genesis."""
+        from src.mcp_handlers.identity.resolution import _soft_verify_trajectory
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"error": "not found", "has_genesis": False}):
+            result = await _soft_verify_trajectory("uuid-6", None, "redis")
+
+        assert result["verified"] is True
+        assert result["checked"] is False
+
+    @pytest.mark.asyncio
+    async def test_helper_empty_dict_signature_treated_as_missing(self):
+        """Empty dict {} is falsy in Python, treated same as None."""
+        from src.mcp_handlers.identity.resolution import _soft_verify_trajectory
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}):
+            result = await _soft_verify_trajectory("uuid-7", {}, "redis")
+
+        # Empty dict is falsy → "not trajectory_signature" is True → treated as missing
+        assert result["verified"] is False
+        assert result["checked"] is False
+        assert result["warning"] == "trajectory_unverified"
+
+    # -- PATH 1 integration tests --
+
+    @pytest.mark.asyncio
+    async def test_path1_no_trajectory_stored(self, patch_all_deps, mock_redis, mock_db, mock_raw_redis):
+        """PATH 1: No trajectory stored → no warning, trajectory_verified=True."""
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
+
+        test_uuid = str(uuid.uuid4())
+        mock_redis.get.return_value = {"agent_id": test_uuid, "display_agent_id": "Agent_20260328"}
+        mock_db.get_identity.return_value = SimpleNamespace(identity_id="id-1", metadata={})
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": False}):
+            result = await resolve_session_identity(session_key="p1-no-traj", resume=True)
+
+        assert result["source"] == "redis"
+        assert result["trajectory_verified"] is True
+        assert result["trajectory_warning"] is None
+
+    @pytest.mark.asyncio
+    async def test_path1_trajectory_stored_signature_provided_verified(self, patch_all_deps, mock_redis, mock_db, mock_raw_redis):
+        """PATH 1: Trajectory stored + valid signature → trajectory_verified=True."""
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
+
+        test_uuid = str(uuid.uuid4())
+        mock_redis.get.return_value = {"agent_id": test_uuid, "display_agent_id": "Agent_20260328"}
+        mock_db.get_identity.return_value = SimpleNamespace(identity_id="id-1", metadata={})
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}), \
+             patch("src.trajectory_identity.verify_trajectory_identity",
+                   new_callable=AsyncMock, return_value={"verified": True}):
+            result = await resolve_session_identity(
+                session_key="p1-verified", resume=True,
+                trajectory_signature={"preferences": [0.1]},
+            )
+
+        assert result["source"] == "redis"
+        assert result["trajectory_verified"] is True
+        assert result["trajectory_warning"] is None
+
+    @pytest.mark.asyncio
+    async def test_path1_trajectory_stored_signature_mismatch(self, patch_all_deps, mock_redis, mock_db, mock_raw_redis):
+        """PATH 1: Trajectory stored + mismatched signature → trajectory_verified=False, warning set."""
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
+
+        test_uuid = str(uuid.uuid4())
+        mock_redis.get.return_value = {"agent_id": test_uuid, "display_agent_id": "Agent_20260328"}
+        mock_db.get_identity.return_value = SimpleNamespace(identity_id="id-1", metadata={})
+
+        mock_verification = {"verified": False, "tiers": {"lineage": {"similarity": 0.2}}}
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}), \
+             patch("src.trajectory_identity.verify_trajectory_identity",
+                   new_callable=AsyncMock, return_value=mock_verification):
+            result = await resolve_session_identity(
+                session_key="p1-mismatch", resume=True,
+                trajectory_signature={"preferences": [0.9]},
+            )
+
+        assert result["source"] == "redis"
+        assert result["trajectory_verified"] is False
+        assert result["trajectory_warning"] == "trajectory_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_path1_trajectory_stored_no_signature(self, patch_all_deps, mock_redis, mock_db, mock_raw_redis):
+        """PATH 1: Trajectory stored + no signature → trajectory_verified=False, warning=trajectory_unverified."""
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
+
+        test_uuid = str(uuid.uuid4())
+        mock_redis.get.return_value = {"agent_id": test_uuid, "display_agent_id": "Agent_20260328"}
+        mock_db.get_identity.return_value = SimpleNamespace(identity_id="id-1", metadata={})
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}):
+            result = await resolve_session_identity(session_key="p1-no-sig", resume=True)
+
+        assert result["source"] == "redis"
+        assert result["trajectory_verified"] is False
+        assert result["trajectory_warning"] == "trajectory_unverified"
+
+    # -- PATH 2 integration tests --
+
+    @pytest.mark.asyncio
+    async def test_path2_no_trajectory_stored(self, patch_no_redis, mock_db):
+        """PATH 2: No trajectory stored → trajectory_verified=True, no warning."""
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
+
+        test_uuid = str(uuid.uuid4())
+        mock_db.get_session.return_value = SimpleNamespace(agent_id=test_uuid)
+        mock_db.get_identity.return_value = SimpleNamespace(
+            identity_id="ident-1", metadata={"agent_id": "Agent_20260328"}
+        )
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": False}):
+            result = await resolve_session_identity(session_key="p2-no-traj", resume=True)
+
+        assert result["source"] == "postgres"
+        assert result["trajectory_verified"] is True
+        assert result["trajectory_warning"] is None
+
+    @pytest.mark.asyncio
+    async def test_path2_trajectory_stored_signature_provided_verified(self, patch_no_redis, mock_db):
+        """PATH 2: Trajectory stored + valid signature → trajectory_verified=True."""
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
+
+        test_uuid = str(uuid.uuid4())
+        mock_db.get_session.return_value = SimpleNamespace(agent_id=test_uuid)
+        mock_db.get_identity.return_value = SimpleNamespace(
+            identity_id="ident-1", metadata={"agent_id": "Agent_20260328"}
+        )
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}), \
+             patch("src.trajectory_identity.verify_trajectory_identity",
+                   new_callable=AsyncMock, return_value={"verified": True}):
+            result = await resolve_session_identity(
+                session_key="p2-verified", resume=True,
+                trajectory_signature={"preferences": [0.1]},
+            )
+
+        assert result["source"] == "postgres"
+        assert result["trajectory_verified"] is True
+        assert result["trajectory_warning"] is None
+
+    @pytest.mark.asyncio
+    async def test_path2_trajectory_stored_signature_mismatch(self, patch_no_redis, mock_db):
+        """PATH 2: Trajectory stored + mismatched signature → trajectory_verified=False."""
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
+
+        test_uuid = str(uuid.uuid4())
+        mock_db.get_session.return_value = SimpleNamespace(agent_id=test_uuid)
+        mock_db.get_identity.return_value = SimpleNamespace(
+            identity_id="ident-1", metadata={"agent_id": "Agent_20260328"}
+        )
+
+        mock_verification = {"verified": False, "tiers": {"lineage": {"similarity": 0.15}}}
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}), \
+             patch("src.trajectory_identity.verify_trajectory_identity",
+                   new_callable=AsyncMock, return_value=mock_verification):
+            result = await resolve_session_identity(
+                session_key="p2-mismatch", resume=True,
+                trajectory_signature={"preferences": [0.9]},
+            )
+
+        assert result["source"] == "postgres"
+        assert result["trajectory_verified"] is False
+        assert result["trajectory_warning"] == "trajectory_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_path2_trajectory_stored_no_signature(self, patch_no_redis, mock_db):
+        """PATH 2: Trajectory stored + no signature → trajectory_unverified warning."""
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
+
+        test_uuid = str(uuid.uuid4())
+        mock_db.get_session.return_value = SimpleNamespace(agent_id=test_uuid)
+        mock_db.get_identity.return_value = SimpleNamespace(
+            identity_id="ident-1", metadata={"agent_id": "Agent_20260328"}
+        )
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, return_value={"has_genesis": True}):
+            result = await resolve_session_identity(session_key="p2-no-sig", resume=True)
+
+        assert result["source"] == "postgres"
+        assert result["trajectory_verified"] is False
+        assert result["trajectory_warning"] == "trajectory_unverified"
+
+    # -- Exception fail-open test --
+
+    @pytest.mark.asyncio
+    async def test_verification_exception_fails_open(self, patch_all_deps, mock_redis, mock_db, mock_raw_redis):
+        """Exception in trajectory check → fail-open (verified=True, no warning)."""
+        from src.mcp_handlers.identity.handlers import resolve_session_identity
+
+        test_uuid = str(uuid.uuid4())
+        mock_redis.get.return_value = {"agent_id": test_uuid, "display_agent_id": "Agent_20260328"}
+        mock_db.get_identity.return_value = SimpleNamespace(identity_id="id-1", metadata={})
+
+        with patch("src.trajectory_identity.get_trajectory_status",
+                   new_callable=AsyncMock, side_effect=Exception("trajectory service down")):
+            result = await resolve_session_identity(session_key="p1-exception", resume=True)
+
+        assert result["source"] == "redis"
+        assert result["trajectory_verified"] is True
+        assert result["trajectory_warning"] is None
+
+
+# ============================================================================
 # lookup_onboard_pin / set_onboard_pin exception paths (lines 1138-1175)
 # ============================================================================
 

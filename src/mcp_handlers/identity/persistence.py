@@ -40,8 +40,19 @@ def _get_redis():
 # CACHE HELPERS
 # =============================================================================
 
-async def _cache_session(session_key: str, agent_uuid: str, display_agent_id: str = None) -> None:
-    """Cache session->UUID mapping in Redis, with optional display agent_id."""
+async def _cache_session(
+    session_key: str,
+    agent_uuid: str,
+    display_agent_id: str = None,
+    trajectory_required: bool = False,
+) -> None:
+    """Cache session->UUID mapping in Redis, with optional display agent_id.
+
+    Args:
+        trajectory_required: If True, indicates this identity has a stored
+            trajectory genesis. Lets PATH 1 skip the get_trajectory_status()
+            call on subsequent hits (optimization hint).
+    """
     session_cache = _get_redis()
     if session_cache:
         try:
@@ -56,6 +67,7 @@ async def _cache_session(session_key: str, agent_uuid: str, display_agent_id: st
                         "agent_id": agent_uuid,
                         "display_agent_id": display_agent_id,
                         "bound_at": datetime.now(timezone.utc).isoformat(),
+                        "trajectory_required": trajectory_required,
                     }
                     key = f"session:{session_key}"
                     await redis.setex(key, GovernanceConfig.SESSION_TTL_SECONDS, json.dumps(data))
