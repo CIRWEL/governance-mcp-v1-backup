@@ -133,7 +133,7 @@ def create_authored_edge(
         props["at"] = at.isoformat()
     
     if props:
-        props_str = " {" + ", ".join(f"{k}: ${k}" for k in props.keys()) + "}"
+        props_str = " {" + ", ".join(f"{k}: ${{{k}}}" for k in props.keys()) + "}"
     else:
         props_str = ""
     

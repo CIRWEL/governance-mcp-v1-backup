@@ -144,6 +144,7 @@ class UNITARESMonitor:
 
         # Behavioral EISV: observation-first state (no ODE, no attractor)
         self._behavioral_state = BehavioralEISV()
+        self._last_behavioral_verdict: Optional[str] = None  # safe/caution/high-risk
 
         # Continuous self-validation: track previous verdict for trajectory comparison
         self._prev_verdict_action: Optional[str] = None   # 'proceed', 'pause', etc.
@@ -834,6 +835,7 @@ class UNITARESMonitor:
             continuity_energy=self.state.CE_history[-1] if self.state.CE_history else 0.0,
             agent_context={'task_type': task_type},
         )
+        self._last_behavioral_verdict = behavioral_assessment.verdict
 
         # Step 1: Update thermodynamic state with GROUNDED inputs
         self.update_dynamics(grounded_agent_state, dt=effective_dt)

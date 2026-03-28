@@ -107,7 +107,11 @@ def get_monitor_metrics(monitor: Any, include_state: bool = True) -> Dict:
         delta_eta=[0.0, 0.0, 0.0],
         weights=DEFAULT_WEIGHTS
     )
-    verdict = verdict_from_phi(phi)
+    ode_verdict = verdict_from_phi(phi)
+
+    # Prefer behavioral verdict when available (observation-first, not thermostat)
+    behavioral_verdict = getattr(monitor, '_last_behavioral_verdict', None)
+    verdict = behavioral_verdict if behavioral_verdict else ode_verdict
 
     risk_score_value = current_risk if current_risk is not None else mean_risk
 
