@@ -242,7 +242,7 @@ def get_eisv_labels() -> Dict:
     return {
         'E': {
             'label': 'Energy',
-            'description': 'Energy (divergence/productive capacity)',
+            'description': 'Energy or presence',
             'user_friendly': 'How engaged and energized your work feels',
             'range': '[0.0, 1.0]'
         },

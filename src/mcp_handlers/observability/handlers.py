@@ -646,6 +646,7 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
     coherence_scores = []
     health_statuses = {"healthy": 0, "moderate": 0, "critical": 0, "unknown": 0}
     decision_counts = {"proceed": 0, "pause": 0}  # Two-tier system (backward compat: approve/reflect/reject mapped)
+    verdict_counts = {"safe": 0, "caution": 0, "high-risk": 0}  # Behavioral verdict distribution
     
     for agent_id in agent_ids:
         monitor = mcp_server.monitors.get(agent_id)
@@ -687,6 +688,11 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
             decision_counts["reflect"] = decision_stats.get("reflect", 0) + decision_stats.get("revise", 0)
             decision_counts["reject"] = decision_stats.get("reject", 0)
             
+            # Aggregate verdict distribution from metrics
+            verdict = metrics.get("verdict")
+            if verdict and verdict in verdict_counts:
+                verdict_counts[verdict] += 1
+
             # Count total updates — prefer meta.total_updates (Postgres-backed)
             meta = mcp_server.agent_metadata.get(agent_id)
             total_updates += meta.total_updates if meta else monitor.state.update_count
@@ -702,6 +708,10 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
         "decision_distribution": {
             **decision_counts,
             "total": sum(decision_counts.values())
+        },
+        "verdict_distribution": {
+            **verdict_counts,
+            "total": sum(verdict_counts.values())
         }
     }
     

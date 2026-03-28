@@ -355,7 +355,7 @@
                 '</div>' +
                 (hasMetrics
                     ? '<div class="agent-metrics">' +
-                        '<div class="metric e" title="Energy (divergence/productive capacity)">' +
+                        '<div class="metric e" title="Energy or presence">' +
                             '<div class="label">E</div>' +
                             '<div class="val">' + e + '</div>' +
                             '<div class="metric-bar"><div class="metric-bar-fill" style="width: ' + ePct + '%;' + (eColor ? ' background: ' + eColor : '') + '"></div></div>' +

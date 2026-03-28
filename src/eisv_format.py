@@ -21,7 +21,7 @@ class EISVMetrics(NamedTuple):
     In governance dynamics, V is a signed integrator: dV/dt = kappa(E-I) - delta*V [-2, 2].
     The observation-layer V seeds the ODE, which then evolves independently.
     """
-    E: float  # Energy (exploration/productive capacity)
+    E: float  # Energy or presence
     I: float  # Information integrity
     S: float  # Entropy (disorder/uncertainty)
     V: float  # Accumulated E-I imbalance (positive: E>I, negative: I>E)
