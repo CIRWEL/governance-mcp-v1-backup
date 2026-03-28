@@ -142,6 +142,24 @@ async def _load_metadata_from_postgres_async() -> dict:
             except Exception as e:
                 logger.debug(f"Failed to cache metadata for {agent.agent_id[:8]}...: {e}")
 
+    # Hydrate agent profiles from stored identity metadata
+    try:
+        from src.agent_profile import hydrate_profile
+        from src.db import get_db
+        db = get_db()
+        agent_ids = list(result.keys())
+        identities = await db.get_identities_batch(agent_ids)
+        if isinstance(identities, dict):
+            hydrated = 0
+            for aid, identity in identities.items():
+                if identity and identity.metadata and "profile" in identity.metadata:
+                    hydrate_profile(aid, identity.metadata["profile"])
+                    hydrated += 1
+            if hydrated:
+                logger.debug(f"Hydrated {hydrated} agent profiles from PostgreSQL")
+    except Exception as e:
+        logger.debug(f"Agent profile hydration skipped: {e}")
+
     # Batch-load trust tiers
     try:
         from src.trajectory_identity import compute_trust_tier

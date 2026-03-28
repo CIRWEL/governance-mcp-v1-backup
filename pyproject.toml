@@ -53,6 +53,9 @@ addopts = [
     "--cov-fail-under=25",
     "-v",
 ]
+markers = [
+    "smoke: Fast smoke tests for pre-push validation (target <60s)",
+]
 filterwarnings = [
     "ignore::ResourceWarning",
     "ignore:unclosed database:ResourceWarning",

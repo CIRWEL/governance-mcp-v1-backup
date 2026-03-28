@@ -14,6 +14,7 @@ These metrics differentiate agents and make governance responses richer:
   - verdict_trajectory: recent verdicts pattern
 
 In-memory with serialization support. Updated on every process_agent_update call.
+Persisted to PostgreSQL (identity metadata) every N check-ins and hydrated on startup.
 """
 
 from __future__ import annotations
@@ -296,3 +297,34 @@ def get_agent_profile(agent_id: str) -> AgentProfile:
 def get_all_profiles() -> Dict[str, AgentProfile]:
     """Return the full profiles registry (read-only access)."""
     return _profiles
+
+
+def hydrate_profile(agent_id: str, profile_dict: Dict) -> None:
+    """Restore a profile from a previously persisted dict (called on startup)."""
+    if profile_dict:
+        _profiles[agent_id] = AgentProfile.from_dict(profile_dict)
+
+
+async def save_profile_to_postgres(agent_id: str) -> bool:
+    """Persist the agent profile into PostgreSQL identity metadata.
+
+    Stores profile.to_dict() under the 'profile' key in identity metadata,
+    using JSONB merge so other metadata keys are preserved.
+    """
+    if agent_id not in _profiles:
+        return False
+    profile_dict = _profiles[agent_id].to_dict()
+    try:
+        from src.db import get_db
+        db = get_db()
+        return await db.update_identity_metadata(
+            agent_id,
+            {"profile": profile_dict},
+            merge=True,
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug(
+            "Profile persist failed for %s", agent_id, exc_info=True,
+        )
+        return False

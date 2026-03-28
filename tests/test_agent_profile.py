@@ -6,7 +6,10 @@ outside the EISV ODE (update density, complexity, confidence, drift, verdicts).
 
 import time
 import pytest
-from src.agent_profile import AgentProfile, get_agent_profile, get_all_profiles, _profiles
+from src.agent_profile import (
+    AgentProfile, get_agent_profile, get_all_profiles,
+    hydrate_profile, _profiles,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +20,7 @@ def clean_registry():
     _profiles.clear()
 
 
+@pytest.mark.smoke
 class TestAgentProfileBasics:
     """Basic recording and metric computation."""
 
@@ -239,3 +243,59 @@ class TestAgentDifferentiation:
             idle.record_checkin(complexity=0.5, timestamp=now - 3600 + i * 1800)
 
         assert active.update_density > idle.update_density
+
+
+class TestProfilePersistence:
+    """Hydration and serialization round-trip for restart survival."""
+
+    def test_hydrate_profile_creates_entry(self):
+        """hydrate_profile() should restore a profile into the global registry."""
+        p = AgentProfile()
+        p.record_checkin(complexity=0.7, confidence=0.9, verdict="guide")
+        hydrate_profile("test-hydrate", p.to_dict())
+        assert "test-hydrate" in _profiles
+        assert _profiles["test-hydrate"].total_updates == 1
+        assert _profiles["test-hydrate"].complexity_stats["mean"] == pytest.approx(0.7)
+
+    def test_hydrate_profile_skips_empty_and_none(self):
+        """hydrate_profile() with empty dict or None should be a no-op."""
+        hydrate_profile("test-empty", {})
+        hydrate_profile("test-none", None)
+        assert "test-empty" not in _profiles
+        assert "test-none" not in _profiles
+
+    def test_serialization_roundtrip_preserves_welford(self):
+        """to_dict/from_dict should preserve Welford running statistics."""
+        p = AgentProfile()
+        for i in range(15):
+            p.record_checkin(
+                complexity=0.1 * (i + 1),
+                confidence=0.5 + 0.03 * i,
+                ethical_drift=[0.01 * i, 0.02 * i],
+                verdict="proceed" if i < 10 else "guide",
+            )
+        d = p.to_dict()
+        restored = AgentProfile.from_dict(d)
+
+        assert restored.total_updates == p.total_updates
+        assert restored._complexity_count == p._complexity_count
+        assert restored._complexity_mean == pytest.approx(p._complexity_mean)
+        assert restored._complexity_m2 == pytest.approx(p._complexity_m2)
+        assert restored._confidence_mean == pytest.approx(p._confidence_mean)
+        assert restored._drift_mean == pytest.approx(p._drift_mean)
+        assert list(restored._verdict_history) == list(p._verdict_history)
+
+    def test_hydrate_then_continue_recording(self):
+        """After hydration, continued recording should work correctly."""
+        p = AgentProfile()
+        for i in range(5):
+            p.record_checkin(complexity=0.3, verdict="proceed")
+
+        hydrate_profile("test-continue", p.to_dict())
+        restored = _profiles["test-continue"]
+        restored.record_checkin(complexity=0.9, verdict="guide")
+
+        assert restored.total_updates == 6
+        # Mean should shift toward 0.9 (was 0.3 for 5, now 0.9 for 1)
+        assert restored.complexity_stats["mean"] > 0.3
+        assert "guide" in restored.verdict_trajectory

@@ -884,7 +884,7 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
 
     # Agent profile — differentiated per-agent metrics (outside ODE)
     try:
-        from src.agent_profile import get_agent_profile
+        from src.agent_profile import get_agent_profile, save_profile_to_postgres
         profile = get_agent_profile(agent_id)
         profile.record_checkin(
             complexity=ctx.complexity,
@@ -892,6 +892,9 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
             ethical_drift=ctx.ethical_drift,
             verdict=ctx.metrics_dict.get('verdict'),
         )
+        # Persist every 10th update to avoid excessive writes
+        if profile.total_updates % 10 == 0:
+            await save_profile_to_postgres(agent_id)
     except Exception as e:
         logger.debug(f"Agent profile update skipped for {agent_id}: {e}")
 

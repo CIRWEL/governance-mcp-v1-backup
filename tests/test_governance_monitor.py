@@ -49,6 +49,7 @@ def monitor_with_history():
 # __init__ and initial state
 # ============================================================================
 
+@pytest.mark.smoke
 class TestInit:
 
     def test_agent_id_stored(self):
@@ -120,6 +121,7 @@ class TestInit:
 # compute_update_coherence (static)
 # ============================================================================
 
+@pytest.mark.smoke
 class TestComputeUpdateCoherence:
 
     def test_aligned_positive(self):
@@ -186,6 +188,7 @@ class TestComputeUpdateCoherence:
 # compute_continuity_energy (static)
 # ============================================================================
 
+@pytest.mark.smoke
 class TestComputeContinuityEnergy:
 
     def test_empty_history(self):
@@ -312,6 +315,7 @@ class TestComputeContinuityEnergy:
 # modulate_gains (static)
 # ============================================================================
 
+@pytest.mark.smoke
 class TestModulateGains:
 
     def test_high_coherence_no_reduction(self):
@@ -369,6 +373,7 @@ class TestModulateGains:
 # get_eisv_labels (static)
 # ============================================================================
 
+@pytest.mark.smoke
 class TestGetEisvLabels:
 
     def test_returns_dict(self):
@@ -398,6 +403,7 @@ class TestGetEisvLabels:
 # compute_ethical_drift (instance but pure)
 # ============================================================================
 
+@pytest.mark.smoke
 class TestComputeEthicalDrift:
 
     @pytest.fixture
@@ -479,6 +485,7 @@ class TestComputeEthicalDrift:
 # detect_regime (instance, depends on state)
 # ============================================================================
 
+@pytest.mark.smoke
 class TestDetectRegime:
 
     @pytest.fixture
@@ -963,6 +970,7 @@ class TestUpdateDynamics:
 # check_void_state
 # ============================================================================
 
+@pytest.mark.smoke
 class TestCheckVoidState:
 
     @pytest.fixture
@@ -1628,6 +1636,7 @@ class TestStatePersistence:
 # Void frequency calculation
 # ============================================================================
 
+@pytest.mark.smoke
 class TestVoidFrequency:
 
     @pytest.fixture

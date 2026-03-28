@@ -17,6 +17,7 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "src"))
 
 
+@pytest.mark.smoke
 def test_imports():
     """Test that all critical modules can be imported"""
     print("Testing imports...")
@@ -29,6 +30,7 @@ def test_imports():
     print("  ✅ All imports successful")
 
 
+@pytest.mark.smoke
 def test_monitor_creation():
     """Test that monitor can be created"""
     print("\nTesting monitor creation...")
@@ -41,6 +43,7 @@ def test_monitor_creation():
     print(f"     created_at: {monitor.created_at}")
 
 
+@pytest.mark.smoke
 def test_calibration():
     """Test that calibration recording works"""
     print("\nTesting calibration...")
@@ -50,6 +53,7 @@ def test_calibration():
     print(f"  ✅ Calibration recording works (pending: {pending})")
 
 
+@pytest.mark.smoke
 def test_telemetry():
     """Test that telemetry collection works"""
     print("\nTesting telemetry...")
@@ -59,6 +63,7 @@ def test_telemetry():
     print(f"     Skip rate: {metrics.get('skip_rate', 'N/A')}")
 
 
+@pytest.mark.smoke
 def test_knowledge_layer():
     """Test that knowledge graph (PostgreSQL/AGE) works"""
     import asyncio
@@ -77,6 +82,7 @@ def test_knowledge_layer():
     print(f"     Unique agents: {stats.get('unique_agents', 0)}")
 
 
+@pytest.mark.smoke
 def test_config():
     """Test that configuration loads correctly"""
     print("\nTesting configuration...")

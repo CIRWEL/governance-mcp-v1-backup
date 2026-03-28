@@ -19,6 +19,7 @@ from src.agent_state import AgentMetadata, _normalize_http_proxy_base
 # _normalize_http_proxy_base
 # ============================================================================
 
+@pytest.mark.smoke
 class TestNormalizeHttpProxyBase:
 
     def test_strips_v1_tools_call(self):
@@ -55,6 +56,7 @@ class TestNormalizeHttpProxyBase:
 # AgentMetadata.to_dict
 # ============================================================================
 
+@pytest.mark.smoke
 class TestAgentMetadataToDict:
 
     def test_returns_dict(self):
@@ -87,6 +89,7 @@ class TestAgentMetadataToDict:
 # AgentMetadata.add_lifecycle_event
 # ============================================================================
 
+@pytest.mark.smoke
 class TestAddLifecycleEvent:
 
     def test_event_added(self):
@@ -129,6 +132,7 @@ class TestAddLifecycleEvent:
 # AgentMetadata.validate_consistency
 # ============================================================================
 
+@pytest.mark.smoke
 class TestValidateConsistency:
 
     def _make_meta(self, **kwargs):

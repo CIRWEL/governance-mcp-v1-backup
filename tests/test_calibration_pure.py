@@ -27,6 +27,7 @@ def checker():
 # get_complexity_calibration_weight
 # ============================================================================
 
+@pytest.mark.smoke
 class TestGetComplexityCalibrationWeight:
 
     def test_none_returns_1(self, checker):
@@ -89,6 +90,7 @@ class TestGetComplexityCalibrationWeight:
 # compute_complexity_calibration_metrics
 # ============================================================================
 
+@pytest.mark.smoke
 class TestComputeComplexityCalibrationMetrics:
 
     def test_empty_stats(self, checker):
@@ -112,6 +114,7 @@ class TestComputeComplexityCalibrationMetrics:
 # compute_calibration_metrics
 # ============================================================================
 
+@pytest.mark.smoke
 class TestComputeCalibrationMetrics:
 
     def test_empty_stats(self, checker):
@@ -136,6 +139,7 @@ class TestComputeCalibrationMetrics:
 # compute_tactical_metrics
 # ============================================================================
 
+@pytest.mark.smoke
 class TestComputeTacticalMetrics:
 
     def test_empty_stats(self, checker):
@@ -154,6 +158,7 @@ class TestComputeTacticalMetrics:
 # CalibrationChecker reset
 # ============================================================================
 
+@pytest.mark.smoke
 class TestCalibrationReset:
 
     def test_reset_clears_stats(self, checker):
