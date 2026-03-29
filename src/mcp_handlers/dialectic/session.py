@@ -360,7 +360,7 @@ async def load_session_as_dict(session_id: str) -> Optional[Dict[str, Any]]:
             row = await conn.fetchrow("""
                 SELECT session_id, phase, status, session_type,
                        paused_agent_id, reviewer_agent_id, topic,
-                       created_at, resolution_json
+                       created_at, resolution_json, reason, trigger_source
                 FROM core.dialectic_sessions WHERE session_id = $1
             """, session_id)
             if not row:
@@ -382,6 +382,8 @@ async def load_session_as_dict(session_id: str) -> Optional[Dict[str, Any]]:
                 "reviewer": row["reviewer_agent_id"],
                 "topic": row["topic"] or "",
                 "created": created.isoformat() if hasattr(created, 'isoformat') else str(created or ""),
+                "reason": row.get("reason") or None,
+                "trigger_source": row.get("trigger_source") or None,
                 "message_count": len(msg_rows),
                 "transcript": [],
             }

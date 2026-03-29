@@ -350,6 +350,7 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
             max_synthesis_rounds=session.max_synthesis_rounds,
             synthesis_round=session.synthesis_round,
             paused_agent_state=paused_agent_state,
+            trigger_source=trigger_source,
         )
         logger.info(f"Dialectic session {session.session_id} persisted to PostgreSQL")
     except Exception as e:
@@ -379,6 +380,8 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
         "awaiting_reviewer": session.reviewer_agent_id is None,
         "phase": session.phase.value,
         "session_type": session.session_type,
+        "reason": session.reason,
+        "trigger_source": session.trigger_source,
         "note": note
     })
 
