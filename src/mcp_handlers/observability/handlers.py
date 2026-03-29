@@ -131,7 +131,7 @@ async def handle_observe_agent(arguments: Dict[str, Any]) -> Sequence[TextConten
     response_data = {
         "agent_id": agent_id,
         "observation": observation,
-        "eisv_labels": UNITARESMonitor.get_eisv_labels()
+        # eisv_labels omitted by default — use get_governance_metrics(lite=false) for labels
     }
     if profile_data:
         response_data["profile"] = profile_data
@@ -272,7 +272,7 @@ async def handle_compare_agents(arguments: Dict[str, Any]) -> Sequence[TextConte
             "differences": differences,
             "outliers": outliers
         },
-        "eisv_labels": UNITARESMonitor.get_eisv_labels()
+        # eisv_labels omitted by default — use get_governance_metrics(lite=false) for labels
     }
     
     return success_response(response_data)
@@ -521,8 +521,6 @@ async def handle_compare_me_to_similar(arguments: Dict[str, Any]) -> Sequence[Te
             "description": "Fallback insights (no threshold-triggered patterns detected)"
         })
     
-    comparison_data["eisv_labels"] = UNITARESMonitor.get_eisv_labels()
-    
     return success_response(comparison_data)
 
 @mcp_tool("detect_anomalies", timeout=15.0, register=False)
@@ -619,7 +617,7 @@ async def handle_detect_anomalies(arguments: Dict[str, Any]) -> Sequence[TextCon
             "by_severity": by_severity,
             "by_type": by_type
         },
-        "eisv_labels": UNITARESMonitor.get_eisv_labels()
+        # eisv_labels omitted by default — use get_governance_metrics(lite=false) for labels
     })
 
 @mcp_tool("aggregate_metrics", timeout=15.0, register=False)
@@ -721,7 +719,7 @@ async def handle_aggregate_metrics(arguments: Dict[str, Any]) -> Sequence[TextCo
     # Add EISV labels for API documentation
     return success_response({
         "aggregate": aggregate_data,
-        "eisv_labels": UNITARESMonitor.get_eisv_labels()
+        # eisv_labels omitted by default — use get_governance_metrics(lite=false) for labels
     })
 
 # REMOVED: handle_get_status - redundant with status alias → get_governance_metrics

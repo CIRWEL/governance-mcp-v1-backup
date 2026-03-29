@@ -21,16 +21,34 @@ from src.logging_utils import get_logger
 logger = get_logger(__name__)
 
 
-def normalize_tags(tags: List[str]) -> List[str]:
+def normalize_tags(tags) -> List[str]:
     """Normalize tags to canonical form for consistent search.
 
     Applies: lowercase, strip whitespace, collapse separators (hyphens/underscores/spaces)
     to single hyphens, deduplicate while preserving order.
 
+    Handles string input (JSON arrays or comma-separated) gracefully since MCP
+    unified tools may pass tags as strings instead of lists.
+
     Examples:
         ["EISV", "eisv-dynamics", "eisv_framework"] → ["eisv", "eisv-dynamics", "eisv-framework"]
         ["bug", "Bug Fix", "bug-fix", "bug_fix"] → ["bug", "bug-fix"]
+        '["ux", "identity"]' → ["ux", "identity"]
+        "ux, identity" → ["ux", "identity"]
     """
+    if not tags:
+        return []
+    # Handle string input: try JSON parse, then comma-split
+    if isinstance(tags, str):
+        import json
+        try:
+            parsed = json.loads(tags)
+            if isinstance(parsed, list):
+                tags = parsed
+            else:
+                tags = [str(parsed)]
+        except (json.JSONDecodeError, ValueError):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
     seen = set()
     result = []
     for tag in tags:

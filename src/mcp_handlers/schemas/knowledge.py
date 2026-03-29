@@ -249,6 +249,8 @@ class KnowledgeParams(AgentIdentityMixin):
     details: Optional[str] = Field(None, description="Extended details for discovery (for action=store). Alias: content")
     summary: Optional[str] = Field(None, description="Discovery summary (for action=store)")
     discovery_type: Optional[str] = Field(None, description="Type: bug_found, insight, pattern, question, note, etc. (for action=store)")
+    tags: Optional[List[str]] = Field(default_factory=list, description="Tags for discovery (for action=store, search, note)")
+    severity: Optional[str] = Field(None, description="Severity: low, medium, high, critical (for action=store)")
     discovery_id: Optional[str] = Field(None, description="Discovery ID (for action=details, update)")
     status: Optional[str] = Field(None, description="Status filter/update value (open, resolved, archived, superseded)")
     agent_id: Optional[str] = Field(None, description="Filter by agent (for action=get, search)")

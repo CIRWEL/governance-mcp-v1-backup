@@ -212,7 +212,6 @@ class TestHandleObserveAgent:
         assert data["success"] is True
         assert data["agent_id"] == uuid
         assert "observation" in data
-        assert "eisv_labels" in data
 
     @pytest.mark.asyncio
     async def test_happy_path_without_pattern_analysis(self):
@@ -384,7 +383,6 @@ class TestHandleCompareAgents:
         assert len(comparison["agents"]) == 2
         assert "similarities" in comparison
         assert "outliers" in comparison
-        assert "eisv_labels" in data
 
     @pytest.mark.asyncio
     async def test_fewer_than_two_agent_ids(self):
@@ -711,8 +709,8 @@ class TestHandleCompareMeToSimilar:
         assert isinstance(data["insights"], list)
 
     @pytest.mark.asyncio
-    async def test_eisv_labels_included(self):
-        """Response includes eisv_labels."""
+    async def test_compare_me_returns_success(self):
+        """Response is successful with comparison data."""
         my_uuid = "aaaaaaaa-bbbb-cccc-dddd-000000000000"
         others = {
             "aaaaaaaa-bbbb-cccc-dddd-111111111111": {
@@ -728,7 +726,6 @@ class TestHandleCompareMeToSimilar:
 
         data = _parse(result)
         assert data["success"] is True
-        assert "eisv_labels" in data
 
 
 # ---------------------------------------------------------------------------
@@ -965,7 +962,6 @@ class TestHandleAggregateMetrics:
         assert "mean_risk_score" in agg
         assert "mean_coherence" in agg
         assert "decision_distribution" in agg
-        assert "eisv_labels" in data
 
     @pytest.mark.asyncio
     async def test_no_active_agents(self):
