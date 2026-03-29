@@ -385,7 +385,9 @@ class KnowledgeGraphAGE:
         # Without this, LIMIT N grabs the N most recent rows (mostly archived noise),
         # then post-hoc filtering removes them, returning far fewer than N results.
         if exclude_archived and not status:
-            conditions.append("d.status <> 'archived'")
+            # Use IS NULL OR to include entries with missing status (AGE NULL semantics:
+            # NULL <> 'archived' evaluates to NULL, not TRUE, so those rows get filtered out)
+            conditions.append("(d.status IS NULL OR d.status <> 'archived')")
 
         where_clause = " AND ".join(conditions) if conditions else ""
         

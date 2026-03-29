@@ -83,6 +83,7 @@ class DialecticDB:
         max_synthesis_rounds: int = None,
         synthesis_round: int = None,
         paused_agent_state: Dict = None,
+        trigger_source: str = None,
     ) -> Dict[str, Any]:
         """Create a new dialectic session."""
         await self._ensure_pool()
@@ -93,8 +94,9 @@ class DialecticDB:
                         session_id, paused_agent_id, reviewer_agent_id,
                         phase, status, session_type, topic,
                         reason, discovery_id, dispute_type,
-                        max_synthesis_rounds, synthesis_round, paused_agent_state_json
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                        max_synthesis_rounds, synthesis_round, paused_agent_state_json,
+                        trigger_source
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                 """,
                     session_id,
                     paused_agent_id,
@@ -109,6 +111,7 @@ class DialecticDB:
                     max_synthesis_rounds,
                     synthesis_round or 0,
                     json.dumps(paused_agent_state) if paused_agent_state else None,
+                    trigger_source,
                 )
                 logger.info(f"Created dialectic session {session_id[:16]}... for agent {paused_agent_id}")
                 return {"session_id": session_id, "created": True}

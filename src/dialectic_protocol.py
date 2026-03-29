@@ -484,7 +484,9 @@ class DialecticSession:
                  dispute_type: Optional[str] = None,
                  session_type: str = "recovery",
                  topic: Optional[str] = None,
-                 max_synthesis_rounds: int = 5):  # Default 5 rounds: allows negotiation while preventing infinite loops
+                 max_synthesis_rounds: int = 5,  # Default 5 rounds: allows negotiation while preventing infinite loops
+                 reason: Optional[str] = None,
+                 trigger_source: Optional[str] = None):
         self.paused_agent_id = paused_agent_id
         self.reviewer_agent_id = reviewer_agent_id
         self.paused_agent_state = paused_agent_state or {}  # Optional for exploration sessions
@@ -492,6 +494,8 @@ class DialecticSession:
         self.dispute_type = dispute_type  # Optional: "dispute", "correction", "verification", None (recovery)
         self.session_type = session_type  # "recovery", "dispute", or "exploration"
         self.topic = topic  # Optional topic/theme for exploration sessions
+        self.reason = reason  # Why the session was created (human-readable)
+        self.trigger_source = trigger_source  # "circuit_breaker", "manual", "loop_detection", etc.
         # Exploration sessions can have more rounds (default: 10 for exploration, 5 for recovery)
         self.max_synthesis_rounds = max_synthesis_rounds if session_type != "exploration" else max(max_synthesis_rounds, 10)
 
@@ -1060,6 +1064,8 @@ class DialecticSession:
             "topic": getattr(self, 'topic', None),  # New: exploration topic
             "paused_agent_state": self.paused_agent_state,  # Include state for reconstruction
             "awaiting_facilitation": getattr(self, 'awaiting_facilitation', False),
+            "reason": getattr(self, 'reason', None),
+            "trigger_source": getattr(self, 'trigger_source', None),
         }
 
 

@@ -267,6 +267,18 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
     topic = arguments.get("topic")
     reviewer_mode = arguments.get("reviewer_mode", "auto")  # auto|self|llm
     max_synthesis_rounds = arguments.get("max_synthesis_rounds", 5)
+    # Determine trigger source: explicit param > inferred from reason > "manual"
+    trigger_source = arguments.get("trigger_source")
+    if not trigger_source:
+        reason_lower = (reason or "").lower()
+        if "auto-recovery" in reason_lower or "auto-triggered" in reason_lower:
+            trigger_source = "circuit_breaker"
+        elif "loop" in reason_lower:
+            trigger_source = "loop_detection"
+        elif "drift" in reason_lower and "auto" in reason_lower:
+            trigger_source = "drift_detection"
+        else:
+            trigger_source = "manual"
 
     # LLM-assisted dialectic: delegate to synthetic reviewer
     if reviewer_mode == "llm":
@@ -319,6 +331,8 @@ async def handle_request_dialectic_review(arguments: Dict[str, Any]) -> Sequence
         session_type=session_type,
         topic=topic,
         max_synthesis_rounds=int(max_synthesis_rounds or 5),
+        reason=reason,
+        trigger_source=trigger_source,
     )
 
     # Persist to PostgreSQL (single source of truth)
