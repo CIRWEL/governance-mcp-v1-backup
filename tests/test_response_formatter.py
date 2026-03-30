@@ -54,14 +54,12 @@ def _sample_response():
             "health_status": "healthy",
             "health_message": "All good",
         },
-        "sampling_params": {"temperature": 0.7},
         "trajectory_identity": {
             "trust_tier": {"name": "established"}
         },
         "history": {"decision_history": []},
         # Context fields that may be stripped
         "eisv_labels": {"E": "energy"},
-        "sampling_params_note": "note",
         "learning_context": {"key": "value"},
         "relevant_discoveries": [{"id": "d1"}],
         "onboarding": {"step": 1},
@@ -260,11 +258,6 @@ class TestStripContext:
         data = _sample_response()
         _strip_context(data, is_new_agent=False, key_was_generated=False, api_key_auto_retrieved=False)
         assert "eisv_labels" not in data
-
-    def test_strips_sampling_params_note(self):
-        data = _sample_response()
-        _strip_context(data, is_new_agent=False, key_was_generated=False, api_key_auto_retrieved=False)
-        assert "sampling_params_note" not in data
 
     def test_strips_learning_context_for_established(self):
         data = _sample_response()

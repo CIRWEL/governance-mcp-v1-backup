@@ -707,7 +707,6 @@ class UNITARESMonitor:
             'status': 'healthy' | 'moderate' | 'critical',
             'decision': {...},
             'metrics': {...},
-            'sampling_params': {...}
         }
         """
         # Compute elapsed time for gap-aware decay scaling

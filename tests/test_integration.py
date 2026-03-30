@@ -58,8 +58,6 @@ def test_process_update(monitor):
     assert 'status' in result
     assert 'decision' in result
     assert 'metrics' in result
-    assert 'sampling_params' in result
-
     print(f"   ✅ process_update successful")
     print(f"   - Status: {result['status']}")
     print(f"   - Decision: {result['decision']['action']}")
