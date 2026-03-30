@@ -291,7 +291,7 @@ def export_monitor_history(monitor: Any, format: str = 'json') -> str:
         'V_history': state.V_history,
         'coherence_history': state.coherence_history,
         'risk_history': state.risk_history,
-        'attention_history': state.risk_history,  # DEPRECATED: Use risk_history instead
+        'attention_history': state.risk_history,  # Legacy alias — risk_history is the primary field
         'decision_history': decision_history,
         'lambda1_history': lambda1_history,
         'lambda1_final': state.lambda1,

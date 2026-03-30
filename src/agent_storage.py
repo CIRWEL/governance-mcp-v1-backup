@@ -47,8 +47,8 @@ from src.logging_utils import get_logger
 logger = get_logger(__name__)
 
 
-# _sync_cache_entry removed - PostgreSQL is now the single source of truth
-# The in-memory agent_metadata cache has been deprecated (v2.4.0+)
+# _sync_cache_entry removed - PostgreSQL is the persistence layer.
+# mcp_server.agent_metadata is the active runtime cache (not deprecated).
 
 # Database initialization cache (ensures init() is called before operations)
 _db_ready_cache: Dict[int, bool] = {}
