@@ -674,8 +674,8 @@ class TestProcessAgentUpdateExtended:
             from src.mcp_handlers.core import handle_get_governance_metrics
             result = await handle_get_governance_metrics({"lite": False})
             data = _parse(result)
-            # Should still succeed
-            assert "reflection" in data
+            # Should still succeed (reflection is conditional, so check summary instead)
+            assert "summary" in data
 
     # ------------------------------------------------------------------
     # Lines 244-245: Saturation diagnostics exception in get_metrics
@@ -703,7 +703,7 @@ class TestProcessAgentUpdateExtended:
             # because unitaires_state is a MagicMock, not a real State
             result = await handle_get_governance_metrics({"lite": False})
             data = _parse(result)
-            assert "reflection" in data
+            assert "summary" in data
 
     # ------------------------------------------------------------------
     # Lines 409-411: Dialectic condition parsing exception in simulate_update

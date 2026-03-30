@@ -777,6 +777,13 @@ body {
     color: var(--text-secondary);
 }
 
+.stat-card .stat-label {
+    font-size: 0.65em;
+    color: var(--text-muted);
+    margin-top: 2px;
+    letter-spacing: 0.05em;
+}
+
 /* ============================================
    Main Content Layout
    ============================================ */

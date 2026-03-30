@@ -36,16 +36,21 @@ _transport_identity_cache: Dict[str, TransportBinding] = {}
 def _transport_cache_key(signals) -> Optional[str]:
     """Compute sticky cache key from transport signals.
 
-    Returns None for already-stable paths (mcp_session_id, x_session_id, etc.)
-    so the cache is only used for the fingerprint fallback path where
-    derive_session_key() can produce inconsistent results across tool calls.
+    Uses IP:UA fingerprint as the stable anchor for caching. This covers:
+    - The fingerprint fallback path (no mcp_session_id)
+    - Volatile mcp_session_id paths (Claude Desktop changes it per request)
+
+    Returns None only for explicitly stable headers (x_session_id, x_client_id,
+    oauth_client_id) where caching adds no value.
     """
     if not signals:
         return None
-    # Already-stable paths — no caching needed
-    if signals.mcp_session_id or signals.x_session_id or signals.x_client_id or signals.oauth_client_id:
+    # Truly stable paths — client controls the session ID, no caching needed
+    if signals.x_session_id or signals.x_client_id or signals.oauth_client_id:
         return None
-    # Only cache for IP:UA fingerprint path
+    # For mcp_session_id OR fingerprint-only: use fingerprint as stable anchor.
+    # mcp_session_id may be volatile (Claude Desktop sends a new one per request),
+    # so we anchor on the UA fingerprint which is stable across requests.
     if signals.ip_ua_fingerprint:
         return f"sticky:{signals.ip_ua_fingerprint}"
     return None
