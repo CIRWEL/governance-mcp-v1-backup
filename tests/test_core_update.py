@@ -329,17 +329,16 @@ class TestProcessAgentUpdate:
             assert "paused" in json.dumps(data).lower()
 
     @pytest.mark.asyncio
-    async def test_archived_agent_rejected(self, mock_server):
+    async def test_archived_agent_rejected(self, mock_server, mock_monitor):
         """Archived agent cannot process updates at initial check."""
         agent_uuid = "test-uuid-archived"
-        meta = _make_metadata(status="archived", archived_at="2026-01-15T12:00:00")
+        meta = _make_metadata(status="archived", archived_at="2026-01-15T12:00:00", total_updates=0)
         mock_server.agent_metadata = {agent_uuid: meta}
+        mock_server.get_or_create_monitor.return_value = mock_monitor
+        mock_server.monitors = {agent_uuid: mock_monitor}
 
-        with patch("src.mcp_handlers.core.mcp_server", mock_server), \
-             patch("src.mcp_handlers.context.get_context_agent_id", return_value=agent_uuid), \
-             patch("src.mcp_handlers.context.get_context_session_key", return_value="session-1"), \
-             patch("src.mcp_handlers.identity.handlers.ensure_agent_persisted", new_callable=AsyncMock, return_value=False):
-
+        p = self._common_patches(mock_server, agent_uuid=agent_uuid)
+        with self._apply_patches(p):
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({"response_text": "test"})
 
