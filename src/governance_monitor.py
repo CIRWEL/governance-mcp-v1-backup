@@ -1550,6 +1550,14 @@ class UNITARESMonitor:
                     'guidance': behavioral_assessment.guidance,
                 },
             }
+            # Include DNA deviation when genotyped and unhealthy
+            if self._behavioral_state.is_genotyped and behavioral_assessment.health != "healthy":
+                result['behavioral']['deviation'] = {
+                    'E': round(self._behavioral_state.deviation("E"), 2),
+                    'I': round(self._behavioral_state.deviation("I"), 2),
+                    'S': round(self._behavioral_state.deviation("S"), 2),
+                    'V': round(self._behavioral_state.deviation("V"), 2),
+                }
 
         return result
 

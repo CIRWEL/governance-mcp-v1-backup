@@ -84,6 +84,27 @@ async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent
             }
             if eisv:
                 agent_entry["eisv"] = eisv
+
+            # Overlay behavioral EISV from in-memory monitors when available
+            try:
+                monitors = getattr(mcp_server, 'monitors', None)
+                if isinstance(monitors, dict):
+                    monitor = monitors.get(agent_id)
+                    if monitor and hasattr(monitor, '_behavioral_state'):
+                        beh = monitor._behavioral_state
+                        if getattr(beh, 'confidence', 0) >= 0.3:
+                            agent_entry["behavioral"] = {
+                                "E": round(beh.E, 4),
+                                "I": round(beh.I, 4),
+                                "S": round(beh.S, 4),
+                                "V": round(beh.V, 4),
+                            }
+                        beh_verdict = getattr(monitor, '_last_behavioral_verdict', None)
+                        if beh_verdict:
+                            agent_entry.setdefault("eisv", {})["behavioral_verdict"] = beh_verdict
+            except Exception:
+                pass  # Behavioral overlay is best-effort
+
             agents.append(agent_entry)
 
         # Sort: pinned agents first, then by update count

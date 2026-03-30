@@ -382,6 +382,27 @@
                         '</div>' +
                     '</div>'
                     : '<div class="agent-metrics"><span class="text-secondary-sm">No metrics yet</span></div>') +
+                // Behavioral EISV overlay (shown when available from in-memory monitors)
+                (function () {
+                    var beh = agent.behavioral;
+                    if (!beh) return '';
+                    var bE = Number(beh.E).toFixed(3), bI = Number(beh.I).toFixed(3);
+                    var bS = Number(beh.S).toFixed(3), bV = Number(beh.V).toFixed(3);
+                    var bePct = clampPercent(beh.E), biPct = clampPercent(beh.I);
+                    var bsPct = clampPercent(beh.S);
+                    var bvPct = beh.V !== null ? Math.max(0, Math.min(100, (Math.abs(beh.V) / 0.3) * 100)) : 0;
+                    var behVerdict = (agent.eisv || {}).behavioral_verdict || '';
+                    var behVerdictHtml = behVerdict
+                        ? '<span class="verdict-badge-mini ' + (behVerdict === 'proceed' ? 'verdict-good' : behVerdict === 'guide' ? 'verdict-caution' : 'verdict-bad') + '">' + escapeHtml(behVerdict) + '</span>'
+                        : '';
+                    return '<div class="agent-metrics behavioral-metrics" title="Behavioral EISV (per-agent signal)">' +
+                        '<div class="behavioral-label">Behavioral' + (behVerdictHtml ? ' ' + behVerdictHtml : '') + '</div>' +
+                        '<div class="metric e"><div class="label">E</div><div class="val">' + bE + '</div><div class="metric-bar behavioral"><div class="metric-bar-fill" style="width: ' + bePct + '%"></div></div></div>' +
+                        '<div class="metric i"><div class="label">I</div><div class="val">' + bI + '</div><div class="metric-bar behavioral"><div class="metric-bar-fill" style="width: ' + biPct + '%"></div></div></div>' +
+                        '<div class="metric s"><div class="label">S</div><div class="val">' + bS + '</div><div class="metric-bar behavioral"><div class="metric-bar-fill" style="width: ' + bsPct + '%"></div></div></div>' +
+                        '<div class="metric v"><div class="label">V</div><div class="val">' + bV + '</div><div class="metric-bar behavioral"><div class="metric-bar-fill" style="width: ' + bvPct + '%"></div></div></div>' +
+                    '</div>';
+                })() +
             '</div>';
         }).join('');
 
@@ -586,7 +607,7 @@
 
             (eisvHtml
                 ? '<div class="detail-section">' +
-                    '<strong class="detail-section-title">EISV Metrics:</strong>' +
+                    '<strong class="detail-section-title">EISV Metrics (ODE):</strong>' +
                     '<div class="mt-sm">' + eisvHtml + '</div>' +
                   '</div>' +
                   (typeof EISVRadarChart !== 'undefined'
@@ -598,6 +619,34 @@
                       '</div>'
                     : '')
                 : '') +
+
+            // Behavioral EISV section (per-agent signal, not ODE thermostat)
+            (function () {
+                var beh = agent.behavioral;
+                if (!beh) return '';
+                var behVerdict = (agent.eisv || {}).behavioral_verdict || '';
+                var behMetrics = ['E', 'I', 'S', 'V'];
+                var behHtml = behMetrics.map(function (name) {
+                    var val = beh[name];
+                    if (val === undefined || val === null) return '';
+                    var formatted = typeof DataProcessor !== 'undefined'
+                        ? DataProcessor.formatEISVMetric(Number(val), name)
+                        : { display: Number(val).toFixed(3), interpretation: '', color: 'var(--text-primary)' };
+                    return '<div class="eisv-metric-row">' +
+                        '<div>' +
+                            '<strong style="color: ' + formatted.color + ';" class="text-mono">' + name + '</strong>' +
+                            '<span class="text-secondary-xs" style="margin-left: 8px;">' + escapeHtml(formatted.interpretation) + '</span>' +
+                        '</div>' +
+                        '<span class="text-mono-bold" style="color: ' + formatted.color + ';">' + formatted.display + '</span>' +
+                    '</div>';
+                }).filter(Boolean).join('');
+                return '<div class="detail-section">' +
+                    '<strong class="detail-section-title">Behavioral EISV' +
+                        (behVerdict ? ' <span class="verdict-badge-mini ' + (behVerdict === 'proceed' ? 'verdict-good' : behVerdict === 'guide' ? 'verdict-caution' : 'verdict-bad') + '">' + escapeHtml(behVerdict) + '</span>' : '') +
+                    ':</strong>' +
+                    '<div class="mt-sm">' + behHtml + '</div>' +
+                '</div>';
+            })() +
 
             '<div class="detail-section">' +
                 '<strong class="detail-section-title">Governance:</strong>' +

@@ -1183,8 +1183,17 @@ async function loadCalibration() {
                 valueEl.textContent = '—';
                 detailEl.textContent = 'No samples \u00b7 Fleet-wide';
             } else {
-                valueEl.textContent = result.calibrated ? 'OK' : '—';
-                detailEl.textContent = samples + ' samples \u00b7 Health ' + (th * 100).toFixed(0) + '%';
+                var healthPercent = (th * 100).toFixed(0);
+                valueEl.textContent = healthPercent + '%';
+                detailEl.textContent = samples + ' samples \u00b7 Fleet-wide';
+                // Color code: green >= 70%, yellow 40-70%, red < 40%
+                if (th >= 0.7) {
+                    valueEl.style.color = 'var(--color-success, #22c55e)';
+                } else if (th >= 0.4) {
+                    valueEl.style.color = 'var(--color-warning, #eab308)';
+                } else {
+                    valueEl.style.color = 'var(--color-danger, #ef4444)';
+                }
             }
         } else {
             valueEl.textContent = '-';

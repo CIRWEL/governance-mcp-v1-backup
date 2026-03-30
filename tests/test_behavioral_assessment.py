@@ -174,8 +174,8 @@ class TestVerdictMapping:
 
     def test_caution_verdict(self):
         # Low E + low I + high S + negative rho → caution range
-        state = _make_state(E=0.15, I=0.15, S=0.8, updates=50)
-        result = assess_behavioral_state(state, rho=-0.4, continuity_energy=0.8)
+        state = _make_state(E=0.12, I=0.12, S=0.85, updates=50)
+        result = assess_behavioral_state(state, rho=-0.5, continuity_energy=1.0)
         # Risk should be in caution range
         assert result.risk >= RISK_SAFE_THRESHOLD
 

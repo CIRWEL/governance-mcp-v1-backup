@@ -1268,6 +1268,42 @@ body {
     box-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
 }
 
+/* Behavioral EISV overlay */
+.behavioral-metrics {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px dashed var(--border-color);
+    opacity: 0.85;
+}
+
+.behavioral-label {
+    font-size: 0.65em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.metric-bar.behavioral {
+    height: 3px;
+}
+
+.metric-bar.behavioral .metric-bar-fill::after {
+    display: none;
+}
+
+/* Stat-label for card sub-headers */
+.stat-label {
+    font-size: 0.7em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+}
+
 /* ============================================
    Trust Tier Badges
    ============================================ */

@@ -1090,6 +1090,12 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
         logger.debug(f"Baseline save skipped: {e}")
 
     # Auto-emit outcome event
+    # Use behavioral coherence (real per-agent signal) when available,
+    # fall back to ODE coherence (thermostat attractor ~0.48)
+    _beh = ctx.result.get('behavioral', {}).get('assessment', {}) if ctx.result else {}
+    _beh_coherence = _beh.get('coherence')
+    _coherence_for_outcome = _beh_coherence if _beh_coherence is not None else ctx.metrics_dict.get('coherence', 0.5)
+
     ctx.outcome_event_id = None
     try:
         if ctx.response_text and ctx.complexity >= 0.3:
@@ -1108,7 +1114,7 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
                         agent_id=agent_id,
                         outcome_type='task_completed',
                         is_bad=False,
-                        outcome_score=min(1.0, ctx.metrics_dict.get('coherence', 0.5) * 1.5),
+                        outcome_score=min(1.0, _coherence_for_outcome * 1.5),
                         session_id=ctx.arguments.get('client_session_id'),
                         eisv_e=ctx.metrics_dict.get('E'),
                         eisv_i=ctx.metrics_dict.get('I'),
@@ -1132,7 +1138,7 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
                         if _conf is not None:
                             try:
                                 from src.calibration import calibration_checker
-                                _outcome_score = min(1.0, ctx.metrics_dict.get('coherence', 0.5) * 1.5)
+                                _outcome_score = min(1.0, _coherence_for_outcome * 1.5)
                                 calibration_checker.record_prediction(
                                     confidence=float(_conf),
                                     predicted_correct=(float(_conf) >= 0.5),
@@ -1151,7 +1157,7 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
                     _db = get_db()
                     if _db:
                         _summary = ctx.response_text[:500] if len(ctx.response_text) > 500 else ctx.response_text
-                        _bad_score = max(0.0, 1.0 - ctx.metrics_dict.get('coherence', 0.5) * 1.5)
+                        _bad_score = max(0.0, 1.0 - _coherence_for_outcome * 1.5)
                         _bad_oid = await _db.record_outcome_event(
                             agent_id=agent_id,
                             outcome_type='task_failed',
