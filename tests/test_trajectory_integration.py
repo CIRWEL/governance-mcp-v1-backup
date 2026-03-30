@@ -687,5 +687,105 @@ class TestComputeTrustTier:
             assert 0 <= result["tier"] <= 3
 
 
+class TestDTWSimilarity:
+    """DTW-based trajectory shape comparison."""
+
+    def test_identical_trajectories(self):
+        """Identical trajectory shapes should have similarity ~1.0."""
+        from src.trajectory_identity import _dtw_similarity
+        import math
+        s1 = [0.5 + 0.1 * math.sin(i / 5) for i in range(50)]
+        s2 = list(s1)
+        assert _dtw_similarity(s1, s2) > 0.99
+
+    def test_different_trajectories(self):
+        """Different trajectory shapes should have lower similarity."""
+        from src.trajectory_identity import _dtw_similarity
+        import math
+        s1 = [0.5 + 0.1 * math.sin(i / 5) for i in range(50)]
+        s2 = [0.5 + 0.1 * math.cos(i / 3) for i in range(50)]
+        sim = _dtw_similarity(s1, s2)
+        assert sim < 0.95
+
+    def test_time_shifted_similarity(self):
+        """Time-shifted versions should still be similar (DTW benefit)."""
+        from src.trajectory_identity import _dtw_similarity
+        import math
+        s1 = [0.5 + 0.2 * math.sin(i / 5) for i in range(50)]
+        s2 = [0.5 + 0.2 * math.sin((i + 5) / 5) for i in range(50)]
+        sim = _dtw_similarity(s1, s2)
+        assert sim > 0.7  # DTW handles phase shift
+
+    def test_empty_series(self):
+        """Empty time series should return 0.0 similarity."""
+        from src.trajectory_identity import _dtw_similarity
+        assert _dtw_similarity([], [1, 2, 3]) == 0.0
+        assert _dtw_similarity([1, 2, 3], []) == 0.0
+
+    def test_dtw_in_similarity_method(self):
+        """DTW should increase discrimination when trajectory data is present."""
+        from src.trajectory_identity import TrajectorySignature
+        import math
+
+        traj_a = [0.5 + 0.1 * math.sin(i / 5) for i in range(50)]
+        traj_b = [0.5 + 0.1 * math.cos(i / 3) for i in range(50)]
+
+        sig1 = TrajectorySignature(
+            attractor={
+                "center": [0.5, 0.5, 0.5, 0.0],
+                "E_trajectory": traj_a,
+                "I_trajectory": traj_a,
+                "S_trajectory": traj_a,
+                "V_trajectory": traj_a,
+            },
+            beliefs={"values": [0.8, 0.6]},
+            stability_score=0.8,
+        )
+        sig_same = TrajectorySignature(
+            attractor={
+                "center": [0.5, 0.5, 0.5, 0.0],
+                "E_trajectory": traj_a,
+                "I_trajectory": traj_a,
+                "S_trajectory": traj_a,
+                "V_trajectory": traj_a,
+            },
+            beliefs={"values": [0.8, 0.6]},
+            stability_score=0.8,
+        )
+        sig_diff = TrajectorySignature(
+            attractor={
+                "center": [0.5, 0.5, 0.5, 0.0],
+                "E_trajectory": traj_b,
+                "I_trajectory": traj_b,
+                "S_trajectory": traj_b,
+                "V_trajectory": traj_b,
+            },
+            beliefs={"values": [0.8, 0.6]},
+            stability_score=0.8,
+        )
+
+        sim_same = sig1.similarity(sig_same)
+        sim_diff = sig1.similarity(sig_diff)
+        # Same trajectory shapes should score higher
+        assert sim_same > sim_diff
+
+    def test_graceful_degradation_no_trajectory(self):
+        """Without trajectory data, similarity should still work (existing behavior)."""
+        from src.trajectory_identity import TrajectorySignature
+
+        sig1 = TrajectorySignature(
+            attractor={"center": [0.5, 0.5, 0.5, 0.0]},
+            beliefs={"values": [0.8, 0.6]},
+            stability_score=0.8,
+        )
+        sig2 = TrajectorySignature(
+            attractor={"center": [0.5, 0.5, 0.5, 0.0]},
+            beliefs={"values": [0.8, 0.6]},
+            stability_score=0.8,
+        )
+        sim = sig1.similarity(sig2)
+        assert sim > 0.9  # Should be very similar without DTW
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

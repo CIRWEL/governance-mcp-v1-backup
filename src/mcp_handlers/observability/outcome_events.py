@@ -170,3 +170,35 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
             "regime": eisv_regime,
         } if eisv else None,
     })
+
+
+@mcp_tool("outcome_correlation", timeout=30.0)
+async def handle_outcome_correlation(arguments: Dict[str, Any]) -> Sequence[TextContent]:
+    """Run outcome correlation study: does EISV instability predict bad outcomes?"""
+    from src.outcome_correlation import OutcomeCorrelation
+    from ..context import get_context_agent_id
+    import dataclasses
+
+    agent_id = arguments.get("agent_id") or get_context_agent_id()
+    since_hours = float(arguments.get("since_hours", 168))
+
+    try:
+        study = OutcomeCorrelation()
+        report = await study.run(agent_id=agent_id, since_hours=since_hours)
+
+        if report.total_outcomes == 0:
+            return [error_response(
+                f"No outcome events found in the last {since_hours:.0f} hours"
+                + (f" for agent {agent_id}" if agent_id else ""),
+                error_code="NO_DATA",
+                error_category="validation_error",
+            )]
+
+        return success_response(dataclasses.asdict(report))
+    except Exception as e:
+        logger.error(f"Outcome correlation failed: {e}")
+        return [error_response(
+            f"Correlation study failed: {e}",
+            error_code="STUDY_ERROR",
+            error_category="system_error",
+        )]

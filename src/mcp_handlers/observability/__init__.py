@@ -7,7 +7,7 @@ from .handlers import (
     handle_detect_anomalies,
     handle_aggregate_metrics,
 )
-from .outcome_events import handle_outcome_event
+from .outcome_events import handle_outcome_event, handle_outcome_correlation
 
 __all__ = [
     "handle_observe_agent",
@@ -16,4 +16,5 @@ __all__ = [
     "handle_detect_anomalies",
     "handle_aggregate_metrics",
     "handle_outcome_event",
+    "handle_outcome_correlation",
 ]

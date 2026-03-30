@@ -121,10 +121,6 @@ def run_enhanced_updates(agent_id):
         print(f"   Lambda1: {result['metrics']['lambda1']:.4f}")
         print(f"   Risk: {result['metrics']['risk_score']:.4f}")
         print(f"   Void: {'Yes' if result['metrics']['void_active'] else 'No'}")
-        print(f"\n🎛️  Sampling Params:")
-        print(f"   Temperature: {result['sampling_params']['temperature']:.3f}")
-        print(f"   Top-p: {result['sampling_params']['top_p']:.3f}")
-        print(f"   Max tokens: {result['sampling_params']['max_tokens']}")
 
 
 def demonstrate_lifecycle(agent_id):

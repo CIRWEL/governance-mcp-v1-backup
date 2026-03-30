@@ -143,7 +143,6 @@ def _make_mock_mcp_server(agent_metadata=None, monitors=None):
             "regime": "EXPLORATION",
             "phi": 0.0,
         },
-        "sampling_params": {"temperature": 0.5, "max_tokens": 100},
         "guidance": "Continue current approach.",
     })
 

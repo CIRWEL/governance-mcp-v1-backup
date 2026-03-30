@@ -5,6 +5,12 @@ This module enforces complete EISV reporting to prevent selection bias.
 Never report E, I, S without V - always show all four together.
 
 Design principle: Make incomplete reporting impossible at the type level.
+
+NOTE: Two EISV engines coexist. The ODE dynamics engine (governance_core)
+runs as a diagnostic parallel to the behavioral EISV system. Behavioral
+verdicts are the primary decision source (see governance_monitor.py).
+The ODE's E, I, S, V values in EISVMetrics may differ from the behavioral
+state's E, I, S, V (which are EMA-smoothed observations).
 """
 
 from typing import Dict, Optional, Tuple, NamedTuple

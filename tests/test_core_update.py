@@ -143,7 +143,6 @@ def _make_mock_mcp_server(agent_metadata=None, monitors=None):
             "regime": "EXPLORATION",
             "phi": 0.0,
         },
-        "sampling_params": {"temperature": 0.5, "max_tokens": 100},
         "guidance": "Continue current approach.",
     })
 
@@ -1081,7 +1080,6 @@ class TestProcessAgentUpdateExtended:
         mock_server.process_update_authenticated_async = AsyncMock(return_value={
             "status": "ok",
             "decision": {"action": "approve", "confidence": 0.8},
-            "sampling_params": {"temperature": 0.5, "max_tokens": 100},
             "guidance": "Continue.",
         })
 
@@ -1234,7 +1232,6 @@ class TestProcessAgentUpdateExtended:
                 "phi": 0.0,
                 "complexity": 0.8,  # System derived: 0.8
             },
-            "sampling_params": {"temperature": 0.5, "max_tokens": 100},
             "guidance": "Continue.",
         })
         mock_server.get_or_create_monitor.return_value = mock_monitor
@@ -1400,7 +1397,6 @@ class TestProcessAgentUpdateExtended:
         mock_server.process_update_authenticated_async = AsyncMock(return_value={
             "status": "ok",
             "decision": {"action": "approve"},
-            "sampling_params": {"temperature": 0.5, "max_tokens": 100},
         })
 
         p = self._common_patches(mock_server, agent_uuid=agent_uuid)
@@ -1435,7 +1431,6 @@ class TestProcessAgentUpdateExtended:
                 "health_status": "healthy", "health_message": "ok",
                 "verdict": "continue", "regime": "EXPLORATION", "phi": 0.0,
             },
-            "sampling_params": {"temperature": 0.5, "max_tokens": 100},
         })
 
         p = self._common_patches(mock_server, agent_uuid=agent_uuid)
@@ -1532,43 +1527,6 @@ class TestProcessAgentUpdateExtended:
 
                 data = _parse(result)
                 assert isinstance(data, dict)
-
-    # ------------------------------------------------------------------
-    # Lines 1390-1393: Sampling params temperature interpretation
-    # ------------------------------------------------------------------
-    @pytest.mark.asyncio
-    async def test_sampling_params_temperature_descriptions(self, mock_server, mock_monitor):
-        """Different temperature values get correct descriptions."""
-        agent_uuid = "test-uuid-temp"
-        meta = _make_metadata(status="active", total_updates=5)
-        mock_server.agent_metadata = {agent_uuid: meta}
-        mock_server.get_or_create_monitor.return_value = mock_monitor
-        mock_server.monitors = {agent_uuid: mock_monitor}
-
-        # Test high temperature
-        mock_server.process_update_authenticated_async = AsyncMock(return_value={
-            "status": "ok",
-            "decision": {"action": "approve", "confidence": 0.8},
-            "metrics": {
-                "E": 0.7, "I": 0.6, "S": 0.2, "V": 0.0,
-                "coherence": 0.52, "risk_score": 0.3,
-                "verdict": "continue", "regime": "EXPLORATION",
-                "phi": 0.0,
-            },
-            "sampling_params": {"temperature": 0.95, "max_tokens": 200},
-            "guidance": "Explore.",
-        })
-
-        p = self._common_patches(mock_server, agent_uuid=agent_uuid)
-        with self._apply_patches(p):
-            from src.mcp_handlers.core import handle_process_agent_update
-            result = await handle_process_agent_update({
-                "response_text": "exploring ideas",
-                "complexity": 0.5,
-            })
-
-            data = _parse(result)
-            assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
     # Lines 1424-1427, 1437: Relevant discoveries scored by overlap
@@ -1748,7 +1706,6 @@ class TestProcessAgentUpdateExtended:
                 "phi": 0.0,
                 "health_status": "healthy", "health_message": "ok",
             },
-            "sampling_params": {"temperature": 0.5, "max_tokens": 100},
         })
         from src.health_thresholds import HealthStatus
         mock_server.health_checker.get_health_status.return_value = (HealthStatus.HEALTHY, "Healthy")
@@ -1798,7 +1755,6 @@ class TestProcessAgentUpdateExtended:
                 "health_status": "healthy", "health_message": "ok",
                 "unitares_v41": {"basin": "stable", "I_star": 0.77},
             },
-            "sampling_params": {"temperature": 0.5, "max_tokens": 100},
         })
         mock_server.get_or_create_monitor.return_value = mock_monitor
         mock_server.monitors = {agent_uuid: mock_monitor}
@@ -2119,7 +2075,6 @@ class TestProcessAgentUpdateExtended:
                 "phi": 0.0,
                 "health_status": "moderate", "health_message": "ok",
             },
-            "sampling_params": {"temperature": 0.7, "max_tokens": 100},
         })
 
         p = self._common_patches(mock_server, agent_uuid=agent_uuid)
@@ -2314,7 +2269,6 @@ class TestProcessAgentUpdateExtended:
                 "phi": 0.0,
                 "health_status": "moderate", "health_message": "ok",
             },
-            "sampling_params": {"temperature": 0.7, "max_tokens": 100},
         })
         mock_server.get_or_create_monitor.return_value = mock_monitor
         mock_server.monitors = {agent_uuid: mock_monitor}
@@ -2443,7 +2397,6 @@ class TestProcessAgentUpdateExtended:
                 "phi": 0.0,
                 "health_status": "healthy", "health_message": "ok",
             },
-            "sampling_params": {"temperature": 0.4, "max_tokens": 100},
         })
 
         p = self._common_patches(mock_server, agent_uuid=agent_uuid)
@@ -2457,37 +2410,3 @@ class TestProcessAgentUpdateExtended:
             data = _parse(result)
             assert isinstance(data, dict)
 
-    # ------------------------------------------------------------------
-    # Sampling params: balanced temperature
-    # ------------------------------------------------------------------
-    @pytest.mark.asyncio
-    async def test_sampling_params_balanced_temperature(self, mock_server, mock_monitor):
-        """Balanced temperature (0.65-0.9) gets correct description."""
-        agent_uuid = "test-uuid-bal"
-        meta = _make_metadata(status="active", total_updates=5)
-        mock_server.agent_metadata = {agent_uuid: meta}
-        mock_server.get_or_create_monitor.return_value = mock_monitor
-        mock_server.monitors = {agent_uuid: mock_monitor}
-
-        mock_server.process_update_authenticated_async = AsyncMock(return_value={
-            "status": "ok",
-            "decision": {"action": "approve"},
-            "metrics": {
-                "E": 0.7, "I": 0.6, "S": 0.2, "V": 0.0,
-                "coherence": 0.52, "risk_score": 0.3,
-                "verdict": "continue", "regime": "EXPLORATION",
-                "phi": 0.0,
-            },
-            "sampling_params": {"temperature": 0.75, "max_tokens": 150},
-        })
-
-        p = self._common_patches(mock_server, agent_uuid=agent_uuid)
-        with self._apply_patches(p):
-            from src.mcp_handlers.core import handle_process_agent_update
-            result = await handle_process_agent_update({
-                "response_text": "balanced work",
-                "complexity": 0.5,
-            })
-
-            data = _parse(result)
-            assert isinstance(data, dict)

@@ -838,7 +838,11 @@ class UNITARESMonitor:
         )
         self._last_behavioral_verdict = behavioral_assessment.verdict
 
-        # Step 1: Update thermodynamic state with GROUNDED inputs
+        # ── ODE Dynamics (Diagnostic) ──
+        # The ODE engine runs in parallel but does NOT drive verdicts when
+        # BEHAVIORAL_VERDICT_ENABLED is True (default). Primary verdicts
+        # come from behavioral assessment (EMA + z-score deviations).
+        # ODE provides: phi objective, regime detection, historical continuity.
         self.update_dynamics(grounded_agent_state, dt=effective_dt)
 
         # Step 1b: Confidence handling
@@ -907,11 +911,11 @@ class UNITARESMonitor:
             self._compute_phi_and_risk(grounded_agent_state, agent_state, task_type)
         )
 
-        # Phase 2: Behavioral verdict switchover (config-gated)
+        # ── Behavioral Verdict Override ──
+        # Behavioral assessment is the PRIMARY verdict source. ODE verdict
+        # is computed above but overwritten here.
         from config.governance_config import GovernanceConfig as GovConfig
         if GovConfig.BEHAVIORAL_VERDICT_ENABLED and self._behavioral_state.confidence >= 0.3:
-            # Behavioral assessment becomes primary verdict source
-            # Map behavioral verdict to ODE verdict format
             beh_verdict_map = {"safe": "safe", "caution": "caution", "high-risk": "high-risk"}
             unitares_verdict = beh_verdict_map.get(behavioral_assessment.verdict, unitares_verdict)
             risk_score = behavioral_assessment.risk

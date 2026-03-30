@@ -16,10 +16,73 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import json
+import math
 
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
+
+
+def _dtw_distance(s1: List[float], s2: List[float]) -> float:
+    """Dynamic Time Warping distance between two 1D time series.
+
+    O(n*m) DP. For typical governance history lengths (100 samples),
+    this is ~10,000 operations — trivially fast.
+
+    Returns normalized distance in [0, inf). Lower = more similar.
+    """
+    n, m = len(s1), len(s2)
+    if n == 0 or m == 0:
+        return float("inf")
+
+    dtw = [[float("inf")] * (m + 1) for _ in range(n + 1)]
+    dtw[0][0] = 0.0
+
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            cost = abs(s1[i - 1] - s2[j - 1])
+            dtw[i][j] = cost + min(dtw[i - 1][j], dtw[i][j - 1], dtw[i - 1][j - 1])
+
+    return dtw[n][m] / max(n, m)
+
+
+def _dtw_similarity(s1: List[float], s2: List[float]) -> float:
+    """Convert DTW distance to similarity score in [0, 1].
+
+    Uses exponential kernel: sim = exp(-distance * 2.0).
+    """
+    dist = _dtw_distance(s1, s2)
+    if dist == float("inf"):
+        return 0.0
+    return math.exp(-dist * 2.0)
+
+
+def _eisv_trajectory_similarity(
+    sig1: "TrajectorySignature",
+    sig2: "TrajectorySignature",
+) -> Optional[float]:
+    """Compare EISV trajectory shapes using per-dimension DTW.
+
+    Looks for E_trajectory, I_trajectory, S_trajectory, V_trajectory
+    in the attractor dict. Returns None if insufficient data (< 10 samples).
+    """
+    a1 = sig1.attractor or {}
+    a2 = sig2.attractor or {}
+
+    dimensions = ["E", "I", "S", "V"]
+    sims = []
+
+    for dim in dimensions:
+        key = f"{dim}_trajectory"
+        t1 = a1.get(key, [])
+        t2 = a2.get(key, [])
+        if len(t1) >= 10 and len(t2) >= 10:
+            sims.append(_dtw_similarity(t1, t2))
+
+    if not sims:
+        return None
+
+    return sum(sims) / len(sims)
 
 
 @dataclass
@@ -104,7 +167,6 @@ class TrajectorySignature:
         t1 = self.recovery.get("tau_estimate")
         t2 = other.recovery.get("tau_estimate")
         if t1 and t2 and t1 > 0 and t2 > 0:
-            import math
             log_ratio = abs(math.log(t1 / t2))
             scores.append(math.exp(-log_ratio))
             weights.append(0.2)
@@ -113,6 +175,12 @@ class TrajectorySignature:
         if self.stability_score > 0 and other.stability_score > 0:
             scores.append(1 - abs(self.stability_score - other.stability_score))
             weights.append(0.1)
+
+        # Trajectory shape similarity via DTW (when trajectory data available)
+        dtw_sim = _eisv_trajectory_similarity(self, other)
+        if dtw_sim is not None:
+            scores.append(dtw_sim)
+            weights.append(0.25)
 
         if not scores:
             return 0.5  # No data to compare
