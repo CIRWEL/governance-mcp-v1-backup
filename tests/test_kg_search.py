@@ -37,16 +37,7 @@ from src.knowledge_graph import DiscoveryNode, ResponseTo
 # Shared helpers
 # ============================================================================
 
-def parse_result(result):
-    """Parse TextContent result into dict.
-
-    Handles both Sequence[TextContent] (from success_response) and
-    bare TextContent (from some error_response calls).
-    """
-    from mcp.types import TextContent
-    if isinstance(result, TextContent):
-        return json.loads(result.text)
-    return json.loads(result[0].text)
+from tests.helpers import parse_result
 
 
 def make_discovery(

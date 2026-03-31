@@ -44,11 +44,7 @@ sys.path.insert(0, str(project_root))
 # Helpers
 # ============================================================================
 
-def _parse(result):
-    """Parse TextContent result(s) into a dict."""
-    if isinstance(result, (list, tuple)):
-        return json.loads(result[0].text)
-    return json.loads(result.text)
+from tests.helpers import parse_result
 
 
 # ============================================================================

@@ -38,6 +38,8 @@ from datetime import datetime, timedelta, timezone
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from tests.helpers import parse_result
+
 
 # ============================================================================
 # Shared Fixtures
@@ -619,19 +621,6 @@ class TestOnboardPinExceptionPaths:
 
 
 # ============================================================================
-# Helper to parse TextContent results from handler functions
-# ============================================================================
-
-def _parse(result):
-    """Extract JSON data from Sequence[TextContent] or single TextContent."""
-    if isinstance(result, (list, tuple)):
-        text_content = result[0]
-    else:
-        text_content = result
-    return json.loads(text_content.text)
-
-
-# ============================================================================
 # handle_bind_session - explicit binding guardrails
 # ============================================================================
 
@@ -664,7 +653,7 @@ class TestHandleBindSession:
                 "agent_id": target_agent_id,
                 "resume": True,
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["bound"] is True
@@ -690,7 +679,7 @@ class TestHandleBindSession:
                 "agent_id": "GPT_Code_20260315",
                 "resume": True,
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
         assert "mismatch" in data["error"]
@@ -704,7 +693,7 @@ class TestHandleBindSession:
             "client_session_id": "agent-abc123",
             "strict": True,
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
         assert "requires agent_id" in data["error"]
@@ -717,7 +706,7 @@ class TestHandleBindSession:
         result = await handle_bind_session({
             "client_session_id": "agent-abc123",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
         assert "resume=true" in data["error"]
@@ -760,7 +749,7 @@ class TestHandleIdentityAdapter:
         mock_db.get_session.return_value = None
 
         result = await handle_identity_adapter({"client_session_id": "test-sess-1"})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert "uuid" in data
@@ -791,7 +780,7 @@ class TestHandleIdentityAdapter:
             "name": "TestBot",
             "resume": True,
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["uuid"] == test_uuid
@@ -812,7 +801,7 @@ class TestHandleIdentityAdapter:
         mock_db.get_agent_label.return_value = "ExistingAgent"
 
         result = await handle_identity_adapter({"client_session_id": "resume-test", "resume": True})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["uuid"] == test_uuid
@@ -831,7 +820,7 @@ class TestHandleIdentityAdapter:
             "client_session_id": "model-new-test",
             "model_type": "claude-opus-4",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert "Claude_Opus_4" in data.get("agent_id", "")
@@ -849,7 +838,7 @@ class TestHandleIdentityAdapter:
             "client_session_id": "gemini-test",
             "model_type": "gemini-pro-1.5",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -866,7 +855,7 @@ class TestHandleIdentityAdapter:
             "client_session_id": "gpt-test",
             "model_type": "gpt-4-turbo",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -883,7 +872,7 @@ class TestHandleIdentityAdapter:
             "client_session_id": "composer-test",
             "model_type": "cursor-composer",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -900,7 +889,7 @@ class TestHandleIdentityAdapter:
             "client_session_id": "llama-test",
             "model_type": "llama-3.1-70b",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -917,7 +906,7 @@ class TestHandleIdentityAdapter:
             "client_session_id": "force-new-adapter",
             "force_new": True,
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -934,7 +923,7 @@ class TestHandleIdentityAdapter:
             "client_session_id": "model-response-test",
             "model_type": "claude-opus-4",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data.get("model_type") == "claude-opus-4"
 
@@ -949,7 +938,7 @@ class TestHandleIdentityAdapter:
         # The decorator passes arguments=arguments, so None would come from decorator
         # but the function defaults to {} if None. Test with empty dict.
         result = await handle_identity_adapter({})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -983,7 +972,7 @@ class TestHandleIdentityAdapter:
             "model_type": "claude-opus-4",
             "resume": True,
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1007,7 +996,7 @@ class TestHandleIdentityAdapter:
             "name": "NewName",
             "resume": True,
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1058,7 +1047,7 @@ class TestHandleOnboardV2:
         ]
 
         result = await handle_onboard_v2({"client_session_id": "onboard-new"})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["is_new"] is True
@@ -1090,7 +1079,7 @@ class TestHandleOnboardV2:
         mock_db.create_session = AsyncMock()
 
         result = await handle_onboard_v2({"client_session_id": "onboard-resume"})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["is_new"] is False
@@ -1117,7 +1106,7 @@ class TestHandleOnboardV2:
             "client_session_id": "onboard-resume-false",
             "resume": False,
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["is_new"] is True
@@ -1143,7 +1132,7 @@ class TestHandleOnboardV2:
             "name": "NamedAgent",
             "resume": True,
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["uuid"] == test_uuid
@@ -1163,7 +1152,7 @@ class TestHandleOnboardV2:
             "client_session_id": "onboard-force-new",
             "force_new": True,
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["is_new"] is True  # force_new_applied moved behind verbose=true
@@ -1183,7 +1172,7 @@ class TestHandleOnboardV2:
             "force_new": True,
             "model_type": "claude-opus-4",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1204,7 +1193,7 @@ class TestHandleOnboardV2:
             "client_session_id": "onboard-gemini",
             "model_type": "gemini-pro",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1225,7 +1214,7 @@ class TestHandleOnboardV2:
             "client_session_id": "onboard-gpt",
             "model_type": "chatgpt-4o",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1246,7 +1235,7 @@ class TestHandleOnboardV2:
             "client_session_id": "onboard-llama",
             "model_type": "llama-3.1-70b",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1270,7 +1259,7 @@ class TestHandleOnboardV2:
                 "client_session_id": "onboard-label",
                 "name": "MyNewAgent",
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1304,7 +1293,7 @@ class TestHandleOnboardV2:
                     "observation_count": 10,
                 },
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert "trajectory" in data
@@ -1330,7 +1319,7 @@ class TestHandleOnboardV2:
                 "resume": True,
                 "trajectory_signature": {"some": "data"},
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert "trajectory" not in data  # Not included on failure
@@ -1352,7 +1341,7 @@ class TestHandleOnboardV2:
             "client_session_id": "kwargs-test",
             "kwargs": json.dumps({"model_type": "claude-opus-4"}),
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1373,7 +1362,7 @@ class TestHandleOnboardV2:
             "client_session_id": "kwargs-invalid",
             "kwargs": "not valid json{{{",
         })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True  # Should not crash
 
@@ -1394,7 +1383,7 @@ class TestHandleOnboardV2:
              patch("src.tool_modes.get_tools_for_mode", return_value=["t1", "t2", "t3"]), \
              patch("src.tool_schemas.get_tool_definitions", return_value={"t1": {}, "t2": {}, "t3": {}, "t4": {}, "t5": {}}):
             result = await handle_onboard_v2({"client_session_id": "tool-mode-test", "resume": True, "verbose": True})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert "tool_mode" in data
@@ -1417,7 +1406,7 @@ class TestHandleOnboardV2:
 
         with patch("src.tool_modes.TOOL_MODE", side_effect=Exception("No module")):
             result = await handle_onboard_v2({"client_session_id": "tool-mode-fail", "resume": True})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1436,7 +1425,7 @@ class TestHandleOnboardV2:
 
         with patch("src.mcp_handlers.context.get_context_client_hint", return_value="chatgpt"):
             result = await handle_onboard_v2({"client_session_id": "chatgpt-tips", "resume": True, "verbose": True})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         tip = data.get("session_continuity", {}).get("tip", "")
@@ -1455,7 +1444,7 @@ class TestHandleOnboardV2:
         # This triggers the except block at line 1613 which returns error_response
         with patch("src.mcp_handlers.identity.handlers.ensure_agent_persisted", side_effect=Exception("Fatal persist error")):
             result = await handle_onboard_v2({"client_session_id": "persist-fail"})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data.get("success") is False
         assert "persist" in data.get("error", "").lower()
@@ -1474,7 +1463,7 @@ class TestHandleOnboardV2:
         ]
 
         result = await handle_onboard_v2(None)
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1492,7 +1481,7 @@ class TestHandleOnboardV2:
         ]
 
         result = await handle_onboard_v2({"client_session_id": "fallback-id-test"})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         # agent_id should be generated, not an empty UUID
@@ -1516,7 +1505,7 @@ class TestHandleOnboardV2:
         mock_db.update_agent_fields.return_value = True
 
         result = await handle_onboard_v2({"client_session_id": "onboard-archived", "resume": True})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["is_new"] is False
@@ -1540,7 +1529,7 @@ class TestHandleVerifyTrajectoryIdentity:
 
         with patch("src.mcp_handlers.context.get_context_agent_id", return_value=None):
             result = await handle_verify_trajectory_identity({})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
         assert "identity" in data["error"].lower() or "resolved" in data["error"].lower()
@@ -1552,7 +1541,7 @@ class TestHandleVerifyTrajectoryIdentity:
 
         with patch("src.mcp_handlers.context.get_context_agent_id", return_value="uuid-123"):
             result = await handle_verify_trajectory_identity({})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
         assert "trajectory_signature" in data["error"]
@@ -1564,7 +1553,7 @@ class TestHandleVerifyTrajectoryIdentity:
 
         with patch("src.mcp_handlers.context.get_context_agent_id", return_value="uuid-123"):
             result = await handle_verify_trajectory_identity({"trajectory_signature": "not a dict"})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
 
@@ -1589,7 +1578,7 @@ class TestHandleVerifyTrajectoryIdentity:
                 "coherence_threshold": 0.7,
                 "lineage_threshold": 0.6,
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["verified"] is True
@@ -1610,7 +1599,7 @@ class TestHandleVerifyTrajectoryIdentity:
             result = await handle_verify_trajectory_identity({
                 "trajectory_signature": {"preferences": {}},
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
 
@@ -1630,7 +1619,7 @@ class TestHandleVerifyTrajectoryIdentity:
             result = await handle_verify_trajectory_identity({
                 "trajectory_signature": {"preferences": {}},
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
         error_msg = data.get("error", "").lower()
@@ -1650,7 +1639,7 @@ class TestHandleGetTrajectoryStatus:
 
         with patch("src.mcp_handlers.context.get_context_agent_id", return_value=None):
             result = await handle_get_trajectory_status({})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
 
@@ -1677,7 +1666,7 @@ class TestHandleGetTrajectoryStatus:
              patch("src.trajectory_identity.compute_trust_tier", return_value=mock_trust_tier), \
              patch("src.db.get_db", return_value=mock_db):
             result = await handle_get_trajectory_status({})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["has_genesis"] is True
@@ -1693,7 +1682,7 @@ class TestHandleGetTrajectoryStatus:
         with patch("src.mcp_handlers.context.get_context_agent_id", return_value="uuid-status"), \
              patch("src.trajectory_identity.get_trajectory_status", new_callable=AsyncMock, return_value=mock_status_result):
             result = await handle_get_trajectory_status({})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
 
@@ -1705,7 +1694,7 @@ class TestHandleGetTrajectoryStatus:
         with patch("src.mcp_handlers.context.get_context_agent_id", return_value="uuid-status"), \
              patch("src.trajectory_identity.get_trajectory_status", side_effect=Exception("Module error")):
             result = await handle_get_trajectory_status({})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is False
         assert "failed" in data["error"].lower()
@@ -1725,7 +1714,7 @@ class TestHandleGetTrajectoryStatus:
              patch("src.trajectory_identity.compute_trust_tier", side_effect=Exception("No trust data")), \
              patch("src.db.get_db", side_effect=Exception("DB down")):
             result = await handle_get_trajectory_status({})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["has_genesis"] is True
@@ -1804,7 +1793,7 @@ class TestIdentityAdapterStructuredIdRegeneration:
                 "model_type": "claude-opus-4",
                 "force_new": True,  # Skip base key lookup
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -1854,7 +1843,7 @@ class TestOnboardForceNewModelNormalization:
             "force_new": True,
             "model_type": "gemini-pro-1.5",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     @pytest.mark.asyncio
@@ -1872,7 +1861,7 @@ class TestOnboardForceNewModelNormalization:
             "force_new": True,
             "model_type": "gpt-4-turbo",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     @pytest.mark.asyncio
@@ -1890,7 +1879,7 @@ class TestOnboardForceNewModelNormalization:
             "force_new": True,
             "model_type": "llama-3.1-70b",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
 
@@ -1933,7 +1922,7 @@ class TestOnboardResolveSessionIdentityFailure:
                 "client_session_id": "force-resolve-fail",
                 "force_new": True,
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data.get("success") is False
         assert "failed" in data.get("error", "").lower()
@@ -1980,7 +1969,7 @@ class TestOnboardAlreadyPersistedFreshIdentity:
         # ensure_agent_persisted returns False (already persisted)
         with patch("src.mcp_handlers.identity.handlers.ensure_agent_persisted", new_callable=AsyncMock, return_value=False):
             result = await handle_onboard_v2({"client_session_id": "already-persisted"})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data["is_new"] is True
@@ -2026,7 +2015,7 @@ class TestContextUpdateExceptions:
                 "client_session_id": "ctx-fail-test",
                 "force_new": True,
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -2051,7 +2040,7 @@ class TestContextUpdateExceptions:
                 "name": "CtxFailAgent",
                 "resume": True,
             })
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data.get("resumed_by_name") is True
@@ -2108,7 +2097,7 @@ class TestOnboardStructuredIdFallback:
 
         # resume=True to reuse old UUID (escape hatch) — tests structured_id fallback
         result = await handle_onboard_v2({"client_session_id": "sid-fallback", "resume": True})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         # structured_id should be from metadata
@@ -2131,7 +2120,7 @@ class TestOnboardStructuredIdFallback:
 
         # resume=True to reuse old UUID — tests uuid prefix fallback
         result = await handle_onboard_v2({"client_session_id": "uuid-prefix-fallback", "resume": True})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
         assert data.get("agent_id", "").startswith("agent_")
@@ -2180,7 +2169,7 @@ class TestOnboardPinAndPrefixExceptions:
 
         with patch("src.mcp_handlers.identity.shared._register_uuid_prefix", side_effect=ImportError("not found")):
             result = await handle_onboard_v2({"client_session_id": "prefix-import-fail"})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True
 
@@ -2200,6 +2189,6 @@ class TestOnboardPinAndPrefixExceptions:
         with patch("src.mcp_handlers.identity.shared._register_uuid_prefix"), \
              patch("src.mcp_handlers.identity.handlers.set_onboard_pin", side_effect=Exception("Pin error")):
             result = await handle_onboard_v2({"client_session_id": "pin-exception"})
-        data = _parse(result)
+        data = parse_result(result)
 
         assert data["success"] is True

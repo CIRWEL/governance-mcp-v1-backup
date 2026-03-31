@@ -36,6 +36,12 @@
 
     <key>EnvironmentVariables</key>
     <dict>
+        <key>UNITARES_BIND_ALL_INTERFACES</key>
+        <string>1</string>
+        <key>UNITARES_MCP_ALLOWED_HOSTS</key>
+        <string>192.168.1.151:*,192.168.1.164:*,100.96.201.46:*,unitares.ngrok.io</string>
+        <key>UNITARES_MCP_ALLOWED_ORIGINS</key>
+        <string>http://192.168.1.151:*,http://192.168.1.164:*,http://100.96.201.46:*,https://unitares.ngrok.io</string>
         <key>PYTHONPATH</key>
         <string>/Users/cirwel/projects/governance-mcp-v1</string>
         <key>DB_BACKEND</key>

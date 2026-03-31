@@ -24,11 +24,7 @@ from src.dialectic_protocol import (
 
 DIALECTIC = "src.mcp_handlers.dialectic.handlers"
 
-
-def _parse(result):
-    if isinstance(result, (list, tuple)):
-        return json.loads(result[0].text)
-    return json.loads(result.text)
+from tests.helpers import parse_result
 
 
 def _make_mock_server(agents=None):
@@ -84,7 +80,7 @@ async def test_reassign_reviewer_manual():
          patch(f"{DIALECTIC}.pg_update_reviewer", new_callable=AsyncMock) as mock_update, \
          patch(f"{DIALECTIC}.pg_add_message", new_callable=AsyncMock):
         from src.mcp_handlers.dialectic.handlers import handle_reassign_reviewer
-        result = _parse(await handle_reassign_reviewer({
+        result = parse_result(await handle_reassign_reviewer({
             "session_id": session.session_id,
             "new_reviewer_id": "agent-new",
             "reason": "Previous reviewer ended session",
@@ -113,7 +109,7 @@ async def test_reassign_reviewer_auto_select():
          patch(f"{DIALECTIC}.pg_update_reviewer", new_callable=AsyncMock), \
          patch(f"{DIALECTIC}.pg_add_message", new_callable=AsyncMock):
         from src.mcp_handlers.dialectic.handlers import handle_reassign_reviewer
-        result = _parse(await handle_reassign_reviewer({
+        result = parse_result(await handle_reassign_reviewer({
             "session_id": session.session_id,
         }))
 
@@ -130,7 +126,7 @@ async def test_reassign_reviewer_no_session():
          patch(f"{DIALECTIC}.ACTIVE_SESSIONS", {}), \
          patch(f"{DIALECTIC}.load_session", new_callable=AsyncMock, return_value=None):
         from src.mcp_handlers.dialectic.handlers import handle_reassign_reviewer
-        result = _parse(await handle_reassign_reviewer({
+        result = parse_result(await handle_reassign_reviewer({
             "session_id": "nonexistent",
         }))
 
@@ -146,7 +142,7 @@ async def test_reassign_reviewer_wrong_phase():
     with patch(f"{DIALECTIC}.mcp_server", server), \
          patch(f"{DIALECTIC}.ACTIVE_SESSIONS", {session.session_id: session}):
         from src.mcp_handlers.dialectic.handlers import handle_reassign_reviewer
-        result = _parse(await handle_reassign_reviewer({
+        result = parse_result(await handle_reassign_reviewer({
             "session_id": session.session_id,
             "new_reviewer_id": "agent-new",
         }))
@@ -165,7 +161,7 @@ async def test_reassign_reviewer_self_assign():
     with patch(f"{DIALECTIC}.mcp_server", server), \
          patch(f"{DIALECTIC}.ACTIVE_SESSIONS", {session.session_id: session}):
         from src.mcp_handlers.dialectic.handlers import handle_reassign_reviewer
-        result = _parse(await handle_reassign_reviewer({
+        result = parse_result(await handle_reassign_reviewer({
             "session_id": session.session_id,
             "new_reviewer_id": "agent-paused",
         }))
@@ -185,7 +181,7 @@ async def test_reassign_reviewer_paused_agent():
     with patch(f"{DIALECTIC}.mcp_server", server), \
          patch(f"{DIALECTIC}.ACTIVE_SESSIONS", {session.session_id: session}):
         from src.mcp_handlers.dialectic.handlers import handle_reassign_reviewer
-        result = _parse(await handle_reassign_reviewer({
+        result = parse_result(await handle_reassign_reviewer({
             "session_id": session.session_id,
             "new_reviewer_id": "agent-also-paused",
         }))
@@ -205,7 +201,7 @@ async def test_reassign_reviewer_no_candidates():
          patch(f"{DIALECTIC}.ACTIVE_SESSIONS", {session.session_id: session}), \
          patch(f"{DIALECTIC}.select_reviewer", new_callable=AsyncMock, return_value=None):
         from src.mcp_handlers.dialectic.handlers import handle_reassign_reviewer
-        result = _parse(await handle_reassign_reviewer({
+        result = parse_result(await handle_reassign_reviewer({
             "session_id": session.session_id,
         }))
 
@@ -228,7 +224,7 @@ async def test_reassign_clears_awaiting_facilitation():
          patch(f"{DIALECTIC}.pg_update_reviewer", new_callable=AsyncMock), \
          patch(f"{DIALECTIC}.pg_add_message", new_callable=AsyncMock):
         from src.mcp_handlers.dialectic.handlers import handle_reassign_reviewer
-        result = _parse(await handle_reassign_reviewer({
+        result = parse_result(await handle_reassign_reviewer({
             "session_id": session.session_id,
             "new_reviewer_id": "agent-new",
         }))
@@ -277,7 +273,7 @@ async def test_reassign_during_thesis_phase():
          patch(f"{DIALECTIC}.pg_update_reviewer", new_callable=AsyncMock), \
          patch(f"{DIALECTIC}.pg_add_message", new_callable=AsyncMock):
         from src.mcp_handlers.dialectic.handlers import handle_reassign_reviewer
-        result = _parse(await handle_reassign_reviewer({
+        result = parse_result(await handle_reassign_reviewer({
             "session_id": session.session_id,
             "new_reviewer_id": "agent-new",
         }))
@@ -341,7 +337,7 @@ async def test_stuck_reviewer_triggers_reassignment():
          patch(f"{DIALECTIC}.pg_update_reviewer", new_callable=AsyncMock), \
          patch(f"{DIALECTIC}.pg_add_message", new_callable=AsyncMock):
         from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session
-        result = _parse(await handle_get_dialectic_session({
+        result = parse_result(await handle_get_dialectic_session({
             "session_id": session.session_id,
             "check_timeout": True,
         }))
@@ -376,7 +372,7 @@ async def test_stuck_reviewer_no_replacement_awaits_facilitation():
          patch(f"{DIALECTIC}.select_reviewer", new_callable=AsyncMock, return_value=None), \
          patch(f"{DIALECTIC}.pg_add_message", new_callable=AsyncMock):
         from src.mcp_handlers.dialectic.handlers import handle_get_dialectic_session
-        result = _parse(await handle_get_dialectic_session({
+        result = parse_result(await handle_get_dialectic_session({
             "session_id": session.session_id,
             "check_timeout": True,
         }))

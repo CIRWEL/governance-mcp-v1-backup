@@ -639,6 +639,7 @@ async def handle_pi_sync_eisv(arguments: Dict[str, Any]) -> Sequence[TextContent
                     f"presence={anima.get('presence', 0):.2f}"
                 ),
                 "complexity": sensor_complexity,
+                "sensor_eisv": eisv,  # Feed sensor-derived EISV to behavioral track
             }
 
             gov_result = await mcp_server.process_update_authenticated_async(
@@ -1077,7 +1078,9 @@ async def sync_eisv_once(update_governance: bool = False) -> Dict[str, Any]:
     Perform a single EISV sync from Pi to Mac.
 
     Args:
-        update_governance: Whether to update governance state with synced values
+        update_governance: Whether to update governance state with synced values.
+            When True, feeds sensor-derived EISV into both the behavioral track
+            (via sensor_eisv) and triggers an ODE step with sensor anchoring.
 
     Returns:
         Dict with sync results or error
@@ -1109,12 +1112,50 @@ async def sync_eisv_once(update_governance: bool = False) -> Dict[str, Any]:
             details={"periodic": True, "update_governance": update_governance}
         )
 
-        return {
+        sync_result = {
             "success": True,
             "anima": anima,
             "eisv": eisv,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S")
         }
+
+        # Push sensor-derived EISV into governance (behavioral track + ODE anchoring)
+        if update_governance:
+            try:
+                import numpy as np
+                stability = anima.get("stability", 0.5)
+                clarity = anima.get("clarity", 0.5)
+
+                sensor_state = {
+                    "parameters": np.array([]),
+                    "ethical_drift": np.array([0.0]),
+                    "response_text": (
+                        f"Periodic EISV sync from Pi sensors — "
+                        f"warmth={anima.get('warmth', 0):.2f}, "
+                        f"clarity={clarity:.2f}, "
+                        f"stability={stability:.2f}, "
+                        f"presence={anima.get('presence', 0):.2f}"
+                    ),
+                    "complexity": round(1.0 - stability, 3),
+                    "sensor_eisv": eisv,  # Feed sensor-derived EISV to behavioral track
+                }
+
+                gov_result = await mcp_server.process_update_authenticated_async(
+                    agent_id="eisv-sync-task",
+                    api_key=None,
+                    agent_state=sensor_state,
+                    auto_save=True,
+                    confidence=round(clarity, 3),
+                    session_bound=True,
+                )
+                sync_result["governance_updated"] = True
+                sync_result["governance_verdict"] = gov_result.get("decision", {}).get("action", "unknown")
+            except Exception as e:
+                logger.warning(f"[EISV_SYNC] Governance update failed: {e}")
+                sync_result["governance_updated"] = False
+                sync_result["governance_error"] = str(e)
+
+        return sync_result
 
     except Exception as e:
         logger.warning(f"[EISV_SYNC] Sync failed: {e}")
@@ -1124,25 +1165,28 @@ async def eisv_sync_task(interval_minutes: float = 5.0):
     """
     Background task that periodically syncs EISV from Pi to Mac.
 
-    Runs every interval_minutes and logs anima→EISV mappings.
-    This creates an audit trail of Lumen's embodied state over time.
+    Runs every interval_minutes, reads sensor-derived EISV from Pi,
+    and pushes it into the governance behavioral track. This keeps
+    Lumen's governance state anchored to physical sensor reality
+    rather than drifting with the ODE attractor.
 
     Args:
         interval_minutes: Sync interval (default: 5 minutes)
     """
-    logger.info(f"[EISV_SYNC] Starting periodic sync (interval: {interval_minutes} minutes)")
+    logger.info(f"[EISV_SYNC] Starting periodic sync (interval: {interval_minutes} min, governance: enabled)")
 
     while True:
         try:
             await asyncio.sleep(interval_minutes * 60)
 
-            result = await sync_eisv_once(update_governance=False)
+            result = await sync_eisv_once(update_governance=True)
 
             if result.get("success"):
                 eisv = result.get("eisv", {})
+                gov = "gov=yes" if result.get("governance_updated") else "gov=no"
                 logger.info(
-                    f"[EISV_SYNC] Synced: E={eisv.get('E', 0):.6f} "
-                    f"I={eisv.get('I', 0):.6f} S={eisv.get('S', 0):.6f} V={eisv.get('V', 0):.6f}"
+                    f"[EISV_SYNC] Synced ({gov}): E={eisv.get('E', 0):.3f} "
+                    f"I={eisv.get('I', 0):.3f} S={eisv.get('S', 0):.3f} V={eisv.get('V', 0):.3f}"
                 )
             else:
                 logger.warning(f"[EISV_SYNC] Sync failed: {result.get('error')}")

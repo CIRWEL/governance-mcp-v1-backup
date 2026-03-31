@@ -28,11 +28,7 @@ from enum import Enum
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _parse(result):
-    """Parse TextContent result to dict."""
-    if isinstance(result, (list, tuple)):
-        return json.loads(result[0].text)
-    return json.loads(result.text)
+from tests.helpers import parse_result
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +204,7 @@ class TestHandleObserveAgent:
             from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"target_agent_id": uuid})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["agent_id"] == uuid
         assert "observation" in data
@@ -227,7 +223,7 @@ class TestHandleObserveAgent:
                 "analyze_patterns": False,
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         obs = data["observation"]
         assert "current_state" in obs
@@ -245,7 +241,7 @@ class TestHandleObserveAgent:
             from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "target_agent_id" in data["error"].lower()
 
@@ -260,7 +256,7 @@ class TestHandleObserveAgent:
             from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"agent_id": uuid})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["agent_id"] == uuid
 
@@ -275,7 +271,7 @@ class TestHandleObserveAgent:
             from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"agent_id": caller_uuid})
 
-        data = _parse(result)
+        data = parse_result(result)
         # agent_id == caller UUID means no target resolved
         assert data["success"] is False
 
@@ -290,7 +286,7 @@ class TestHandleObserveAgent:
             from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"target_agent_id": uuid})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -310,7 +306,7 @@ class TestHandleObserveAgent:
             from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"target_agent_id": "Lumen"})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["agent_id"] == uuid
 
@@ -334,7 +330,7 @@ class TestHandleObserveAgent:
             from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"target_agent_id": "Lumen"})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["agent_id"] == uuid
 
@@ -353,7 +349,7 @@ class TestHandleObserveAgent:
             from src.mcp_handlers.observability.handlers import handle_observe_agent
             result = await handle_observe_agent({"target_agent_id": "NoSuchAgent"})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -377,7 +373,7 @@ class TestHandleCompareAgents:
             from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": [id1, id2]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         comparison = data["comparison"]
         assert len(comparison["agents"]) == 2
@@ -394,7 +390,7 @@ class TestHandleCompareAgents:
             from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": ["only-one"]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "at least 2" in data["error"].lower()
 
@@ -408,7 +404,7 @@ class TestHandleCompareAgents:
             from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": []})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -421,7 +417,7 @@ class TestHandleCompareAgents:
             from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -439,7 +435,7 @@ class TestHandleCompareAgents:
                 ]
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "could not load" in data["error"].lower()
 
@@ -458,7 +454,7 @@ class TestHandleCompareAgents:
                 "compare_metrics": ["coherence", "E"],
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert len(data["comparison"]["agents"]) == 2
 
@@ -490,7 +486,7 @@ class TestHandleCompareAgents:
             from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": [id1, id2, id3]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert len(data["comparison"]["agents"]) == 3
 
@@ -511,7 +507,7 @@ class TestHandleCompareAgents:
             from src.mcp_handlers.observability.handlers import handle_compare_agents
             result = await handle_compare_agents({"agent_ids": ["Lumen", id2]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
 
@@ -599,7 +595,7 @@ class TestHandleCompareMeToSimilar:
             from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "similar_agents" in data
         assert len(data["similar_agents"]) >= 1
@@ -620,7 +616,7 @@ class TestHandleCompareMeToSimilar:
             from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         # Should either have no similar_agents or a message
         if "similar_agents" in data:
@@ -638,7 +634,7 @@ class TestHandleCompareMeToSimilar:
             from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "no similar" in data.get("message", "").lower()
 
@@ -653,7 +649,7 @@ class TestHandleCompareMeToSimilar:
             from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -677,7 +673,7 @@ class TestHandleCompareMeToSimilar:
                 "similarity_threshold": 0.5,
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         if "similar_agents" in data:
             assert len(data["similar_agents"]) >= 1
@@ -702,7 +698,7 @@ class TestHandleCompareMeToSimilar:
             from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         # insights is always present -- may contain pattern, individual, or summary insights
         assert "insights" in data
@@ -724,7 +720,7 @@ class TestHandleCompareMeToSimilar:
             from src.mcp_handlers.observability.handlers import handle_compare_me_to_similar
             result = await handle_compare_me_to_similar({"agent_id": my_uuid})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
 
@@ -750,7 +746,7 @@ class TestHandleDetectAnomalies:
             from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["summary"]["total_anomalies"] == 0
 
@@ -780,7 +776,7 @@ class TestHandleDetectAnomalies:
                 "min_severity": "medium",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         # Only high and medium should pass the filter
         assert data["summary"]["total_anomalies"] == 2
@@ -803,7 +799,7 @@ class TestHandleDetectAnomalies:
             from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({"agent_ids": [id1]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     @pytest.mark.asyncio
@@ -816,7 +812,7 @@ class TestHandleDetectAnomalies:
             from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["summary"]["total_anomalies"] == 0
 
@@ -845,7 +841,7 @@ class TestHandleDetectAnomalies:
                 "min_severity": "low",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         # Only risk_spike should pass
         assert data["summary"]["total_anomalies"] == 1
@@ -876,7 +872,7 @@ class TestHandleDetectAnomalies:
                 "min_severity": "low",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         severities = [a["severity"] for a in data["anomalies"]]
         # High should be first
@@ -904,7 +900,7 @@ class TestHandleDetectAnomalies:
             from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({"agent_ids": [id1]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     @pytest.mark.asyncio
@@ -931,7 +927,7 @@ class TestHandleDetectAnomalies:
             from src.mcp_handlers.observability.handlers import handle_detect_anomalies
             result = await handle_detect_anomalies({"agent_ids": [id1, id2]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
 
@@ -954,7 +950,7 @@ class TestHandleAggregateMetrics:
             from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         agg = data["aggregate"]
         assert agg["total_agents"] == 2
@@ -973,7 +969,7 @@ class TestHandleAggregateMetrics:
             from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         agg = data["aggregate"]
         assert agg["total_agents"] == 0
@@ -993,7 +989,7 @@ class TestHandleAggregateMetrics:
             from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({"agent_ids": [id1]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         agg = data["aggregate"]
         assert agg["total_agents"] == 1
@@ -1009,7 +1005,7 @@ class TestHandleAggregateMetrics:
             from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "health_breakdown" in data["aggregate"]
 
@@ -1026,7 +1022,7 @@ class TestHandleAggregateMetrics:
                 "include_health_breakdown": False,
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "health_breakdown" not in data["aggregate"]
 
@@ -1041,7 +1037,7 @@ class TestHandleAggregateMetrics:
             from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
-        data = _parse(result)
+        data = parse_result(result)
         dist = data["aggregate"]["decision_distribution"]
         # Total should be sum of proceed + pause (and backward compat keys)
         assert "total" in dist
@@ -1062,7 +1058,7 @@ class TestHandleAggregateMetrics:
             from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({"agent_ids": [id1]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["aggregate"]["agents_with_data"] == 1
 
@@ -1086,7 +1082,7 @@ class TestHandleAggregateMetrics:
             from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({"agent_ids": [id1]})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         # mean_risk_score should be computed from risk_history
         assert data["aggregate"]["mean_risk_score"] > 0
@@ -1112,7 +1108,7 @@ class TestHandleAggregateMetrics:
             from src.mcp_handlers.observability.handlers import handle_aggregate_metrics
             result = await handle_aggregate_metrics({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["aggregate"]["total_updates"] == 30
 
 
@@ -1133,7 +1129,7 @@ class TestHandleObserveRouter:
             from src.mcp_handlers.consolidated import handle_observe
             result = await handle_observe({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1146,7 +1142,7 @@ class TestHandleObserveRouter:
             from src.mcp_handlers.consolidated import handle_observe
             result = await handle_observe({"action": "nonexistent"})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1163,7 +1159,7 @@ class TestHandleObserveRouter:
                 "target_agent_id": uuid,
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["agent_id"] == uuid
 
@@ -1178,7 +1174,7 @@ class TestHandleObserveRouter:
             from src.mcp_handlers.consolidated import handle_observe
             result = await handle_observe({"action": "aggregate"})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "aggregate" in data
 
@@ -1197,7 +1193,7 @@ class TestHandleObserveRouter:
                 "agent_ids": [id1, id2],
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "comparison" in data
 
@@ -1215,6 +1211,6 @@ class TestHandleObserveRouter:
             from src.mcp_handlers.consolidated import handle_observe
             result = await handle_observe({"action": "anomalies"})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "summary" in data

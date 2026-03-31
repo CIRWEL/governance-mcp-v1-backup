@@ -29,14 +29,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.db.base import AgentStateRecord
-
-
-def parse_result(result):
-    """Parse TextContent result into dict."""
-    from mcp.types import TextContent
-    if isinstance(result, TextContent):
-        return json.loads(result.text)
-    return json.loads(result[0].text)
+from tests.helpers import parse_result
 
 
 def make_metadata(

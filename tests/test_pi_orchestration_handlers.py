@@ -48,11 +48,7 @@ from mcp.types import TextContent
 # Helpers
 # ============================================================================
 
-def _parse(result):
-    """Parse TextContent result(s) into a dict."""
-    if isinstance(result, (list, tuple)):
-        return json.loads(result[0].text)
-    return json.loads(result.text)
+from tests.helpers import parse_result
 
 
 # ============================================================================
@@ -489,7 +485,7 @@ class TestHandlePiListTools:
              patch(_PATCH_HTTPX_CLIENT):
 
             result = await handle_pi_list_tools({})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["success"] is True
             assert data["count"] == 1
             assert data["tools"][0]["name"] == "say"
@@ -507,7 +503,7 @@ class TestHandlePiListTools:
              patch(_PATCH_HTTPX_CLIENT):
 
             result = await handle_pi_list_tools({})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["success"] is False
             assert "Failed to list Pi tools" in data["error"]
 
@@ -519,7 +515,7 @@ class TestHandlePiListTools:
              patch(_PATCH_HTTPX_CLIENT):
 
             result = await handle_pi_list_tools({})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["success"] is False
 
 
@@ -532,7 +528,7 @@ class TestHandlePiGetContext:
         mock_call_pi_tool.return_value = context_data
 
         result = await handle_pi_get_context({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["source"] == "pi"
         assert data["context"] == context_data
@@ -542,7 +538,7 @@ class TestHandlePiGetContext:
         mock_call_pi_tool.return_value = {"error": "Pi unreachable"}
 
         result = await handle_pi_get_context({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Failed to get Pi context" in data["error"]
 
@@ -551,7 +547,7 @@ class TestHandlePiGetContext:
         mock_call_pi_tool.return_value = {"sensors": {"temp": 25.0}}
 
         result = await handle_pi_get_context({"include": ["sensors"]})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         mock_call_pi_tool.assert_called_once_with(
             "get_lumen_context",
@@ -572,7 +568,7 @@ class TestHandlePiHealth:
         }
 
         result = await handle_pi_health({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["status"] == "healthy"
         assert data["components"]["leds"] == "ok"
@@ -588,7 +584,7 @@ class TestHandlePiHealth:
         }
 
         result = await handle_pi_health({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["status"] == "degraded"
         assert data["components"]["leds"] == "unavailable"
@@ -606,7 +602,7 @@ class TestHandlePiHealth:
         }
 
         result = await handle_pi_health({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["components"]["update_loop"] == "ok"
 
     @pytest.mark.asyncio
@@ -622,7 +618,7 @@ class TestHandlePiHealth:
         }
 
         result = await handle_pi_health({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["components"]["update_loop"] == "stopped"
 
     @pytest.mark.asyncio
@@ -631,7 +627,7 @@ class TestHandlePiHealth:
         mock_call_pi_tool.return_value = {"error": "Cannot connect to Pi"}
 
         result = await handle_pi_health({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
         _mock_audit_logger.log_device_health_check.assert_called_once()
@@ -644,7 +640,7 @@ class TestHandlePiHealth:
         mock_call_pi_tool.return_value = {"error": "sensor failure"}
 
         result = await handle_pi_health({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
         _mock_audit_logger.log_device_health_check.assert_called_once()
@@ -657,7 +653,7 @@ class TestHandlePiHealth:
         mock_call_pi_tool.return_value = {"uptime": "3 days"}
 
         result = await handle_pi_health({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["status"] == "healthy"
         assert data["components"] == {}
@@ -678,7 +674,7 @@ class TestHandlePiSyncEisv:
         }
 
         result = await handle_pi_sync_eisv({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["eisv_source"] == "mac (fallback)"
         assert "anima" in data
@@ -698,7 +694,7 @@ class TestHandlePiSyncEisv:
         }
 
         result = await handle_pi_sync_eisv({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["eisv_source"] == "pi (neural-weighted)"
         assert data["eisv"]["E"] == 0.1
@@ -708,7 +704,7 @@ class TestHandlePiSyncEisv:
         mock_call_pi_tool.return_value = {"error": "Pi offline"}
 
         result = await handle_pi_sync_eisv({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Failed to get anima state" in data["error"]
 
@@ -719,7 +715,7 @@ class TestHandlePiSyncEisv:
         }
 
         result = await handle_pi_sync_eisv({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Anima state unavailable" in data["error"]
 
@@ -744,7 +740,7 @@ class TestHandlePiSyncEisv:
                     create=True, new_callable=AsyncMock,
                     return_value=mock_gov_result):
             result = await handle_pi_sync_eisv({"update_governance": True})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["success"] is True
             assert data["governance_updated"] is True
             assert data["governance_verdict"] == "continue"
@@ -767,7 +763,7 @@ class TestHandlePiSyncEisv:
                     create=True, new_callable=AsyncMock,
                     side_effect=RuntimeError("db down")):
             result = await handle_pi_sync_eisv({"update_governance": True})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["success"] is True
             assert data["governance_updated"] is False
             assert "db down" in data["governance_error"]
@@ -781,7 +777,7 @@ class TestHandlePiDisplay:
         mock_call_pi_tool.return_value = {"screen": "face"}
 
         result = await handle_pi_display({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["action"] == "next"
         assert data["device"] == "pi"
@@ -791,7 +787,7 @@ class TestHandlePiDisplay:
         mock_call_pi_tool.return_value = {"screen": "sensors"}
 
         result = await handle_pi_display({"action": "switch", "screen": "sensors"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["action"] == "switch"
 
@@ -804,7 +800,7 @@ class TestHandlePiDisplay:
         mock_call_pi_tool.return_value = {"error": "display not available"}
 
         result = await handle_pi_display({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Display control failed" in data["error"]
 
@@ -817,7 +813,7 @@ class TestHandlePiSay:
         mock_call_pi_tool.return_value = {"status": "spoken"}
 
         result = await handle_pi_say({"text": "Hello world"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["spoken"] == "Hello world"
         assert data["device"] == "pi"
@@ -825,14 +821,14 @@ class TestHandlePiSay:
     @pytest.mark.asyncio
     async def test_empty_text_returns_error(self, mock_call_pi_tool):
         result = await handle_pi_say({"text": ""})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "text parameter required" in data["error"]
 
     @pytest.mark.asyncio
     async def test_missing_text_returns_error(self, mock_call_pi_tool):
         result = await handle_pi_say({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "text parameter required" in data["error"]
 
@@ -841,7 +837,7 @@ class TestHandlePiSay:
         mock_call_pi_tool.return_value = {"error": "TTS engine down"}
 
         result = await handle_pi_say({"text": "test"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Speech failed" in data["error"]
 
@@ -854,21 +850,21 @@ class TestHandlePiPostMessage:
         mock_call_pi_tool.return_value = {"posted": True}
 
         result = await handle_pi_post_message({"message": "Hello Lumen"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["message_posted"] is True
 
     @pytest.mark.asyncio
     async def test_empty_message_returns_error(self, mock_call_pi_tool):
         result = await handle_pi_post_message({"message": ""})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "message parameter required" in data["error"]
 
     @pytest.mark.asyncio
     async def test_missing_message_returns_error(self, mock_call_pi_tool):
         result = await handle_pi_post_message({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -881,7 +877,7 @@ class TestHandlePiPostMessage:
             "source": "agent",
             "agent_name": "TestBot",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
         call_args = mock_call_pi_tool.call_args
@@ -895,7 +891,7 @@ class TestHandlePiPostMessage:
         mock_call_pi_tool.return_value = {"posted": True}
 
         result = await handle_pi_post_message({"message": "Hello"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
         call_args = mock_call_pi_tool.call_args
@@ -907,7 +903,7 @@ class TestHandlePiPostMessage:
         mock_call_pi_tool.return_value = {"error": "message board full"}
 
         result = await handle_pi_post_message({"message": "test"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Message post failed" in data["error"]
 
@@ -920,7 +916,7 @@ class TestHandlePiLumenQa:
         mock_call_pi_tool.return_value = {"questions": [{"id": "q1", "text": "What is 1+1?"}]}
 
         result = await handle_pi_lumen_qa({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["action"] == "list"
 
@@ -932,7 +928,7 @@ class TestHandlePiLumenQa:
             "question_id": "q1",
             "answer": "2",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["action"] == "answered"
 
@@ -946,7 +942,7 @@ class TestHandlePiLumenQa:
         mock_call_pi_tool.return_value = {"error": "QA service down"}
 
         result = await handle_pi_lumen_qa({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Q&A operation failed" in data["error"]
 
@@ -955,7 +951,7 @@ class TestHandlePiLumenQa:
         mock_call_pi_tool.return_value = {"questions": []}
 
         result = await handle_pi_lumen_qa({"limit": 3, "agent_name": "Claude"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
         call_args = mock_call_pi_tool.call_args
@@ -969,7 +965,7 @@ class TestHandlePiLumenQa:
         mock_call_pi_tool.return_value = {"questions": []}
 
         result = await handle_pi_lumen_qa({"question_id": "q1"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["action"] == "list"
 
 
@@ -981,21 +977,21 @@ class TestHandlePiQuery:
         mock_call_pi_tool.return_value = {"results": ["fact1", "fact2"]}
 
         result = await handle_pi_query({"text": "What does Lumen know?"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["query_type"] == "cognitive"
 
     @pytest.mark.asyncio
     async def test_empty_text_returns_error(self, mock_call_pi_tool):
         result = await handle_pi_query({"text": ""})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "text parameter required" in data["error"]
 
     @pytest.mark.asyncio
     async def test_missing_text_returns_error(self, mock_call_pi_tool):
         result = await handle_pi_query({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1003,7 +999,7 @@ class TestHandlePiQuery:
         mock_call_pi_tool.return_value = {"results": []}
 
         result = await handle_pi_query({"text": "search", "type": "semantic", "limit": 5})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["query_type"] == "semantic"
 
@@ -1012,7 +1008,7 @@ class TestHandlePiQuery:
         mock_call_pi_tool.return_value = {"error": "query engine down"}
 
         result = await handle_pi_query({"text": "test"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Query failed" in data["error"]
 
@@ -1028,7 +1024,7 @@ class TestHandlePiWorkflow:
         ]
 
         result = await handle_pi_workflow({"workflow": "full_status"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["workflow"] == "full_status"
         assert len(data["steps"]) == 2
@@ -1042,7 +1038,7 @@ class TestHandlePiWorkflow:
         ]
 
         result = await handle_pi_workflow({"workflow": "morning_check"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["workflow"] == "morning_check"
 
@@ -1056,14 +1052,14 @@ class TestHandlePiWorkflow:
             "workflow": "custom",
             "steps": [{"tool": "diagnostics", "args": {}}],
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["workflow"] == "custom"
 
     @pytest.mark.asyncio
     async def test_unknown_workflow_returns_error(self, mock_call_pi_tool, _mock_audit_logger):
         result = await handle_pi_workflow({"workflow": "nonexistent"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Unknown workflow" in data["error"]
 
@@ -1075,7 +1071,7 @@ class TestHandlePiWorkflow:
         ]
 
         result = await handle_pi_workflow({"workflow": "full_status"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert len(data["steps"]) == 2
         assert len(data["errors"]) == 1
@@ -1097,7 +1093,7 @@ class TestHandlePiWorkflow:
     async def test_custom_workflow_empty_steps_returns_error(self, mock_call_pi_tool, _mock_audit_logger):
         """Custom workflow with empty steps list returns error."""
         result = await handle_pi_workflow({"workflow": "custom", "steps": []})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Unknown workflow" in data["error"]
 
@@ -1110,7 +1106,7 @@ class TestHandlePiGitPull:
         mock_call_pi_tool.return_value = {"output": "Already up to date."}
 
         result = await handle_pi_git_pull({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["operation"] == "git_pull"
         assert data["stash"] is False
@@ -1126,7 +1122,7 @@ class TestHandlePiGitPull:
             "force": True,
             "restart": True,
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["stash"] is True
         assert data["force"] is True
@@ -1143,7 +1139,7 @@ class TestHandlePiGitPull:
         mock_call_pi_tool.return_value = {"error": "git conflict"}
 
         result = await handle_pi_git_pull({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Git pull failed" in data["error"]
 
@@ -1153,7 +1149,7 @@ class TestHandlePiGitPull:
         mock_call_pi_tool.return_value = {"output": "ok"}
 
         result = await handle_pi_git_pull({"stash": True})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
         call_args = mock_call_pi_tool.call_args
@@ -1171,7 +1167,7 @@ class TestHandlePiSystemPower:
         mock_call_pi_tool.return_value = {"power": "on", "uptime": "3 days"}
 
         result = await handle_pi_system_power({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["action"] == "status"
         assert data["confirm"] is False
@@ -1184,7 +1180,7 @@ class TestHandlePiSystemPower:
             "action": "reboot",
             "confirm": True,
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["action"] == "reboot"
         assert data["confirm"] is True
@@ -1198,7 +1194,7 @@ class TestHandlePiSystemPower:
         mock_call_pi_tool.return_value = {"error": "permission denied"}
 
         result = await handle_pi_system_power({"action": "reboot"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "Power command failed" in data["error"]
 
@@ -1219,14 +1215,14 @@ class TestHandlePiRestartService:
     @pytest.mark.asyncio
     async def test_disallowed_service(self, _mock_audit_logger):
         result = await handle_pi_restart_service({"service": "malicious"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not in allowed list" in data["error"]
 
     @pytest.mark.asyncio
     async def test_disallowed_action(self, _mock_audit_logger):
         result = await handle_pi_restart_service({"service": "anima", "action": "destroy"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not in allowed list" in data["error"]
 
@@ -1239,7 +1235,7 @@ class TestHandlePiRestartService:
 
         with patch("subprocess.run", return_value=mock_completed) as mock_run:
             result = await handle_pi_restart_service({})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["success"] is True
             assert data["service"] == "anima"
             assert data["operation"] == "ssh_systemctl_restart"
@@ -1257,7 +1253,7 @@ class TestHandlePiRestartService:
 
         with patch("subprocess.run", return_value=mock_completed):
             result = await handle_pi_restart_service({})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["operation"] == "ssh_systemctl_restart"
             assert data["service"] == "anima"
             # success_response sets "success": True, but the handler's data dict
@@ -1270,7 +1266,7 @@ class TestHandlePiRestartService:
     async def test_ssh_timeout(self, _mock_audit_logger):
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("ssh", 30)):
             result = await handle_pi_restart_service({})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["success"] is False
             assert "timed out" in data["error"]
 
@@ -1278,7 +1274,7 @@ class TestHandlePiRestartService:
     async def test_ssh_key_not_found(self, _mock_audit_logger):
         with patch("subprocess.run", side_effect=FileNotFoundError("ssh key")):
             result = await handle_pi_restart_service({})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["success"] is False
             assert "SSH key not found" in data["error"]
 
@@ -1286,7 +1282,7 @@ class TestHandlePiRestartService:
     async def test_ssh_generic_exception(self, _mock_audit_logger):
         with patch("subprocess.run", side_effect=OSError("permission denied")):
             result = await handle_pi_restart_service({})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["success"] is False
             assert "SSH command failed" in data["error"]
 
@@ -1301,7 +1297,7 @@ class TestHandlePiRestartService:
 
             with patch("subprocess.run", return_value=mock_completed):
                 result = await handle_pi_restart_service({"service": svc})
-                data = _parse(result)
+                data = parse_result(result)
                 assert data["success"] is True, "Service '%s' should be allowed" % svc
 
     @pytest.mark.asyncio
@@ -1315,7 +1311,7 @@ class TestHandlePiRestartService:
 
             with patch("subprocess.run", return_value=mock_completed):
                 result = await handle_pi_restart_service({"service": "anima", "action": action})
-                data = _parse(result)
+                data = parse_result(result)
                 assert data["success"] is True, "Action '%s' should be allowed" % action
 
     @pytest.mark.asyncio

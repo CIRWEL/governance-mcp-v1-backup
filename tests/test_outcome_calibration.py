@@ -20,13 +20,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from mcp.types import TextContent
-
-
-def _parse(result):
-    """Parse TextContent result(s) into a dict."""
-    if isinstance(result, (list, tuple)):
-        return json.loads(result[0].text)
-    return json.loads(result.text)
+from tests.helpers import parse_result
 
 
 # ============================================================================
@@ -292,7 +286,7 @@ class TestExplicitOutcomeEventCalibration:
                 'confidence': 0.85,
             })
 
-        parsed = _parse(result)
+        parsed = parse_result(result)
         assert parsed.get('outcome_id') == 'oe-1'
 
         # Should have recorded both prediction and tactical
@@ -335,7 +329,7 @@ class TestExplicitOutcomeEventCalibration:
                 # No confidence param
             })
 
-        parsed = _parse(result)
+        parsed = parse_result(result)
         assert parsed.get('outcome_id') == 'oe-2'
 
         mock_checker.record_prediction.assert_called_once_with(
@@ -368,7 +362,7 @@ class TestExplicitOutcomeEventCalibration:
                 'outcome_type': 'task_completed',
             })
 
-        parsed = _parse(result)
+        parsed = parse_result(result)
         assert parsed.get('outcome_id') == 'oe-3'
         mock_checker.record_prediction.assert_not_called()
 

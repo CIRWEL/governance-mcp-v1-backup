@@ -33,11 +33,7 @@ from mcp.types import TextContent
 # Helpers
 # ============================================================================
 
-def _parse(result):
-    """Parse TextContent result(s) into a dict."""
-    if isinstance(result, (list, tuple)):
-        return json.loads(result[0].text)
-    return json.loads(result.text)
+from tests.helpers import parse_result
 
 
 def _make_text_content(data):
@@ -266,7 +262,7 @@ class TestProcessAgentUpdate:
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({"response_text": "test"})
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "error" in data or "Identity not resolved" in json.dumps(data)
 
     @pytest.mark.asyncio
@@ -283,7 +279,7 @@ class TestProcessAgentUpdate:
                 "response_mode": "full",
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert data.get("success") is False
             assert "strong identity" in data.get("error", "").lower()
 
@@ -301,7 +297,7 @@ class TestProcessAgentUpdate:
                 "response_mode": "full",
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert data.get("success") is True
             assert data.get("identity_assurance", {}).get("tier") == "weak"
 
@@ -324,7 +320,7 @@ class TestProcessAgentUpdate:
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({"response_text": "test"})
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "paused" in json.dumps(data).lower()
 
     @pytest.mark.asyncio
@@ -341,7 +337,7 @@ class TestProcessAgentUpdate:
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({"response_text": "test"})
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "archived" in json.dumps(data).lower()
 
     @pytest.mark.asyncio
@@ -358,7 +354,7 @@ class TestProcessAgentUpdate:
             from src.mcp_handlers.core import handle_process_agent_update
             result = await handle_process_agent_update({"response_text": "test"})
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "deleted" in json.dumps(data).lower()
 
     @pytest.mark.asyncio
@@ -380,7 +376,7 @@ class TestProcessAgentUpdate:
                 "confidence": 0.7,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             # Response formatter may flatten metrics to top-level in minimal mode,
             # or return mirror mode with verdict/mirror fields.
             has_eisv = ("E" in data and "I" in data) or ("metrics" in data)
@@ -415,7 +411,7 @@ class TestProcessAgentUpdate:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "error" in data or "lock" in json.dumps(data).lower()
 
     @pytest.mark.asyncio
@@ -439,7 +435,7 @@ class TestProcessAgentUpdate:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "error" in data or "authentication" in json.dumps(data).lower() or "not authorized" in json.dumps(data).lower()
 
     @pytest.mark.asyncio
@@ -463,7 +459,7 @@ class TestProcessAgentUpdate:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "loop" in json.dumps(data).lower()
 
     @pytest.mark.asyncio
@@ -487,7 +483,7 @@ class TestProcessAgentUpdate:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "error" in data or "validation" in json.dumps(data).lower()
 
     @pytest.mark.asyncio
@@ -511,7 +507,7 @@ class TestProcessAgentUpdate:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "error" in data or "unexpected" in json.dumps(data).lower()
 
     @pytest.mark.asyncio
@@ -533,7 +529,7 @@ class TestProcessAgentUpdate:
             })
 
             # Should not crash - lite mode should still return valid response
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     @pytest.mark.asyncio
@@ -554,7 +550,7 @@ class TestProcessAgentUpdate:
                 "text": "test work",
                 "complexity": 0.5,
             })
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     @pytest.mark.asyncio
@@ -576,7 +572,7 @@ class TestProcessAgentUpdate:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
 
@@ -671,7 +667,7 @@ class TestProcessAgentUpdateExtended:
 
             from src.mcp_handlers.core import handle_get_governance_metrics
             result = await handle_get_governance_metrics({"lite": False})
-            data = _parse(result)
+            data = parse_result(result)
             # Should still succeed (reflection is conditional, so check summary instead)
             assert "summary" in data
 
@@ -700,7 +696,7 @@ class TestProcessAgentUpdateExtended:
             # governance_core.compute_saturation_diagnostics will raise ImportError or similar
             # because unitaires_state is a MagicMock, not a real State
             result = await handle_get_governance_metrics({"lite": False})
-            data = _parse(result)
+            data = parse_result(result)
             assert "summary" in data
 
     # ------------------------------------------------------------------
@@ -728,7 +724,7 @@ class TestProcessAgentUpdateExtended:
 
             from src.mcp_handlers.core import handle_simulate_update
             result = await handle_simulate_update({"complexity": 0.5})
-            data = _parse(result)
+            data = parse_result(result)
             assert data["simulation"] is True
             # Non-dict items are skipped via `if not isinstance(c, dict): continue`
             # So no warning, just successful result
@@ -775,7 +771,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -809,7 +805,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
             # Agent is reactivated by check-in
             assert archived_meta.status == "active"
@@ -846,7 +842,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             # The agent should go through the successful path since it was "active"
             # when first checked, then after create it gets paused status
             # This tests the second paused check at lines 774-793
@@ -881,7 +877,7 @@ class TestProcessAgentUpdateExtended:
                 "confidence": 0.8,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -905,7 +901,7 @@ class TestProcessAgentUpdateExtended:
                 "task_type": "invalid_type_xyz",
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
             # Should succeed despite invalid task_type
 
@@ -929,7 +925,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
             # Should still succeed with or without warnings
 
@@ -953,7 +949,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -980,7 +976,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
             # Should still succeed via fallback
             mock_server.get_or_create_metadata.assert_called()
@@ -1010,7 +1006,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
             # meta should have synced api_key
             assert meta.api_key == "pg-api-key-123"
@@ -1037,7 +1033,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1062,7 +1058,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1091,7 +1087,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1121,7 +1117,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1154,7 +1150,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
             # create_agent should have been called
             p["storage"].create_agent.assert_called_once()
@@ -1183,7 +1179,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1209,7 +1205,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1245,7 +1241,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.3,  # Reported: 0.3 (discrepancy with derived 0.8)
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1277,7 +1273,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1304,7 +1300,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1330,7 +1326,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
             # Cooldown should have been cleared
             assert meta.loop_cooldown_until is None
@@ -1356,7 +1352,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1379,7 +1375,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1407,7 +1403,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1441,7 +1437,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1466,7 +1462,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1490,7 +1486,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
             # Should have warning from check_agent_id_default
             if "warning" in data:
@@ -1525,7 +1521,7 @@ class TestProcessAgentUpdateExtended:
                     "complexity": 0.5,
                 })
 
-                data = _parse(result)
+                data = parse_result(result)
                 assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1561,7 +1557,7 @@ class TestProcessAgentUpdateExtended:
                     "complexity": 0.5,
                 })
 
-                data = _parse(result)
+                data = parse_result(result)
                 assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1584,7 +1580,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1608,7 +1604,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1631,7 +1627,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1659,7 +1655,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1682,7 +1678,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1732,7 +1728,7 @@ class TestProcessAgentUpdateExtended:
                     "complexity": 0.3,
                 })
 
-                data = _parse(result)
+                data = parse_result(result)
                 assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1767,7 +1763,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1810,7 +1806,7 @@ class TestProcessAgentUpdateExtended:
                 "trajectory_signature": {"warmth": 0.5, "clarity": 0.6},
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1834,7 +1830,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1872,7 +1868,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1909,7 +1905,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1934,7 +1930,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -1974,7 +1970,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -2009,7 +2005,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -2046,7 +2042,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -2085,7 +2081,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -2108,7 +2104,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -2133,7 +2129,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -2170,7 +2166,7 @@ class TestProcessAgentUpdateExtended:
             })
 
             # Should get the minimal fallback response
-            data = _parse(result)
+            data = parse_result(result)
             assert data.get("success") is True
             assert "_warning" in data
             assert "serialization" in data["_warning"].lower()
@@ -2208,7 +2204,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             # Should still return error about lock, not crash
             assert "error" in data or "lock" in json.dumps(data).lower()
 
@@ -2245,7 +2241,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert "error" in data or "lock" in json.dumps(data).lower()
 
     # ------------------------------------------------------------------
@@ -2281,7 +2277,7 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -2329,7 +2325,7 @@ class TestProcessAgentUpdateExtended:
                 "trajectory_signature": {"warmth": 0.1, "clarity": 0.2},
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -2370,7 +2366,7 @@ class TestProcessAgentUpdateExtended:
                 "trajectory_signature": {"warmth": 0.5, "clarity": 0.6},
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 
     # ------------------------------------------------------------------
@@ -2407,6 +2403,6 @@ class TestProcessAgentUpdateExtended:
                 "complexity": 0.5,
             })
 
-            data = _parse(result)
+            data = parse_result(result)
             assert isinstance(data, dict)
 

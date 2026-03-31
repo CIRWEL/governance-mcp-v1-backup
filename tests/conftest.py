@@ -121,8 +121,9 @@ def _neutralize_metadata_loading(monkeypatch):
     try:
         import src.agent_state as agent_state
         monkeypatch.setattr(agent_state, '_metadata_loaded', True)
-    except Exception:
-        pass
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"test cleanup failed: {exc}", stacklevel=2)
 
 
 @pytest.fixture(autouse=True)
@@ -153,8 +154,9 @@ def _isolate_identity_state():
         )
         _session_identities.clear()
         _uuid_prefix_index.clear()
-    except Exception:
-        pass
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"test cleanup failed: {exc}", stacklevel=2)
 
     # --- agent_state (canonical) + mcp_server_std (re-exports) agent_metadata & monitors ---
     try:
@@ -168,8 +170,9 @@ def _isolate_identity_state():
             mod._metadata_loaded = False
             mod._metadata_loading = False
             mod._metadata_loaded_event.clear()
-    except Exception:
-        pass
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"test cleanup failed: {exc}", stacklevel=2)
     try:
         if 'src.mcp_server_std' in sys.modules:
             mcp = sys.modules['src.mcp_server_std']
@@ -177,8 +180,9 @@ def _isolate_identity_state():
                 mcp.agent_metadata.clear()
             if hasattr(mcp, 'monitors'):
                 mcp.monitors.clear()
-    except Exception:
-        pass
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"test cleanup failed: {exc}", stacklevel=2)
 
     # --- pattern tracker per-agent state ---
     try:
@@ -190,8 +194,9 @@ def _isolate_identity_state():
             tracker.investigations.clear()
         if hasattr(tracker, 'hypotheses'):
             tracker.hypotheses.clear()
-    except Exception:
-        pass
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"test cleanup failed: {exc}", stacklevel=2)
 
     # --- dialectic session in-memory state ---
     try:
@@ -200,15 +205,17 @@ def _isolate_identity_state():
         )
         ACTIVE_SESSIONS.clear()
         _SESSION_METADATA_CACHE.clear()
-    except Exception:
-        pass
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"test cleanup failed: {exc}", stacklevel=2)
 
     # --- middleware rate-limit loop history ---
     try:
         from src.mcp_handlers import middleware
         middleware._tool_call_history.clear()
-    except Exception:
-        pass
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"test cleanup failed: {exc}", stacklevel=2)
 
     # --- contextvars (reset to defaults) ---
     try:
@@ -228,8 +235,9 @@ def _isolate_identity_state():
         _session_signals.set(None)
         _trajectory_confidence.set(None)
         _session_resolution_source.set(None)
-    except Exception:
-        pass
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"test cleanup failed: {exc}", stacklevel=2)
 
 
 @pytest.fixture(autouse=True, scope="session")

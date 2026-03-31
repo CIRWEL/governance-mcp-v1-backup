@@ -39,11 +39,7 @@ from mcp.types import TextContent
 # Helpers
 # ============================================================================
 
-def _parse(result):
-    """Parse TextContent result(s) to dict."""
-    if isinstance(result, (list, tuple)):
-        return json.loads(result[0].text)
-    return json.loads(result.text)
+from tests.helpers import parse_result
 
 
 def _make_mock_server(agents=None):
@@ -233,7 +229,7 @@ class TestHandleRequestDialecticReview:
                 "reviewer_mode": "self",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["paused_agent_id"] == "agent-paused"
         assert data["reviewer_agent_id"] == "agent-paused"
@@ -259,7 +255,7 @@ class TestHandleRequestDialecticReview:
                 "reviewer_mode": "auto",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         # Falls back to self-review instead of leaving session orphaned
         assert data["reviewer_agent_id"] == "agent-paused"
@@ -279,7 +275,7 @@ class TestHandleRequestDialecticReview:
                 "agent_id": "unknown-agent",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -298,7 +294,7 @@ class TestHandleRequestDialecticReview:
                 "_agent_uuid": "agent-nonexistent",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -317,7 +313,7 @@ class TestHandleRequestDialecticReview:
                 "_agent_uuid": "agent-paused",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "auth" in data.get("error_code", "").lower() or "auth" in data.get("error", "").lower()
 
@@ -336,7 +332,7 @@ class TestHandleRequestDialecticReview:
                 "_agent_uuid": "agent-waiting",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data.get("skipped") is True
         assert "waiting_input" in data.get("reason", "")
@@ -358,7 +354,7 @@ class TestHandleRequestDialecticReview:
                 "_agent_uuid": "agent-paused",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert data.get("error_code") == "SESSION_EXISTS"
 
@@ -382,7 +378,7 @@ class TestHandleRequestDialecticReview:
                 "reviewer_mode": "self",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "DB_WRITE_FAILED" in data.get("error_code", "")
 
@@ -409,7 +405,7 @@ class TestHandleRequestDialecticReview:
             })
 
         mock_llm_handler.assert_awaited_once()
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     @pytest.mark.asyncio
@@ -431,7 +427,7 @@ class TestHandleRequestDialecticReview:
                 "reviewer_mode": "self",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["session_type"] == "dispute"
         # Verify pg_create was called with correct kwargs
@@ -470,7 +466,7 @@ class TestHandleSubmitThesis:
                 "api_key": "key123",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "next_step" in data
         assert session.phase == DialecticPhase.ANTITHESIS
@@ -485,7 +481,7 @@ class TestHandleSubmitThesis:
                 "agent_id": "agent-paused",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "required" in data["error"].lower()
 
@@ -500,7 +496,7 @@ class TestHandleSubmitThesis:
                 "session_id": "some-session",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -515,7 +511,7 @@ class TestHandleSubmitThesis:
                 "agent_id": "agent-paused",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -539,7 +535,7 @@ class TestHandleSubmitThesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         # DialecticSession.submit_thesis returns {"success": False, "error": "Only paused agent can submit thesis"}
         assert data["success"] is False
 
@@ -563,7 +559,7 @@ class TestHandleSubmitThesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "phase" in data.get("error", "").lower()
 
@@ -589,7 +585,7 @@ class TestHandleSubmitThesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert session.session_id in ACTIVE_SESSIONS
 
@@ -615,7 +611,7 @@ class TestHandleSubmitThesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         # Still succeeds despite pg failure (non-fatal)
         assert data["success"] is True
 
@@ -649,7 +645,7 @@ class TestHandleSubmitAntithesis:
                 "api_key": "key456",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "next_step" in data
         assert session.phase == DialecticPhase.SYNTHESIS
@@ -663,7 +659,7 @@ class TestHandleSubmitAntithesis:
              patch("src.mcp_handlers.identity.shared.get_bound_agent_id", return_value=None):
             result = await handle_submit_antithesis({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "required" in data["error"].lower()
 
@@ -679,7 +675,7 @@ class TestHandleSubmitAntithesis:
                 "agent_id": "agent-reviewer",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -703,7 +699,7 @@ class TestHandleSubmitAntithesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -727,7 +723,7 @@ class TestHandleSubmitAntithesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "override" in data.get("error", "").lower() or "bound identity" in data.get("error", "").lower()
 
@@ -751,7 +747,7 @@ class TestHandleSubmitAntithesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "phase" in data.get("error", "").lower()
 
@@ -777,7 +773,7 @@ class TestHandleSubmitAntithesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert session.session_id in ACTIVE_SESSIONS
 
@@ -817,7 +813,7 @@ class TestHandleSubmitSynthesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     @pytest.mark.asyncio
@@ -829,7 +825,7 @@ class TestHandleSubmitSynthesis:
              patch("src.mcp_handlers.identity.shared.get_bound_agent_id", return_value=None):
             result = await handle_submit_synthesis({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "required" in data["error"].lower()
 
@@ -845,7 +841,7 @@ class TestHandleSubmitSynthesis:
                 "agent_id": "agent-paused",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -870,7 +866,7 @@ class TestHandleSubmitSynthesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -896,7 +892,7 @@ class TestHandleSubmitSynthesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     @pytest.mark.asyncio
@@ -922,7 +918,7 @@ class TestHandleSubmitSynthesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         # Session escalated or conservative default
         assert data["success"] is False or data.get("autonomous_resolution") is True
 
@@ -968,7 +964,7 @@ class TestHandleSubmitSynthesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data.get("converged") is True
         assert data.get("action") == "resume"
@@ -1002,7 +998,7 @@ class TestHandleSubmitSynthesis:
                 "api_key": "key",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data.get("action") == "block"
         assert "safety" in data.get("reason", "").lower()
 
@@ -1029,7 +1025,7 @@ class TestHandleListDialecticSessions:
              mock_context_agent:
             result = await handle_list_dialectic_sessions({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["session_count"] == 2
         assert len(data["sessions"]) == 2
@@ -1044,7 +1040,7 @@ class TestHandleListDialecticSessions:
              mock_context_agent:
             result = await handle_list_dialectic_sessions({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["sessions"] == []
         assert "tip" in data
@@ -1096,7 +1092,7 @@ class TestHandleListDialecticSessions:
              mock_context_agent:
             result = await handle_list_dialectic_sessions({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "error" in data
 
@@ -1126,7 +1122,7 @@ class TestHandleListDialecticSessions:
                 "status": "failed",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["filters_applied"]["agent_id"] == "a1"
         assert data["filters_applied"]["status"] == "failed"
 
@@ -1156,7 +1152,7 @@ class TestHandleGetDialecticSession:
                 "session_id": session.session_id,
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["session_id"] == session.session_id
 
@@ -1168,7 +1164,7 @@ class TestHandleGetDialecticSession:
         with mock_context_agent:
             result = await handle_get_dialectic_session({})
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "required" in data["error"].lower()
 
@@ -1184,7 +1180,7 @@ class TestHandleGetDialecticSession:
                 "session_id": "nonexistent-session",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -1207,7 +1203,7 @@ class TestHandleGetDialecticSession:
                 "check_timeout": False,
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["session_id"] == "fast-session"
 
@@ -1231,7 +1227,7 @@ class TestHandleGetDialecticSession:
                 "check_timeout": True,
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "timeout" in data["error"].lower()
         assert "recovery" in data
@@ -1257,7 +1253,7 @@ class TestHandleGetDialecticSession:
                 "check_timeout": True,
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "reviewer" in data["error"].lower() or "stuck" in data["error"].lower()
 
@@ -1278,7 +1274,7 @@ class TestHandleGetDialecticSession:
                 "session_id": session.session_id,
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert session.session_id in ACTIVE_SESSIONS
 
@@ -1300,7 +1296,7 @@ class TestHandleGetDialecticSession:
                 "agent_id": "agent-active",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     @pytest.mark.asyncio
@@ -1316,7 +1312,7 @@ class TestHandleGetDialecticSession:
                 "agent_id": "nonexistent-agent",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "no dialectic sessions" in data["error"].lower()
 
@@ -1333,7 +1329,7 @@ class TestHandleGetDialecticSession:
                 "agent_id": "agent-active",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "no dialectic sessions" in data["error"].lower()
 
@@ -1349,7 +1345,7 @@ class TestHandleGetDialecticSession:
                 "session_id": "any",
             })
 
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
 
@@ -1567,7 +1563,7 @@ class TestSubmitQuorumVote:
         with patch(f"{self.HANDLER_MODULE}.mcp_server", mock_srv), \
              patch(f"{self.HANDLER_MODULE}.require_registered_agent",
                    return_value=("voter-1", None)):
-            result = _parse(await handle_submit_quorum_vote({
+            result = parse_result(await handle_submit_quorum_vote({
                 "vote": "resume",
                 "reasoning": "ok",
             }))
@@ -1584,7 +1580,7 @@ class TestSubmitQuorumVote:
                    return_value=("voter-1", None)), \
              patch(f"{self.HANDLER_MODULE}.load_session",
                    new_callable=AsyncMock, return_value=session):
-            result = _parse(await handle_submit_quorum_vote({
+            result = parse_result(await handle_submit_quorum_vote({
                 "session_id": session.session_id,
                 "vote": "resume",
                 "reasoning": "ok",
@@ -1604,7 +1600,7 @@ class TestSubmitQuorumVote:
              patch(f"{self.HANDLER_MODULE}.load_session",
                    new_callable=AsyncMock, return_value=session), \
              patch("src.db.get_db", new_callable=AsyncMock, return_value=mock_db):
-            result = _parse(await handle_submit_quorum_vote({
+            result = parse_result(await handle_submit_quorum_vote({
                 "session_id": session.session_id,
                 "vote": "resume",
                 "reasoning": "ok",
@@ -1631,7 +1627,7 @@ class TestSubmitQuorumVote:
              patch(f"{self.HANDLER_MODULE}.load_session",
                    new_callable=AsyncMock, return_value=session), \
              patch("src.db.get_db", new_callable=AsyncMock, return_value=mock_db):
-            result = _parse(await handle_submit_quorum_vote({
+            result = parse_result(await handle_submit_quorum_vote({
                 "session_id": session.session_id,
                 "vote": "resume",
                 "reasoning": "ok",
@@ -1656,7 +1652,7 @@ class TestSubmitQuorumVote:
              patch(f"{self.HANDLER_MODULE}.pg_add_message",
                    new_callable=AsyncMock), \
              patch("src.db.get_db", new_callable=AsyncMock, return_value=mock_db):
-            result = _parse(await handle_submit_quorum_vote({
+            result = parse_result(await handle_submit_quorum_vote({
                 "session_id": session.session_id,
                 "vote": "resume",
                 "reasoning": "looks good",
@@ -1697,7 +1693,7 @@ class TestSubmitQuorumVote:
              patch(f"{self.HANDLER_MODULE}.execute_resolution",
                    new_callable=AsyncMock, return_value={"success": True}), \
              patch("src.db.get_db", new_callable=AsyncMock, return_value=mock_db):
-            result = _parse(await handle_submit_quorum_vote({
+            result = parse_result(await handle_submit_quorum_vote({
                 "session_id": session.session_id,
                 "vote": "resume",
                 "reasoning": "ok",

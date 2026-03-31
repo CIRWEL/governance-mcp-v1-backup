@@ -8,7 +8,10 @@ simultaneously and share state via this single server instance.
 Usage:
     python src/mcp_server.py [--port PORT] [--host HOST]
 
-    Default: http://127.0.0.1:8767/mcp
+    Default bind: 127.0.0.1 (see src/mcp_listen_config.py). For LAN/ngrok use
+    UNITARES_BIND_ALL_INTERFACES=1 and set UNITARES_MCP_ALLOWED_HOSTS / UNITARES_MCP_ALLOWED_ORIGINS.
+
+    Default URL: http://127.0.0.1:8767/mcp
 
 Configuration (in claude_desktop_config.json or cursor mcp config):
     {
@@ -170,8 +173,11 @@ SERVER_VERSION = _load_version()
 # FastMCP Server Setup
 # ============================================================================
 
-# Import transport security settings for network access
-from mcp.server.transport_security import TransportSecuritySettings
+from src.mcp_listen_config import (
+    build_transport_security_settings,
+    cors_extra_origins,
+    default_listen_host,
+)
 
 # --- OAuth 2.1 configuration (optional, enabled by env var) ---
 _oauth_issuer_url = os.environ.get("UNITARES_OAUTH_ISSUER_URL")
@@ -202,29 +208,15 @@ if _oauth_issuer_url:
         _auth_settings = None
 
 # Create the FastMCP server
-# NOTE: host="0.0.0.0" disables auto DNS rebinding protection (needed for network access from Pi)
-# We explicitly configure allowed_hosts to include local network IPs
+# Default bind: 127.0.0.1 (see default_listen_host). LAN/ngrok: set UNITARES_BIND_ALL_INTERFACES=1
+# and UNITARES_MCP_ALLOWED_HOSTS / UNITARES_MCP_ALLOWED_ORIGINS as needed.
+_LISTEN_HOST = default_listen_host()
 mcp = FastMCP(
     name="governance-monitor-v1",
-    host="0.0.0.0",  # Bind to all interfaces
+    host=_LISTEN_HOST,
     auth_server_provider=_oauth_provider,
     auth=_auth_settings,
-    transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=[
-            "127.0.0.1:*", "localhost:*", "[::1]:*",  # Localhost
-            "192.168.1.151:*", "192.168.1.164:*",  # Mac LAN IPs
-            "100.96.201.46:*",  # Mac Tailscale IP
-            "unitares.ngrok.io",  # Ngrok tunnel
-        ],
-        allowed_origins=[
-            "http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*",
-            "http://192.168.1.151:*", "http://192.168.1.164:*",
-            "http://100.96.201.46:*",  # Tailscale
-            "https://unitares.ngrok.io",
-            "null",  # Allow file:// access (origin is opaque 'null')
-        ],
-    ),
+    transport_security=build_transport_security_settings(),
 )
 
 
@@ -517,7 +509,7 @@ _register_common_aliases()
 # Server Entry Point
 # ============================================================================
 
-DEFAULT_HOST = "0.0.0.0"  # Changed from 127.0.0.1 to allow network access (ngrok, etc.)
+DEFAULT_HOST = default_listen_host()
 DEFAULT_PORT = 8767  # Standard port for unitares governance on Mac (8766 is anima, 8765 was old default)
 
 def parse_args():
@@ -526,9 +518,13 @@ def parse_args():
         description="UNITARES Governance MCP Server (Streamable HTTP)"
     )
     parser.add_argument(
-        "--host", 
+        "--host",
         default=DEFAULT_HOST,
-        help=f"Host to bind to (default: {DEFAULT_HOST}, use 127.0.0.1 for localhost-only)"
+        help=(
+            "Host to bind to (default: from UNITARES_MCP_HOST, else 127.0.0.1, "
+            "or 0.0.0.0 when UNITARES_BIND_ALL_INTERFACES=1). "
+            "Override for LAN/ngrok; set UNITARES_MCP_ALLOWED_HOSTS for non-local Host headers."
+        ),
     )
     parser.add_argument(
         "--port", 
@@ -560,6 +556,12 @@ from src.process_management import (
 async def main():
     """Main entry point for governance MCP server."""
     args = parse_args()
+
+    # Keep FastMCP's declared host aligned with uvicorn when --host overrides env defaults
+    try:
+        mcp.settings.host = args.host
+    except Exception as e:
+        logger.debug("Could not sync mcp.settings.host to %s: %s", args.host, e)
 
     # --force: Explicitly clean up lock file and PID file before starting
     if args.force:
@@ -670,6 +672,12 @@ async def main():
 """)
     
     logger.info(f"Starting governance server on http://{args.host}:{args.port}/mcp")
+    if args.host in ("127.0.0.1", "::1", "localhost"):
+        logger.info(
+            "Listening on loopback only. For LAN/ngrok set --host 0.0.0.0 or "
+            "UNITARES_BIND_ALL_INTERFACES=1, and configure UNITARES_MCP_ALLOWED_HOSTS / "
+            "UNITARES_MCP_ALLOWED_ORIGINS."
+        )
 
     # Run the governance MCP server
     try:
@@ -712,6 +720,7 @@ async def main():
         ]
         if _cors_allow_origin:
             _cors_origins.append(_cors_allow_origin)
+        _cors_origins.extend(cors_extra_origins())
         app.add_middleware(
             CORSMiddleware,
             allow_origins=_cors_origins,

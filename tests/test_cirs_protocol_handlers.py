@@ -60,11 +60,7 @@ _CIRS_MODULES_WITH_REQUIRE = [
 # Helpers
 # ============================================================================
 
-def _parse(result):
-    """Parse TextContent result(s) to dict."""
-    if isinstance(result, (list, tuple)):
-        return json.loads(result[0].text)
-    return json.loads(result.text)
+from tests.helpers import parse_result
 
 
 def _make_mock_server(agents=None, monitors=None):
@@ -686,7 +682,7 @@ class TestHandleVoidAlert:
     async def test_missing_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_void_alert
         result = await handle_void_alert.__wrapped__({"no_action": True})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "action" in data["error"].lower()
 
@@ -694,14 +690,14 @@ class TestHandleVoidAlert:
     async def test_invalid_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_void_alert
         result = await handle_void_alert.__wrapped__({"action": "invalid"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_query_empty(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_void_alert
         result = await handle_void_alert.__wrapped__({"action": "query"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["alerts"] == []
         assert data["summary"]["total_alerts"] == 0
@@ -726,7 +722,7 @@ class TestHandleVoidAlert:
         ))
 
         result = await handle_void_alert.__wrapped__({"action": "query"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["summary"]["total_alerts"] == 2
         assert data["summary"]["by_severity"]["warning"] == 1
@@ -754,7 +750,7 @@ class TestHandleVoidAlert:
             "action": "query",
             "filter_agent_id": "agent-1",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["summary"]["total_alerts"] == 1
         assert data["alerts"][0]["agent_id"] == "agent-1"
 
@@ -780,7 +776,7 @@ class TestHandleVoidAlert:
             "action": "query",
             "filter_severity": "critical",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["summary"]["total_alerts"] == 1
         assert data["alerts"][0]["severity"] == "critical"
 
@@ -791,7 +787,7 @@ class TestHandleVoidAlert:
             "action": "query",
             "filter_severity": "banana",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -805,7 +801,7 @@ class TestHandleVoidAlert:
                 "action": "emit",
                 "severity": "warning",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -817,7 +813,7 @@ class TestHandleVoidAlert:
                 "severity": "critical",
                 "context_ref": "test emit",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["alert"]["severity"] == "critical"
         assert data["cirs_protocol"] == "VOID_ALERT"
@@ -830,7 +826,7 @@ class TestHandleVoidAlert:
                 "action": "emit",
                 "severity": "banana",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -849,7 +845,7 @@ class TestHandleVoidAlert:
                 result = await handle_void_alert.__wrapped__({
                     "action": "emit",
                 })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         # V=0.3, threshold=0.1, V > threshold*1.5 => critical
         assert data["alert"]["severity"] == "critical"
@@ -870,7 +866,7 @@ class TestHandleVoidAlert:
                 result = await handle_void_alert.__wrapped__({
                     "action": "emit",
                 })
-        data = _parse(result)
+        data = parse_result(result)
         # V below threshold -> error saying V is below threshold
         assert data["success"] is False
         assert "threshold" in data["error"].lower() or "below" in data["error"].lower()
@@ -887,7 +883,7 @@ class TestHandleStateAnnounce:
     async def test_missing_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_state_announce
         result = await handle_state_announce.__wrapped__({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "action" in data["error"].lower()
 
@@ -895,14 +891,14 @@ class TestHandleStateAnnounce:
     async def test_invalid_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_state_announce
         result = await handle_state_announce.__wrapped__({"action": "bad"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_query_empty(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_state_announce
         result = await handle_state_announce.__wrapped__({"action": "query"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["announcements"] == []
         assert data["summary"]["total_agents"] == 0
@@ -920,7 +916,7 @@ class TestHandleStateAnnounce:
             verdict="safe", risk_score=0.2, update_count=10,
         ))
         result = await handle_state_announce.__wrapped__({"action": "query"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["summary"]["total_agents"] == 1
 
     @pytest.mark.asyncio
@@ -946,7 +942,7 @@ class TestHandleStateAnnounce:
             "action": "query",
             "regime": "convergence",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["summary"]["total_agents"] == 1
         assert data["announcements"][0]["regime"] == "convergence"
 
@@ -957,7 +953,7 @@ class TestHandleStateAnnounce:
             "action": "query",
             "regime": "banana",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -983,7 +979,7 @@ class TestHandleStateAnnounce:
             "action": "query",
             "min_coherence": 0.5,
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["summary"]["total_agents"] == 1
 
     @pytest.mark.asyncio
@@ -994,7 +990,7 @@ class TestHandleStateAnnounce:
         }))
         with patch("src.mcp_handlers.cirs.state.require_registered_agent", return_value=(None, err)):
             result = await handle_state_announce.__wrapped__({"action": "emit"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1005,7 +1001,7 @@ class TestHandleStateAnnounce:
                 "action": "emit",
                 "include_trajectory": False,
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["announcement"]["agent_id"] == "agent-1"
         assert data["cirs_protocol"] == "STATE_ANNOUNCE"
@@ -1018,7 +1014,7 @@ class TestHandleStateAnnounce:
                 "action": "emit",
                 "include_trajectory": True,
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         announcement = data["announcement"]
         # Trajectory signature should be computed from mock monitor state
@@ -1036,7 +1032,7 @@ class TestHandleStateAnnounce:
                 "action": "emit",
                 "include_trajectory": False,
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["announcement"].get("purpose") == "Testing purpose"
         assert data["announcement"].get("trust_tier") == "full"
@@ -1053,21 +1049,21 @@ class TestHandleCoherenceReport:
     async def test_missing_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_coherence_report
         result = await handle_coherence_report.__wrapped__({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_invalid_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_coherence_report
         result = await handle_coherence_report.__wrapped__({"action": "invalid"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_query_empty(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_coherence_report
         result = await handle_coherence_report.__wrapped__({"action": "query"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["reports"] == []
 
@@ -1086,7 +1082,7 @@ class TestHandleCoherenceReport:
             verdict_match=True,
         ))
         result = await handle_coherence_report.__wrapped__({"action": "query"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["summary"]["total_reports"] == 1
 
     @pytest.mark.asyncio
@@ -1114,7 +1110,7 @@ class TestHandleCoherenceReport:
             "action": "query",
             "min_similarity": 0.5,
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["summary"]["total_reports"] == 1
 
     @pytest.mark.asyncio
@@ -1128,7 +1124,7 @@ class TestHandleCoherenceReport:
                 "action": "compute",
                 "target_agent_id": "agent-2",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1138,7 +1134,7 @@ class TestHandleCoherenceReport:
             result = await handle_coherence_report.__wrapped__({
                 "action": "compute",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "target_agent_id" in data["error"].lower()
 
@@ -1150,7 +1146,7 @@ class TestHandleCoherenceReport:
                 "action": "compute",
                 "target_agent_id": "nonexistent",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -1162,7 +1158,7 @@ class TestHandleCoherenceReport:
                 "action": "compute",
                 "target_agent_id": "agent-2",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert "report" in data
         report = data["report"]
@@ -1184,21 +1180,21 @@ class TestHandleBoundaryContract:
     async def test_missing_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         result = await handle_boundary_contract.__wrapped__({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_invalid_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         result = await handle_boundary_contract.__wrapped__({"action": "invalid"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_list_empty(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         result = await handle_boundary_contract.__wrapped__({"action": "list"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["contracts"] == []
         assert data["summary"]["total_contracts"] == 0
@@ -1211,7 +1207,7 @@ class TestHandleBoundaryContract:
         }))
         with patch("src.mcp_handlers.cirs.boundary.require_registered_agent", return_value=(None, err)):
             result = await handle_boundary_contract.__wrapped__({"action": "set"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1225,7 +1221,7 @@ class TestHandleBoundaryContract:
                 "max_delegation_complexity": 0.7,
                 "accept_coherence_threshold": 0.5,
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         contract = data["contract"]
         assert contract["trust_default"] == "partial"
@@ -1241,7 +1237,7 @@ class TestHandleBoundaryContract:
                 "action": "set",
                 "trust_overrides": {"agent-2": "full", "agent-3": "none"},
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["contract"]["trust_overrides"]["agent-2"] == "full"
         assert data["contract"]["trust_overrides"]["agent-3"] == "none"
@@ -1254,7 +1250,7 @@ class TestHandleBoundaryContract:
                 "action": "set",
                 "trust_default": "banana",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1265,7 +1261,7 @@ class TestHandleBoundaryContract:
                 "action": "set",
                 "trust_overrides": {"agent-2": "banana"},
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1276,7 +1272,7 @@ class TestHandleBoundaryContract:
                 "action": "set",
                 "void_response_policy": "banana",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1301,7 +1297,7 @@ class TestHandleBoundaryContract:
                 "action": "set",
                 "trust_default": "none",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["contract"]["boundary_violations"] == 5
         assert data["contract"]["trust_default"] == "none"
@@ -1314,7 +1310,7 @@ class TestHandleBoundaryContract:
                 "action": "set",
                 "max_delegation_complexity": 2.0,
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["contract"]["max_delegation_complexity"] == 1.0
 
@@ -1322,7 +1318,7 @@ class TestHandleBoundaryContract:
     async def test_get_missing_target(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_boundary_contract
         result = await handle_boundary_contract.__wrapped__({"action": "get"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "target_agent_id" in data["error"].lower()
 
@@ -1333,7 +1329,7 @@ class TestHandleBoundaryContract:
             "action": "get",
             "target_agent_id": "nonexistent",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower() or "no boundary" in data["error"].lower()
 
@@ -1356,7 +1352,7 @@ class TestHandleBoundaryContract:
             "action": "get",
             "target_agent_id": "agent-1",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["contract"]["trust_default"] == "partial"
 
@@ -1385,7 +1381,7 @@ class TestHandleBoundaryContract:
             accept_coherence_threshold=0.3,
         ))
         result = await handle_boundary_contract.__wrapped__({"action": "list"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["summary"]["total_contracts"] == 2
         assert data["summary"]["trust_distribution"]["partial"] == 1
@@ -1403,14 +1399,14 @@ class TestHandleGovernanceAction:
     async def test_missing_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_governance_action
         result = await handle_governance_action.__wrapped__({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
     async def test_invalid_action(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_governance_action
         result = await handle_governance_action.__wrapped__({"action": "invalid"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     # --- INITIATE ---
@@ -1427,7 +1423,7 @@ class TestHandleGovernanceAction:
                 "action_type": "void_intervention",
                 "target_agent_id": "agent-2",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1438,7 +1434,7 @@ class TestHandleGovernanceAction:
                 "action": "initiate",
                 "target_agent_id": "agent-2",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1450,7 +1446,7 @@ class TestHandleGovernanceAction:
                 "action_type": "banana",
                 "target_agent_id": "agent-2",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1461,7 +1457,7 @@ class TestHandleGovernanceAction:
                 "action": "initiate",
                 "action_type": "coordination_sync",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "target_agent_id" in data["error"].lower()
 
@@ -1475,7 +1471,7 @@ class TestHandleGovernanceAction:
                 "target_agent_id": "agent-2",
                 "payload": {"task": "sync up"},
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         ga = data["governance_action"]
         assert ga["action_type"] == "coordination_sync"
@@ -1492,7 +1488,7 @@ class TestHandleGovernanceAction:
                 "action_type": "void_intervention",
                 "target_agent_id": "agent-2",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         payload = data["governance_action"]["payload"]
         assert "initiator_state" in payload
@@ -1520,7 +1516,7 @@ class TestHandleGovernanceAction:
                 "action_type": "coordination_sync",
                 "target_agent_id": "agent-2",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "none" in data["error"].lower() or "trust" in data["error"].lower()
 
@@ -1545,7 +1541,7 @@ class TestHandleGovernanceAction:
                 "action_type": "coordination_sync",
                 "target_agent_id": "agent-2",
             })
-        data = _parse(result)
+        data = parse_result(result)
         # Should succeed but with a warning
         assert data["success"] is True
         assert "warning" in data
@@ -1572,7 +1568,7 @@ class TestHandleGovernanceAction:
                 "action_type": "coordination_sync",
                 "target_agent_id": "agent-2",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     # --- RESPOND ---
@@ -1588,7 +1584,7 @@ class TestHandleGovernanceAction:
                 "action": "respond",
                 "action_id": "abc",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1598,7 +1594,7 @@ class TestHandleGovernanceAction:
             result = await handle_governance_action.__wrapped__({
                 "action": "respond",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "action_id" in data["error"].lower()
 
@@ -1610,7 +1606,7 @@ class TestHandleGovernanceAction:
                 "action": "respond",
                 "action_id": "nonexistent",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -1635,7 +1631,7 @@ class TestHandleGovernanceAction:
                 "action": "respond",
                 "action_id": "act-1",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not the target" in data["error"].lower()
 
@@ -1660,7 +1656,7 @@ class TestHandleGovernanceAction:
                 "action_id": "act-1",
                 "accept": True,
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "accepted" in data["error"].lower() or "non-pending" in data["error"].lower()
 
@@ -1686,7 +1682,7 @@ class TestHandleGovernanceAction:
                 "accept": True,
                 "response_data": {"eta": "10 minutes"},
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         ga = data["governance_action"]
         assert ga["status"] == "accepted"
@@ -1714,7 +1710,7 @@ class TestHandleGovernanceAction:
                 "action_id": "act-1",
                 "accept": False,
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["governance_action"]["status"] == "rejected"
 
@@ -1730,7 +1726,7 @@ class TestHandleGovernanceAction:
             result = await handle_governance_action.__wrapped__({
                 "action": "query",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
 
     @pytest.mark.asyncio
@@ -1740,7 +1736,7 @@ class TestHandleGovernanceAction:
             result = await handle_governance_action.__wrapped__({
                 "action": "query",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["actions"] == []
         assert data["summary"]["total_actions"] == 0
@@ -1773,7 +1769,7 @@ class TestHandleGovernanceAction:
             result = await handle_governance_action.__wrapped__({
                 "action": "query",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["summary"]["total_actions"] == 2
         assert data["summary"]["pending"] == 1
         assert data["summary"]["accepted"] == 1
@@ -1807,7 +1803,7 @@ class TestHandleGovernanceAction:
                 "action": "query",
                 "status_filter": "pending",
             })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["summary"]["total_actions"] == 1
         assert data["actions"][0]["status"] == "pending"
 
@@ -1819,7 +1815,7 @@ class TestHandleGovernanceAction:
         result = await handle_governance_action.__wrapped__({
             "action": "status",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "action_id" in data["error"].lower()
 
@@ -1830,7 +1826,7 @@ class TestHandleGovernanceAction:
             "action": "status",
             "action_id": "nonexistent",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
@@ -1853,7 +1849,7 @@ class TestHandleGovernanceAction:
             "action": "status",
             "action_id": "act-1",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["governance_action"]["action_id"] == "act-1"
         assert data["governance_action"]["status"] == "pending"
@@ -1870,7 +1866,7 @@ class TestHandleCirsProtocol:
     async def test_missing_protocol(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "protocol" in data["error"].lower()
 
@@ -1878,7 +1874,7 @@ class TestHandleCirsProtocol:
     async def test_unknown_protocol(self, mock_server):
         from src.mcp_handlers.cirs.protocol import handle_cirs_protocol
         result = await handle_cirs_protocol.__wrapped__({"protocol": "banana"})
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is False
         assert "unknown" in data["error"].lower() or "banana" in data["error"].lower()
 
@@ -1889,7 +1885,7 @@ class TestHandleCirsProtocol:
             "protocol": "void_alert",
             "action": "query",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["cirs_protocol"] == "VOID_ALERT"
 
@@ -1900,7 +1896,7 @@ class TestHandleCirsProtocol:
             "protocol": "state_announce",
             "action": "query",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["cirs_protocol"] == "STATE_ANNOUNCE"
 
@@ -1911,7 +1907,7 @@ class TestHandleCirsProtocol:
             "protocol": "coherence_report",
             "action": "query",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["cirs_protocol"] == "COHERENCE_REPORT"
 
@@ -1922,7 +1918,7 @@ class TestHandleCirsProtocol:
             "protocol": "boundary_contract",
             "action": "list",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
         assert data["cirs_protocol"] == "BOUNDARY_CONTRACT"
 
@@ -1934,7 +1930,7 @@ class TestHandleCirsProtocol:
             "action": "status",
             "action_id": "nonexistent",
         })
-        data = _parse(result)
+        data = parse_result(result)
         # This should fail with "not found" but still dispatches correctly
         assert data["success"] is False
 
@@ -1945,7 +1941,7 @@ class TestHandleCirsProtocol:
             "protocol": "VOID_ALERT",
             "action": "query",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
     @pytest.mark.asyncio
@@ -1955,7 +1951,7 @@ class TestHandleCirsProtocol:
             "protocol": "  void_alert  ",
             "action": "query",
         })
-        data = _parse(result)
+        data = parse_result(result)
         assert data["success"] is True
 
 

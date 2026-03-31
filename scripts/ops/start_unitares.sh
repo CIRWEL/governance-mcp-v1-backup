@@ -9,6 +9,11 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
+# LAN/ngrok: Host header allowlists must be set before Python imports (see src/mcp_listen_config.py)
+export UNITARES_BIND_ALL_INTERFACES="${UNITARES_BIND_ALL_INTERFACES:-1}"
+export UNITARES_MCP_ALLOWED_HOSTS="${UNITARES_MCP_ALLOWED_HOSTS:-192.168.1.151:*,192.168.1.164:*,100.96.201.46:*,unitares.ngrok.io}"
+export UNITARES_MCP_ALLOWED_ORIGINS="${UNITARES_MCP_ALLOWED_ORIGINS:-http://192.168.1.151:*,http://192.168.1.164:*,http://100.96.201.46:*,https://unitares.ngrok.io}"
+
 # Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

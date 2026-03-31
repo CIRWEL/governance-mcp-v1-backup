@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Self-relative behavioral baselines** — per-agent Welford mean/std after ~30 updates; assessment uses z-score deviation from agent's own operating point instead of fixed thresholds. Absolute safety floors (E<0.30, I<0.30, S>0.70, |V|>0.50) always apply regardless of baseline.
+- **Behavioral coherence for outcomes** — outcome events now feed behavioral EISV directly, closing the loop between governance verdicts and observable results.
+- Renamed internal "DNA/genotyping" terminology to standard ML terms (behavioral baseline, warmup, self-relative scoring). Persistence backward-compatible with old `dna_stats` key.
+
+### Security
+
+- **MCP listen defaults** — Default bind address is `127.0.0.1`. Opt in to `0.0.0.0` with `UNITARES_BIND_ALL_INTERFACES=1` or `UNITARES_MCP_HOST`. LAN/ngrok `Host` / Origin allowlists are no longer hard-coded in source: use `UNITARES_MCP_ALLOWED_HOSTS` and `UNITARES_MCP_ALLOWED_ORIGINS` (comma-separated). See `src/mcp_listen_config.py` and `CLAUDE.md`. LaunchAgent and `start_unitares.sh` set the previous bind-all + example allowlists for existing deployments.
+
 ---
 
 ## [2.9.0] - 2026-03-29
