@@ -25,7 +25,7 @@ The governance MCP uses PostgreSQL as the sole database backend:
 **Purpose**: Single source of truth for all persistent data
 
 **What's Stored:**
-- **Agent Metadata** (~1,800 identities)
+- **Agent Metadata**
   - Identity, API keys, status, tags, notes
   - Lifecycle events, creation/update timestamps
   - Parent/child agent relationships
@@ -276,6 +276,5 @@ SELECT MAX(version) FROM core.schema_migrations;
 ## Related Documentation
 
 - PostgreSQL Schema: `db/postgres/README.md`
-- Redis Keys: `src/cache/README.md`
 - Migration Scripts: `scripts/migrate_*.py`
 - Knowledge Graph: See AGE graph schema in `db/postgres/graph_schema.cypher`

@@ -35,13 +35,13 @@ launchctl load ~/Library/LaunchAgents/com.unitares.governance-mcp.plist
 ### 2. Deploy ngrok Tunnel
 
 ```bash
-cd /path/to/governance-mcp-v1
-./scripts/deploy_ngrok.sh
+# Start ngrok tunnel manually:
+ngrok http 8767 --domain your-domain.ngrok.io
 ```
 
-**Output:**
+**Verify:**
 ```
-🚀 UNITARES MCP Server - ngrok Deployment
+curl https://your-domain.ngrok.io/health
 ==========================================
 
 ✅ MCP server running on port 8767
@@ -124,9 +124,8 @@ tail -f /path/to/governance-mcp-v1/data/logs/mcp_server_error.log
 For a persistent ngrok tunnel, install as a launchd service:
 
 ```bash
-# Copy the example plist
-cp config/com.unitares.ngrok.plist.example ~/Library/LaunchAgents/com.unitares.ngrok-governance.plist
-# Edit to match your domain, then load:
+# Create a launchd plist for persistent ngrok tunnel.
+# See ngrok docs for plist format, then:
 launchctl load ~/Library/LaunchAgents/com.unitares.ngrok-governance.plist
 ```
 

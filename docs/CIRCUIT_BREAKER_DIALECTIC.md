@@ -139,7 +139,7 @@ This provides durability and auditability, enabling post‑hoc review and calibr
 
 ## LLM Delegation Architecture
 
-The system provides internal LLM delegation via `src/mcp_handlers/llm_delegation.py`:
+The system provides internal LLM delegation via `src/mcp_handlers/support/llm_delegation.py`:
 
 **Core functions:**
 - `call_local_llm()` — base function to invoke Ollama (gemma3:27b default)

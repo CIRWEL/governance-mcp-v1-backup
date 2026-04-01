@@ -22,8 +22,8 @@ parser.add_argument("--port", type=int, default=8766, help="HTTP server port (de
 ```
 
 **URLs:**
-- LAN: `http://192.168.1.165:8766/mcp/` (may change via DHCP)
-- Tailscale: `http://100.79.215.83:8766/mcp/` (verify with `tailscale status` — IPs can change)
+- LAN: `http://<pi-lan-ip>:8766/mcp/` (check router or `arp -a`)
+- Tailscale: `http://<pi-tailscale-ip>:8766/mcp/` (run `tailscale status` to get current IP)
 - ngrok: `https://lumen-anima.ngrok.io/mcp/`
 
 **Auth:** OAuth 2.1 enforced only via ngrok host (`lumen-anima.ngrok.io`). LAN and Tailscale are open.
@@ -35,14 +35,14 @@ parser.add_argument("--port", type=int, default=8766, help="HTTP server port (de
 DEFAULT_PORT = 8767  # Standard port for unitares governance on Mac (8766 is anima, 8765 was old default)
 ```
 
-**URL:** `http://localhost:8767/mcp` (or via Tailscale: `http://100.96.201.46:8767/mcp` — verify with `tailscale status`)
+**URL:** `http://localhost:8767/mcp` (or via Tailscale: `http://<mac-tailscale-ip>:8767/mcp` — run `tailscale status`)
 
 ## Configuration Files That Must Match
 
 ### 1. Governance → Anima Connection
 **File:** `governance-mcp-v1/src/mcp_handlers/pi_orchestration.py`
 ```python
-PI_MCP_URL = os.environ.get("PI_MCP_URL", "http://100.79.215.83:8766/mcp/")
+PI_MCP_URL = os.environ.get("PI_MCP_URL", "http://<pi-tailscale-ip>:8766/mcp/")
 ```
 **MUST BE:** Port **8766** (matches anima service). IP set via `PI_MCP_URL` env var — update if Tailscale IP changes (`tailscale status`).
 
@@ -77,7 +77,7 @@ lsof -i :8767 | grep python
 
 # Test connections (verify IPs with `tailscale status` first)
 curl http://localhost:8767/health                    # governance (local)
-curl http://100.79.215.83:8766/health                # anima (via Tailscale)
+curl http://<pi-tailscale-ip>:8766/health            # anima (via Tailscale — run `tailscale status`)
 curl https://lumen-anima.ngrok.io/health             # anima (via ngrok)
 ```
 

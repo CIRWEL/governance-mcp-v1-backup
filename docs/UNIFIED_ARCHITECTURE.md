@@ -43,18 +43,11 @@ Identity is resolved automatically from the session. First call auto-creates the
 
 ### 2. EISV Evolution
 
-The server runs coupled ODEs on the agent's state vector:
+**Primary system: Behavioral EISV** — EMA (exponential moving average) observations from check-ins. No ODE, no decay terms. Each EISV dimension is smoothed with per-dimension alpha values. After ~30 check-ins, the system builds per-agent Welford baselines and assesses agents by z-score deviation from their own operating point rather than universal thresholds.
 
-```
-dE/dt = alpha(I - E) - beta * E * S        Energy tracks integrity, dragged by entropy
-dI/dt = -k * S + beta_I * C(V) - gamma * I Integrity boosted by coherence, reduced by entropy
-dS/dt = -mu * S + lambda_1 * ||delta_eta||^2 - lambda_2 * C  Entropy decays, rises with drift
-dV/dt = kappa(E - I) - delta * V           Void accumulates E-I mismatch, decays toward zero
-```
+**Secondary system: ODE (diagnostic only)** — coupled differential equations run in parallel but do not drive verdicts. The ODE provides a thermodynamic lens for analysis but behavioral verdicts override.
 
-Key feedback: **coherence C(V)** creates nonlinear coupling that stabilizes the system. When V is near zero (E and I are balanced), coherence is high, which suppresses entropy and boosts integrity.
-
-The math engine lives in `governance_core` (compiled package, unitares-core).
+The behavioral engine lives in `src/behavioral_state.py` and `src/behavioral_assessment.py`. The ODE engine lives in `governance_core` (compiled package, unitares-core).
 
 ### 3. Ethical Drift
 
@@ -137,13 +130,13 @@ Agents contribute discoveries to a shared graph (PostgreSQL + AGE):
 | `src/mcp_handlers/lifecycle.py` | Stuck detection, auto-recovery |
 | `src/mcp_handlers/dialectic.py` | Thesis/antithesis/synthesis |
 | `src/calibration.py` | Confidence -> correctness mapping |
-| `src/mcp_handlers/cirs_protocol.py` | CIRS v2 protocol (7 message types) |
+| `src/mcp_handlers/cirs/` | CIRS v2 protocol (7 message types) |
 
 ---
 
 ## Case Study: Lumen (Embodied Agent)
 
-One of the 844+ registered agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi Zero 2W that checks in to UNITARES every ~60 seconds.
+One of the registered agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi 4 that checks in to UNITARES every ~180 seconds (configurable via `ANIMA_GOVERNANCE_INTERVAL_SECONDS`).
 
 What makes Lumen distinctive as an agent:
 

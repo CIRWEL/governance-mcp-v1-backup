@@ -50,7 +50,7 @@ TOOLS_NEEDING_SESSION_INJECTION = {
 | `src/mcp_handlers/*.py` | Handler implementations with `@mcp_tool` | Always - implements the logic |
 | `src/mcp_server.py` | HTTP transport registration | **Rarely** - only for server-specific tools |
 
-### Key Modules (v2.6.2)
+### Key Modules
 
 | Module | Purpose |
 |--------|---------|
