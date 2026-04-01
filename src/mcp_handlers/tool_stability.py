@@ -192,8 +192,25 @@ _TOOL_ALIASES: Dict[str, ToolAlias] = {
         migration_note="Use dialectic(action='get') to view sessions",
         inject_action="get"
     ),
-    # submit_thesis, submit_antithesis, submit_synthesis - RESTORED Feb 2026
-    # These are now active tools, not aliases
+    # Dialectic write tools → dialectic(action='...')  (Apr 2026 consolidation)
+    "request_dialectic_review": ToolAlias(
+        old_name="request_dialectic_review", new_name="dialectic", reason="consolidated",
+        migration_note="Use dialectic(action='request', issue_description='...')", inject_action="request"),
+    "submit_thesis": ToolAlias(
+        old_name="submit_thesis", new_name="dialectic", reason="consolidated",
+        migration_note="Use dialectic(action='thesis', session_id='...', root_cause='...')", inject_action="thesis"),
+    "submit_antithesis": ToolAlias(
+        old_name="submit_antithesis", new_name="dialectic", reason="consolidated",
+        migration_note="Use dialectic(action='antithesis', session_id='...')", inject_action="antithesis"),
+    "submit_synthesis": ToolAlias(
+        old_name="submit_synthesis", new_name="dialectic", reason="consolidated",
+        migration_note="Use dialectic(action='synthesis', session_id='...')", inject_action="synthesis"),
+    "submit_quorum_vote": ToolAlias(
+        old_name="submit_quorum_vote", new_name="dialectic", reason="consolidated",
+        migration_note="Use dialectic(action='vote', session_id='...', vote='resume')", inject_action="vote"),
+    "reassign_reviewer": ToolAlias(
+        old_name="reassign_reviewer", new_name="dialectic", reason="consolidated",
+        migration_note="Use dialectic(action='reassign', session_id='...')", inject_action="reassign"),
     
     # Knowledge graph tools
     "find_similar_discoveries_graph": ToolAlias(

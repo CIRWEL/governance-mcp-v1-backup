@@ -108,12 +108,24 @@ class LlmAssistedDialecticParams(AgentIdentityMixin):
 
 class DialecticParams(AgentIdentityMixin):
     """Parameters for dialectic"""
-    action: Literal["get", "list"] = Field(..., description="Operation to perform (default: list)")
-    session_id: Optional[str] = Field(None, description="Dialectic session ID (for action=get)")
+    action: Literal["get", "list", "request", "thesis", "antithesis", "synthesis", "vote", "reassign"] = Field(..., description="Operation: get, list, request, thesis, antithesis, synthesis, vote, reassign")
+    session_id: Optional[str] = Field(None, description="Dialectic session ID")
     agent_id: Optional[str] = Field(None, description="Filter by agent (for action=get or list)")
-    status: Optional[str] = Field(None, description="Filter by phase: thesis, antithesis, synthesis, resolved, escalated, failed (for action=list)")
+    status: Optional[str] = Field(None, description="Filter by phase (for action=list)")
     limit: Optional[int] = Field(None, description="Max sessions to return (for action=list, default 50)")
     include_transcript: Optional[bool] = Field(None, description="Include full transcript (for action=list, default false)")
+    # Write action fields
+    issue_description: Optional[str] = Field(None, description="Issue description (for action=request)")
+    root_cause: Optional[str] = Field(None, description="Root cause analysis (for action=thesis/synthesis)")
+    proposed_conditions: Optional[List[str]] = Field(None, description="Conditions for resumption (for action=thesis/synthesis)")
+    reasoning: Optional[str] = Field(None, description="Explanation/reasoning")
+    observed_metrics: Optional[dict] = Field(None, description="Observed metrics (for action=antithesis)")
+    concerns: Optional[List[str]] = Field(None, description="Concerns (for action=antithesis)")
+    agrees: Union[bool, str, None] = Field(None, description="Agreement flag (for action=synthesis)")
+    vote: Optional[str] = Field(None, description="Vote: resume, block, or cooldown (for action=vote)")
+    conditions: Optional[List[str]] = Field(None, description="Conditions (for action=vote)")
+    new_reviewer_id: Optional[str] = Field(None, description="New reviewer agent ID (for action=reassign)")
+    reason: Optional[str] = Field(None, description="Reason (for action=request/reassign)")
 
 class ReassignReviewerParams(AgentIdentityMixin):
     """Reassign the reviewer for an active dialectic session."""

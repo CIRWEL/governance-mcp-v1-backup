@@ -348,7 +348,8 @@ def auto_register_all_tools():
     """
     Auto-register tools from tool_schemas.py with typed signatures.
 
-    Only registers tools that are in the decorator registry (register=True).
+    Only registers tools that are in the decorator registry (register=True)
+    AND in the active tool mode's allowed set (unless mode is "full").
     Tools with register=False in @mcp_tool decorator are skipped.
 
     This generates wrappers with explicit parameter signatures from JSON schemas,
@@ -358,7 +359,7 @@ def auto_register_all_tools():
     - Claude.ai sends parameters directly (no kwargs wrapper needed)
     - CLI's kwargs wrapping still works (dispatch_tool unwraps)
     - Proper client autocomplete from typed signatures
-    - Consolidated tools reduce cognitive load (90 → 49 tools)
+    - Mode filtering reduces tool count for Claude Code (no deferred tools)
 
     Just add the tool to:
     1. tool_schemas.py (definition)
@@ -369,13 +370,18 @@ def auto_register_all_tools():
     from src.tool_schemas import get_tool_definitions
     from src.mcp_handlers.support.wrapper_generator import create_typed_wrapper
     from src.mcp_handlers.decorators import get_tool_registry
+    from src.tool_modes import TOOL_MODE, get_tools_for_mode
 
     tools = get_tool_definitions()
     registered_count = 0
     skipped_count = 0
+    mode_filtered_count = 0
 
     # Get tools that are registered (register=True in @mcp_tool decorator)
     registered_tools = get_tool_registry()
+
+    # Get allowed tools for current mode (skip filtering in full mode)
+    allowed_tools = get_tools_for_mode(TOOL_MODE) if TOOL_MODE != "full" else None
 
     for tool in tools:
         tool_name = tool.name
@@ -383,6 +389,11 @@ def auto_register_all_tools():
         # Skip tools not in registry (register=False in decorator)
         if tool_name not in registered_tools:
             skipped_count += 1
+            continue
+
+        # Skip tools not in the active mode's allowed set
+        if allowed_tools is not None and tool_name not in allowed_tools:
+            mode_filtered_count += 1
             continue
 
         description = tool.description.split("\n")[0] if tool.description else f"Tool: {tool_name}"
@@ -406,7 +417,11 @@ def auto_register_all_tools():
         except Exception as e:
             logger.warning(f"Failed to auto-register tool {tool_name}: {e}")
 
-    logger.info(f"[AUTO_REGISTER] Registered {registered_count} tools, skipped {skipped_count} (consolidated)")
+    logger.info(
+        f"[AUTO_REGISTER] Registered {registered_count} tools, "
+        f"skipped {skipped_count} (not in registry), "
+        f"filtered {mode_filtered_count} (mode={TOOL_MODE})"
+    )
     return registered_count
 
 # Call auto-registration
@@ -485,7 +500,7 @@ def _register_common_aliases():
     if count:
         logger.info(f"[AUTO_REGISTER] Registered {count} common aliases")
 
-_register_common_aliases()
+# _register_common_aliases()  # Removed: aliases inflate tool count; use consolidated forms
 
 # ============================================================================
 # LEGACY MANUAL REGISTRATIONS (kept for reference, will be removed)

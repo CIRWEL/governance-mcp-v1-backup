@@ -57,6 +57,13 @@ LITE_MODE_TOOLS: Set[str] = {
     # Convenient shortcuts (kept for discoverability)
     "leave_note",                 # Quick notes
     "call_model",                 # LLM access
+
+    # Session & calibration hooks (required by automation)
+    "bind_session",               # Session-start hook for MCP identity sync
+    "outcome_event",              # PostToolUse hook for auto-calibration
+
+    # Recovery
+    "self_recovery",              # Primary recovery path for stuck agents
 }
 
 # Operator read-only mode: Observability and detection tools for central operator agent

@@ -66,6 +66,12 @@ from .observability.handlers import (
 from .dialectic.handlers import (
     handle_get_dialectic_session,
     handle_list_dialectic_sessions,
+    handle_request_dialectic_review,
+    handle_submit_thesis,
+    handle_submit_antithesis,
+    handle_submit_synthesis,
+    handle_submit_quorum_vote,
+    handle_reassign_reviewer,
 )
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
 from .observability.pi_orchestration import (
@@ -265,13 +271,21 @@ handle_dialectic = action_router(
     actions={
         "get": handle_get_dialectic_session,
         "list": handle_list_dialectic_sessions,
+        "request": handle_request_dialectic_review,
+        "thesis": handle_submit_thesis,
+        "antithesis": handle_submit_antithesis,
+        "synthesis": handle_submit_synthesis,
+        "vote": handle_submit_quorum_vote,
+        "reassign": handle_reassign_reviewer,
     },
-    timeout=15.0,
-    description="Dialectic session queries: get (by ID/agent), list (with filters)",
+    timeout=60.0,
+    description="Dialectic operations: get, list, request, thesis, antithesis, synthesis, vote, reassign",
     default_action="list",
     examples=[
         "dialectic(action='list')",
         "dialectic(action='get', session_id='abc123')",
-        "dialectic(action='list', status='resolved')",
+        "dialectic(action='request', issue_description='Agent stuck in loop')",
+        "dialectic(action='thesis', session_id='abc123', root_cause='...', proposed_conditions=[...])",
+        "dialectic(action='vote', session_id='abc123', vote='resume', reasoning='...')",
     ],
 )

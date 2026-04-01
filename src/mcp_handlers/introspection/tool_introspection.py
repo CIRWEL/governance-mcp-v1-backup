@@ -463,7 +463,7 @@ async def handle_list_tools(arguments: Dict[str, Any]) -> Sequence[TextContent]:
         "list_tools": "📚 Discover all available tools. Your guide to what's possible",
         "describe_tool": "📖 Get full details for a specific tool. Deep dive into any tool",
         "cleanup_stale_locks": "🧹 Clean up stale lock files from crashed/killed processes",
-        "dialectic": "📋 Query dialectic sessions (get by ID, list with filters)",
+        "dialectic": "📋 Dialectic operations: get, list, request, thesis, antithesis, synthesis, vote, reassign",
         "health_check": "🏥 Quick health check - system status and component health",
         "check_calibration": "📏 Check calibration of confidence estimates",
         "update_calibration_ground_truth": "📝 Record external truth signal for calibration (optional)",
