@@ -107,13 +107,29 @@ def detect_anomalies_in_history(
     return anomalies
 
 
+def _get_behavioral_histories(monitor) -> Optional[Dict[str, list]]:
+    """Get EISV histories from behavioral state when confident, else None."""
+    try:
+        beh = monitor._behavioral_state
+        if beh.confidence < 0.3:
+            return None
+        return {
+            "E": list(beh.E_history),
+            "I": list(beh.I_history),
+            "S": list(beh.S_history),
+            "V": list(beh.V_history),
+        }
+    except (AttributeError, TypeError):
+        return None
+
+
 def analyze_agent_patterns(
     monitor,
     include_history: bool = True
 ) -> Dict:
     """
     Analyze patterns in an agent's governance history.
-    
+
     Returns structured analysis optimized for AI consumption.
     """
     state = monitor.state
@@ -134,25 +150,32 @@ def analyze_agent_patterns(
         "lambda1": float(state.lambda1),
         "update_count": state.update_count
     }
-    
+
+    # EISV histories: behavioral-first, ODE fallback
+    beh_hist = _get_behavioral_histories(monitor)
+    e_hist = beh_hist["E"] if beh_hist else state.E_history
+    i_hist = beh_hist["I"] if beh_hist else state.I_history
+    s_hist = beh_hist["S"] if beh_hist else state.S_history
+    v_hist = beh_hist["V"] if beh_hist else state.V_history
+
     # Pattern analysis
     patterns = {}
-    
+
     if len(state.risk_history) >= 2:
         patterns["risk_trend"] = analyze_trend(state.risk_history)
     else:
         patterns["risk_trend"] = "stable"
-    
+
     if len(state.coherence_history) >= 2:
         patterns["coherence_trend"] = analyze_trend(state.coherence_history)
     else:
         patterns["coherence_trend"] = "stable"
-    
-    if len(state.E_history) >= 2:
-        patterns["E_trend"] = analyze_trend(state.E_history)
+
+    if len(e_hist) >= 2:
+        patterns["E_trend"] = analyze_trend(e_hist)
     else:
         patterns["E_trend"] = "stable"
-    
+
     # Overall trend
     if patterns.get("risk_trend") == "decreasing" and patterns.get("coherence_trend") == "increasing":
         patterns["trend"] = "improving"
@@ -160,7 +183,7 @@ def analyze_agent_patterns(
         patterns["trend"] = "degrading"
     else:
         patterns["trend"] = "stable"
-    
+
     # Anomaly detection
     timestamps = state.timestamp_history if hasattr(state, 'timestamp_history') else []
     anomalies = detect_anomalies_in_history(
@@ -168,11 +191,11 @@ def analyze_agent_patterns(
         state.coherence_history,
         timestamps
     )
-    
+
     # Summary statistics
     decision_history = getattr(state, 'decision_history', [])
     decision_counts = Counter(decision_history)
-    
+
     summary = {
         "total_updates": state.update_count,
         "mean_risk": float(np.mean(state.risk_history)) if state.risk_history else 0.0,
@@ -186,26 +209,27 @@ def analyze_agent_patterns(
             "reject": decision_counts.get("reject", 0)
         }
     }
-    
+
     result = {
         "current_state": current_state,
         "patterns": patterns,
         "anomalies": anomalies,
         "summary": summary
     }
-    
+
     if include_history and len(state.risk_history) > 0:
-        # Include recent history (last 10 updates)
+        # Include recent history (last 10 updates) — behavioral EISV, ODE risk/coherence
         recent_window = min(10, len(state.risk_history))
+        eisv_window = min(10, len(e_hist))
         result["recent_history"] = {
             "timestamps": timestamps[-recent_window:] if timestamps else [],
             "risk_history": [float(r) for r in state.risk_history[-recent_window:]],
             "coherence_history": [float(c) for c in state.coherence_history[-recent_window:]],
-            "E_history": [float(e) for e in state.E_history[-recent_window:]],
-            "I_history": [float(i) for i in state.I_history[-recent_window:]],
-            "S_history": [float(s) for s in state.S_history[-recent_window:]],
-            "V_history": [float(v) for v in state.V_history[-recent_window:]]
+            "E_history": [float(e) for e in e_hist[-eisv_window:]],
+            "I_history": [float(i) for i in i_hist[-eisv_window:]],
+            "S_history": [float(s) for s in s_hist[-eisv_window:]],
+            "V_history": [float(v) for v in v_hist[-eisv_window:]]
         }
-    
+
     return result
 
