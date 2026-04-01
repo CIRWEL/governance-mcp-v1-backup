@@ -35,10 +35,11 @@ UNITARES governance MCP server. Thermodynamic governance framework for AI agents
 
 ## Database
 
-- **ONE database**: Docker `postgres-age` on port 5432 (`postgresql://postgres:postgres@localhost:5432/governance`)
-- Test database: `governance_test` on same server
-- **Never use bare `psql`** — always `docker exec postgres-age psql -U postgres -d governance`
-- Homebrew PostgreSQL on port 5433 is a different project — do not use it
+- **ONE database**: Docker `postgres-age` container on port 5432 (`postgresql://postgres:postgres@localhost:5432/governance`)
+- Requires Docker Desktop running. If governance crashes with "Connect call failed", start Docker Desktop.
+- Access: `docker exec postgres-age psql -U postgres -d governance`
+- Backups: `/Users/cirwel/backups/governance/` (daily pg_dump via launchd)
+- Do NOT create additional PostgreSQL instances, databases, or migration layers. One database, one location.
 
 ## Git Rules
 
