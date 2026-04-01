@@ -729,51 +729,11 @@ async def handle_search_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[T
                         )
                 except Exception as e:
                     logger.debug(f"Semantic→FTS fallback failed: {e}")
-            
-            # Strategy 2: If FTS returned 0, try individual terms with OR (more permissive)
-            if len(results) == 0 and search_mode == "fts" and hasattr(graph, "full_text_search"):
-                try:
-                    terms = str(query_text).split()
-                    if len(terms) > 1:
-                        # Try each term individually (OR across terms)
-                        fallback_results = []
-                        for term in terms[:3]:  # Limit to first 3 terms
-                            term_results = await graph.full_text_search(term, limit=limit)
-                            fallback_results.extend(term_results)
-                        # Deduplicate and apply filters
-                        seen_ids = set()
-                        for d in fallback_results:
-                            if d.id not in seen_ids:
-                                # Apply metadata filters
-                                if agent_id and d.agent_id != agent_id:
-                                    continue
-                                if dtype and d.type != dtype:
-                                    continue
-                                if severity and d.severity != severity:
-                                    continue
-                                if status and d.status != status:
-                                    continue
-                                if not status and not include_archived and d.status == "archived":
-                                    continue
-                                if tags:
-                                    d_tags = set(d.tags or [])
-                                    if not any(t in d_tags for t in tags):
-                                        continue
-                                results.append(d)
-                                seen_ids.add(d.id)
-                                if len(results) >= limit:
-                                    break
-                        if len(results) > 0:
-                            fallback_used = True
-                            search_mode = "fts_fallback"
-                            operator_used = "OR (fallback)"  # Explicitly marked as fallback
-                            fallback_explanation = (
-                                f"No exact phrase matches found for '{query_text}'. "
-                                f"Falling back to individual term search (OR operator) for: {', '.join(terms[:3])}"
-                            )
-                except Exception as e:
-                    logger.debug(f"FTS fallback search failed: {e}")
-            
+
+            # Strategy 2 (removed): Individual-term FTS fallback is no longer needed
+            # because kg_full_text_search now defaults to OR for multi-term queries
+            # via _or_default_query(). The primary FTS query already matches any term.
+
             # Strategy 3: If semantic returned 0 and FTS fallback also returned 0, try semantic with lower threshold
             if len(results) == 0 and search_mode in ["semantic", "semantic_fallback_fts"] and hasattr(graph, "semantic_search"):
                 try:

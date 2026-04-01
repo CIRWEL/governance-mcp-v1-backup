@@ -990,20 +990,16 @@ class TestSearchKnowledgeGraphAdditional:
         assert "semantic_fallback_fts" in data["search_mode_used"]
 
     @pytest.mark.asyncio
-    async def test_search_fts_fallback_individual_terms(self, patch_common):
-        """Search FTS returning 0 results falls back to individual terms (lines 647-674)."""
+    async def test_search_fts_multi_term_or_default(self, patch_common):
+        """FTS multi-term queries use OR by default (no per-term fallback needed)."""
         mock_mcp_server, mock_graph = patch_common
         from src.mcp_handlers.knowledge.handlers import handle_search_knowledge_graph
 
-        disc = make_discovery(id="fts-term-1", summary="Individual term match")
+        disc = make_discovery(id="fts-or-1", summary="Matches one of the terms")
         # Remove semantic_search to force FTS path
         del mock_graph.semantic_search
-        mock_graph.full_text_search = AsyncMock(side_effect=[
-            [],  # First call (full query) returns empty
-            [disc],  # Second call (first term) returns result
-            [],  # Third call (second term)
-            [],  # Fourth call (third term)
-        ])
+        # Single FTS call should find results with OR-default
+        mock_graph.full_text_search = AsyncMock(return_value=[disc])
 
         result = await handle_search_knowledge_graph({
             "query": "multiple word query",
@@ -1011,8 +1007,10 @@ class TestSearchKnowledgeGraphAdditional:
 
         data = parse_result(result)
         assert data["success"] is True
-        if data["count"] > 0:
-            assert data["fallback_used"] is True
+        assert data["count"] == 1
+        assert data["search_mode_used"] == "fts"
+        # No fallback needed — OR-default handles multi-term in primary query
+        assert data.get("fallback_used") is not True
 
     @pytest.mark.asyncio
     async def test_search_semantic_lower_threshold_fallback(self, patch_common):
