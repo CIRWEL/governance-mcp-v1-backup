@@ -9,7 +9,7 @@ import json
 import pytest
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from mcp.types import ImageContent, TextContent
 from starlette.testclient import TestClient
 
@@ -17,7 +17,11 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from tests.http_test_app import create_test_app
-from src.http_api import _build_http_tool_response, _normalize_http_tool_name
+from src.http_api import (
+    _build_http_tool_response,
+    _normalize_http_tool_name,
+    _resolve_http_bound_agent,
+)
 
 
 # ============================================================================
@@ -232,3 +236,30 @@ class TestHttpToolNameNormalization:
 
     def test_missing_name_returns_unknown(self):
         assert _normalize_http_tool_name({}, "unitares") == "unknown"
+
+
+class TestHttpIdentityResolution:
+
+    @pytest.mark.asyncio
+    async def test_resolve_http_bound_agent_injects_resumed_uuid(self):
+        arguments = {"client_session_id": "agent-123", "model_type": "gpt-5.4-codex"}
+        signals = MagicMock()
+
+        with patch("src.mcp_handlers.context.update_context_agent_id") as mock_update, \
+             patch("src.mcp_handlers.identity.handlers.derive_session_key", new=AsyncMock(return_value="agent-123")), \
+             patch("src.mcp_handlers.identity.handlers.resolve_session_identity", new=AsyncMock(return_value={
+                 "created": False,
+                 "agent_uuid": "12345678-1234-1234-1234-123456789abc",
+             })):
+            resolved = await _resolve_http_bound_agent("process_agent_update", arguments, signals)
+
+        assert resolved == "12345678-1234-1234-1234-123456789abc"
+        assert arguments["agent_id"] == "12345678-1234-1234-1234-123456789abc"
+        mock_update.assert_called_once_with("12345678-1234-1234-1234-123456789abc")
+
+    @pytest.mark.asyncio
+    async def test_resolve_http_bound_agent_skips_identity_tool(self):
+        arguments = {"client_session_id": "agent-123"}
+        resolved = await _resolve_http_bound_agent("identity", arguments, MagicMock())
+        assert resolved is None
+        assert "agent_id" not in arguments

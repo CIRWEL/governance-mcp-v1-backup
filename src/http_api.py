@@ -45,6 +45,33 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _build_http_session_signals(request):
+    """Build SessionSignals from an HTTP request."""
+    from src.mcp_handlers.context import SessionSignals
+
+    ua = request.headers.get("user-agent", "")
+    x_session_id = request.headers.get("X-Session-ID") or request.headers.get("x-session-id")
+
+    ip_ua_fp = None
+    try:
+        host = request.client.host if request.client else "unknown"
+        import hashlib
+        ua_fp = hashlib.md5(ua.encode()).hexdigest()[:6] if ua else "000000"
+        ip_ua_fp = f"{host}:{ua_fp}"
+    except Exception:
+        pass
+
+    return SessionSignals(
+        x_session_id=x_session_id,
+        x_client_id=request.headers.get("x-client-id") or request.headers.get("x-mcp-client-id"),
+        ip_ua_fingerprint=ip_ua_fp,
+        user_agent=ua,
+        x_agent_name=request.headers.get("x-agent-name"),
+        x_agent_id=request.headers.get("x-agent-id"),
+        transport="rest",
+    )
+
+
 def _serialize_mcp_content_item(item):
     """Convert MCP content items into JSON-serializable dicts."""
     if hasattr(item, "model_dump"):
@@ -167,32 +194,12 @@ async def _extract_client_session_id(request) -> str:
     Uses SessionSignals + derive_session_key() for unified derivation.
     Falls back to legacy logic if signals unavailable.
     """
-    from src.mcp_handlers.context import SessionSignals
     from src.mcp_handlers.identity.handlers import derive_session_key, ua_hash_from_header
 
-    # Build SessionSignals from request headers
-    ua = request.headers.get("user-agent", "")
-    x_session_id = request.headers.get("X-Session-ID") or request.headers.get("x-session-id")
-
-    # Compute IP:UA fingerprint
-    ip_ua_fp = None
-    try:
-        host = request.client.host if request.client else "unknown"
-        import hashlib
-        ua_fp = hashlib.md5(ua.encode()).hexdigest()[:6] if ua else "000000"
-        ip_ua_fp = f"{host}:{ua_fp}"
-    except Exception:
-        pass
-
-    signals = SessionSignals(
-        x_session_id=x_session_id,
-        x_client_id=request.headers.get("x-client-id") or request.headers.get("x-mcp-client-id"),
-        ip_ua_fingerprint=ip_ua_fp,
-        user_agent=ua,
-        x_agent_name=request.headers.get("x-agent-name"),
-        x_agent_id=request.headers.get("x-agent-id"),
-        transport="rest",
-    )
+    signals = _build_http_session_signals(request)
+    ua = signals.user_agent or ""
+    x_session_id = signals.x_session_id
+    ip_ua_fp = signals.ip_ua_fingerprint
 
     result = await derive_session_key(signals)
 
@@ -214,6 +221,55 @@ async def _extract_client_session_id(request) -> str:
             return f"http:unknown:{unique_id}"
 
     return result
+
+
+async def _resolve_http_bound_agent(tool_name: str, arguments: dict, signals) -> str | None:
+    """Resolve an existing identity for HTTP requests before direct tool calls.
+
+    This keeps direct HTTP tools like process_agent_update aligned with the
+    fallback middleware path, which would otherwise inject session-bound identity.
+    """
+    if not isinstance(arguments, dict):
+        return None
+
+    # These tools establish or inspect identity; they should not be pre-bound.
+    skip_tools = {
+        "identity",
+        "onboard",
+        "bind_session",
+        "health_check",
+        "list_tools",
+        "get_server_info",
+        "describe_tool",
+        "debug_request_context",
+    }
+    if tool_name in skip_tools:
+        return None
+
+    from src.mcp_handlers.context import update_context_agent_id
+    from src.mcp_handlers.identity.handlers import derive_session_key, resolve_session_identity
+
+    # Respect an already explicit UUID.
+    explicit_agent_id = arguments.get("agent_id")
+    if isinstance(explicit_agent_id, str) and len(explicit_agent_id) == 36 and explicit_agent_id.count("-") == 4:
+        update_context_agent_id(explicit_agent_id)
+        return explicit_agent_id
+
+    session_key = await derive_session_key(signals, arguments)
+    resolved = await resolve_session_identity(
+        session_key,
+        persist=False,
+        model_type=arguments.get("model_type"),
+        client_hint=arguments.get("client_hint"),
+        resume=True,
+    )
+    if resolved and not resolved.get("created"):
+        agent_uuid = resolved.get("agent_uuid")
+        if agent_uuid:
+            update_context_agent_id(agent_uuid)
+            arguments["agent_id"] = agent_uuid
+            return agent_uuid
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -408,18 +464,30 @@ async def http_call_tool(request):
                     arguments["model_type"] = detected_model
                     logger.debug(f"[HTTP] Auto-detected model_type={detected_model} from headers")
 
+        from src.mcp_handlers.context import (
+            reset_session_context,
+            reset_session_signals,
+            set_session_context,
+            set_session_signals,
+        )
+
+        signals = _build_http_session_signals(request)
+        signals_token = set_session_signals(signals)
+
         # SET SESSION CONTEXT for contextvars-based identity lookup
         # This allows success_response() and status() to find binding without arguments
-        from src.mcp_handlers.context import set_session_context, reset_session_context
         context_token = set_session_context(
             session_key=client_session_id,
             client_session_id=client_session_id,
             agent_id=x_agent_id or (arguments.get("agent_id") if isinstance(arguments, dict) else None),
         )
         try:
+            if isinstance(arguments, dict):
+                await _resolve_http_bound_agent(tool_name, arguments, signals)
             result = await execute_http_tool(tool_name, arguments)
         finally:
             reset_session_context(context_token)
+            reset_session_signals(signals_token)
         return JSONResponse(_build_http_tool_response(tool_name, result))
     except json.JSONDecodeError as e:
         # SECURITY: Sanitize JSON parsing errors
