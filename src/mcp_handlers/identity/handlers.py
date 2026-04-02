@@ -1309,8 +1309,7 @@ async def handle_get_trajectory_status(arguments: Dict[str, Any]) -> Sequence[Te
 async def _auto_archive_ephemeral_agents():
     """Fire-and-forget: archive agents with 0 updates older than 2 hours."""
     try:
-        from datetime import timezone
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
+        cutoff = datetime.now() - timedelta(hours=2)
         archived = 0
         db = get_db()
         for agent_id, meta in list(mcp_server.agent_metadata.items()):
@@ -1324,8 +1323,9 @@ async def _auto_archive_ephemeral_agents():
                 continue
             try:
                 last_dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
-                if last_dt.tzinfo is None:
-                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                # Strip tzinfo to compare consistently with naive local timestamps
+                if last_dt.tzinfo is not None:
+                    last_dt = last_dt.replace(tzinfo=None)
                 if last_dt >= cutoff:
                     continue
             except Exception:

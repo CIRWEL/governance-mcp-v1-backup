@@ -98,10 +98,11 @@ async def auto_archive_orphan_agents(
             last_update_dt = datetime.fromisoformat(
                 last_update_str.replace('Z', '+00:00') if 'Z' in last_update_str else last_update_str
             )
-            if last_update_dt.tzinfo:
-                age_delta = datetime.now(last_update_dt.tzinfo) - last_update_dt
-            else:
-                age_delta = current_time - last_update_dt
+            # Strip tzinfo to compare consistently with naive local timestamps
+            # (metadata stores datetime.now().isoformat() which is naive local time)
+            if last_update_dt.tzinfo is not None:
+                last_update_dt = last_update_dt.replace(tzinfo=None)
+            age_delta = current_time - last_update_dt
             age_hours = age_delta.total_seconds() / 3600
         except (ValueError, TypeError, AttributeError):
             continue
