@@ -31,23 +31,48 @@ fi
 # Activate virtual environment
 source .venv/bin/activate
 
-# Clean up stale locks and PID files in the real project data directory
-echo "🧹 Cleaning up stale lock files..."
-rm -f data/.mcp_server.* 2>/dev/null || true
+wait_for_exit() {
+    local pattern="$1"
+    local attempts="${2:-20}"
+    local sleep_seconds="${3:-0.5}"
+    local i
+    for ((i=0; i<attempts; i++)); do
+        if ! pgrep -f "$pattern" > /dev/null; then
+            return 0
+        fi
+        sleep "$sleep_seconds"
+    done
+    return 1
+}
+
+cleanup_stale_markers() {
+    if pgrep -f "mcp_server.py" > /dev/null; then
+        echo -e "${YELLOW}⚠️  Server process still running; preserving marker files${NC}"
+        return
+    fi
+    rm -f data/.mcp_server.pid data/.mcp_server.lock 2>/dev/null || true
+}
 
 # Check if server is already running
 if pgrep -f "mcp_server.py" > /dev/null; then
     echo -e "${YELLOW}⚠️  Server appears to be running. Stopping existing instance...${NC}"
     pkill -f "mcp_server.py" || true
-    sleep 2
+    if ! wait_for_exit "mcp_server.py" 10 0.5; then
+        echo -e "${YELLOW}⚠️  Force killing existing server...${NC}"
+        pkill -9 -f "mcp_server.py" || true
+        wait_for_exit "mcp_server.py" 10 0.5 || true
+    fi
 fi
 
 # Check if ngrok is already running for this port
 if pgrep -f "ngrok.*8767" > /dev/null; then
     echo -e "${YELLOW}⚠️  Ngrok appears to be running. Stopping existing instance...${NC}"
     pkill -f "ngrok.*8767" || true
-    sleep 1
+    wait_for_exit "ngrok.*8767" 10 0.3 || true
 fi
+
+echo "🧹 Cleaning up stale lock files..."
+cleanup_stale_markers
 
 # Start MCP server
 echo "📡 Starting MCP server on port 8767..."

@@ -16,16 +16,35 @@ NC='\033[0m' # No Color
 
 echo "🛑 Stopping UNITARES Governance MCP Server..."
 
+wait_for_exit() {
+    local pattern="$1"
+    local attempts="${2:-20}"
+    local sleep_seconds="${3:-0.5}"
+    local i
+    for ((i=0; i<attempts; i++)); do
+        if ! pgrep -f "$pattern" > /dev/null; then
+            return 0
+        fi
+        sleep "$sleep_seconds"
+    done
+    return 1
+}
+
 # Stop MCP server
 if pgrep -f "mcp_server.py" > /dev/null; then
     echo "📡 Stopping MCP server..."
     pkill -f "mcp_server.py" || true
-    sleep 2
+    wait_for_exit "mcp_server.py" 10 0.5 || true
 
     # Force kill if still running
     if pgrep -f "mcp_server.py" > /dev/null; then
         echo -e "${YELLOW}⚠️  Force killing server...${NC}"
         pkill -9 -f "mcp_server.py" || true
+        wait_for_exit "mcp_server.py" 10 0.5 || true
+    fi
+    if pgrep -f "mcp_server.py" > /dev/null; then
+        echo -e "${RED}❌ MCP server still appears to be running${NC}"
+        exit 1
     fi
     echo -e "${GREEN}✅ MCP server stopped${NC}"
 else
@@ -36,21 +55,26 @@ fi
 if pgrep -f "ngrok http" > /dev/null; then
     echo "🌐 Stopping ngrok tunnel..."
     pkill -f "ngrok http" || true
-    sleep 1
+    wait_for_exit "ngrok http" 10 0.3 || true
 
     # Force kill if still running
     if pgrep -f "ngrok http" > /dev/null; then
         echo -e "${YELLOW}⚠️  Force killing ngrok...${NC}"
         pkill -9 -f "ngrok http" || true
+        wait_for_exit "ngrok http" 10 0.3 || true
     fi
     echo -e "${GREEN}✅ Ngrok tunnel stopped${NC}"
 else
     echo "ℹ️  Ngrok not running"
 fi
 
-# Clean up lock and PID files in the real project data directory
+# Clean up only when the server is actually gone; avoids racing a fresh restart.
 echo "🧹 Cleaning up lock files..."
-rm -f data/.mcp_server.* 2>/dev/null || true
+if pgrep -f "mcp_server.py" > /dev/null; then
+    echo -e "${YELLOW}⚠️  Skipping marker cleanup because a server process is still running${NC}"
+else
+    rm -f data/.mcp_server.pid data/.mcp_server.lock 2>/dev/null || true
+fi
 
 echo ""
 echo -e "${GREEN}✅ UNITARES stopped successfully${NC}"
