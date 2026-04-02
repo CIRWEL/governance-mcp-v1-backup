@@ -39,7 +39,7 @@ Bare `psql` may connect to a different PostgreSQL instance on the host and give 
 
 ## Running Tests
 
-The test suite has 5,700+ tests covering ~80% of the codebase:
+The test suite contains thousands of tests covering most of the codebase:
 
 ```bash
 # Full suite (recommended before PRs)

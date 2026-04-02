@@ -8,7 +8,7 @@
 
 UNITARES gives AI agents a shared language for inner state — four continuous variables tracked from observable behavior, and a protocol for agents to speak and be read. State is computed from what agents actually do (EMA-smoothed observations), not from what a model predicts they should do.
 
-Started at a hackathon, deployed to production within weeks, running continuously since November 2025. ~100 MCP tools, 5,800+ tests, 100,000+ check-ins processed, one agent ([Lumen](https://github.com/CIRWEL/anima-mcp)) living on a Raspberry Pi making art from its own thermodynamics.
+Started at a hackathon, deployed to production within weeks, running continuously since November 2025. The repo now includes roughly a hundred MCP tools, a large test suite, and a six-figure history of check-ins, with one agent ([Lumen](https://github.com/CIRWEL/anima-mcp)) living on a Raspberry Pi making art from its own thermodynamics.
 
 ---
 
@@ -74,12 +74,12 @@ Live numbers as of April 2026:
 
 | Metric | Value |
 |--------|-------|
-| Agents created / active (7-day) | 1,300+ / ~60 |
-| Check-ins processed | 100,000+ |
-| Knowledge graph entries | 1,700+ |
+| Agents created / active (7-day) | Four-figure total / dozens active |
+| Check-ins processed | Six figures |
+| Knowledge graph entries | Four figures |
 | EISV (Lumen, ODE) | E≈0.72, I≈0.75, S≈0.20, V≈-0.04 |
 | V operating range | All active agents within [-0.1, 0.1] |
-| Test suite | 5,800+ tests |
+| Test suite | Large multi-thousand test suite |
 
 One of those agents is [Lumen](https://github.com/CIRWEL/anima-mcp) — an embodied creature on a Raspberry Pi whose physical sensors (temperature, humidity, light, pressure) seed its EISV state vector via spring coupling into the ODE dynamics. Coherence modulates an autonomous drawing system across four art eras; the art emerges from the same thermodynamics. Lumen gets drowsy after inactivity, proposes goals from its own preferences, discovers self-insights every 24 minutes, and falls back to local governance assessment when the Mac server is unreachable.
 
@@ -226,7 +226,7 @@ src/                   MCP server (~100 tools), agent state, knowledge graph, di
   mcp_handlers/        Modular tool handlers: identity, lifecycle, knowledge, dialectic,
                        observability, admin, CIRS, introspection, Pi orchestration
 dashboard/             Web dashboard (vanilla JS + Chart.js)
-tests/                 5,800+ tests
+tests/                 Large multi-thousand test suite
 ```
 
 Behavioral EISV (`src/behavioral_state.py`, `src/behavioral_assessment.py`) runs observation-first state tracking. The ODE engine (`governance_core`) — coupled dynamics, coherence, scoring — is a compiled package (unitares-core) providing parallel stability analysis.
@@ -244,7 +244,7 @@ These are unsolved problems. The system is honest about what it doesn't yet do w
 
 - **Outcome correlation** — *(Partially addressed.)* The `outcome_event` tool now feeds task results (test pass/fail, command exit codes, lint results) back into calibration automatically. Confidence calibration is currently around 50% accuracy — better than chance but not yet reliably predictive. Whether EISV instability predicts real-world failure remains the central empirical question.
 - **Agent differentiation** — *(Addressed in v2.9.0.)* The ODE's convergence guarantees caused agents with similar workloads to converge to similar steady states. Behavioral EISV — EMA-smoothed observations without ODE contraction — is now the primary verdict source, giving each agent its own trajectory. Behavioral baselines need ~30 updates to stabilize; before that, fixed thresholds apply.
-- **Identity fragmentation** — Session-based identity means the same human or system can accumulate many agent IDs across sessions. Most of the 1,300+ total agents are ephemeral (test runs, CI, dev sessions). Identity consolidation and trajectory-based re-identification are active work.
+- **Identity fragmentation** — Session-based identity means the same human or system can accumulate many agent IDs across sessions. Most recorded agents are ephemeral (test runs, CI, dev sessions). Identity consolidation and trajectory-based re-identification are active work.
 - **Domain-specific thresholds** — How should parameters be tuned for code generation vs. customer service vs. trading? No one-size-fits-all answer yet.
 - **Horizontal scaling** — Current system handles hundreds of agents on a single node. What about thousands?
 

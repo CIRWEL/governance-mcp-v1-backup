@@ -29,7 +29,7 @@ Dialectic recovery is a structured review process:
 2. **Antithesis** — counterargument challenging the proposal or highlighting risks
 3. **Synthesis** — resolution merging both perspectives: approve, revise, or keep paused
 
-The protocol is implemented in `src/dialectic_protocol.py` and exposed via MCP handlers in `src/mcp_handlers/dialectic.py`.
+The protocol is implemented in `src/dialectic_protocol.py` and exposed via MCP handlers in `src/mcp_handlers/dialectic/handlers.py`.
 
 Phases:
 - `thesis`
@@ -141,12 +141,12 @@ This provides durability and auditability, enabling post‑hoc review and calibr
 
 The system provides internal LLM delegation via `src/mcp_handlers/support/llm_delegation.py`:
 
-**Core functions:**
-- `call_local_llm()` — base function to invoke Ollama (gemma3:27b default)
-- `generate_antithesis()` — create counterarguments for thesis
-- `generate_synthesis()` — merge thesis + antithesis into resolution
-- `run_full_dialectic()` — complete thesis→antithesis→synthesis flow
-- `synthesize_results()` — synthesize knowledge graph search results
+**Core helpers:**
+- local Ollama invocation helper for dialectic review
+- antithesis generation helper
+- synthesis generation helper
+- full thesis→antithesis→synthesis orchestration helper
+- knowledge-graph synthesis helper
 
 **Configuration:**
 - `UNITARES_LLM_MODEL` — override default model (env var)
@@ -179,8 +179,8 @@ This reframes the dialectic protocol: it's not about recovering a persistent age
 
 The main dialectic protocol is implemented in:
 - `src/dialectic_protocol.py` — core protocol and data structures
-- `src/mcp_handlers/dialectic.py` — MCP tool handlers
-- `src/mcp_handlers/llm_delegation.py` — LLM-assisted dialectic functions
+- `src/mcp_handlers/dialectic/handlers.py` — MCP tool handlers
+- `src/mcp_handlers/support/llm_delegation.py` — LLM-assisted dialectic functions
 - `src/dialectic_db.py` — PostgreSQL persistence
 
 If you are modifying the protocol, update this document and the tool docs to keep agent guidance aligned.

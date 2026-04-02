@@ -97,7 +97,7 @@ The governance MCP uses PostgreSQL as the sole database backend:
 export DB_POSTGRES_URL="postgresql://postgres:postgres@localhost:5432/governance"
 ```
 
-**Code Location**: `src/db/__init__.py` — `get_db()` always returns `PostgresBackend`.
+**Code Location**: `src/db/__init__.py` — the shared database accessor always returns `PostgresBackend`.
 
 > **Note**: The SQLite backend was removed in Feb 2026 (v2.7.0). PostgreSQL is the sole
 > database backend. If PostgreSQL is unavailable, the server exits honestly rather than
@@ -125,7 +125,7 @@ export DB_POSTGRES_URL="postgresql://postgres:postgres@localhost:5432/governance
 
 All migrations complete (Dec 2025 - Feb 2026):
 - Agent metadata, state, audit log → PostgreSQL
-- Knowledge graph → PostgreSQL AGE (~1,063 discoveries, 5,218 edges)
+- Knowledge graph → PostgreSQL AGE (current graph size varies; query live metrics instead of relying on this document)
 - Dialectic sessions → PostgreSQL (72 sessions migrated Feb 2026)
 - Session cache → Redis (~1,760 sessions)
 - Schema version: 2

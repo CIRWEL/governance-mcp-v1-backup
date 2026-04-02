@@ -127,8 +127,8 @@ Agents contribute discoveries to a shared graph (PostgreSQL + AGE):
 | `config/governance_config.py` | Thresholds, margin computation |
 | `src/mcp_server.py` | MCP server entry point |
 | `src/mcp_handlers/core.py` | `process_agent_update` handler |
-| `src/mcp_handlers/lifecycle.py` | Stuck detection, auto-recovery |
-| `src/mcp_handlers/dialectic.py` | Thesis/antithesis/synthesis |
+| `src/mcp_handlers/lifecycle/handlers.py` | Stuck detection, auto-recovery |
+| `src/mcp_handlers/dialectic/handlers.py` | Thesis/antithesis/synthesis |
 | `src/calibration.py` | Confidence -> correctness mapping |
 | `src/mcp_handlers/cirs/` | CIRS v2 protocol (7 message types) |
 

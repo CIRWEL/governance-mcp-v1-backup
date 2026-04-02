@@ -261,5 +261,4 @@ export DB_POSTGRES_MAX_CONN=10
 
 - **Graph name mismatch**: your graph is not `governance_graph` but `DB_AGE_GRAPH` wasn’t updated.
 - **Extension not enabled in the DB**: you installed AGE on the host but didn’t run `CREATE EXTENSION age;` inside the target database.
-- **Running migration before schema**: `scripts/migrate_to_postgres_age.py` assumes `db/postgres/schema.sql` has been applied.
-
+- **Running graph/data migration before schema**: apply `db/postgres/schema.sql` before running any AGE backfill or migration tooling.

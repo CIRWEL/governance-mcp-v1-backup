@@ -36,7 +36,7 @@ TOOLS_NEEDING_SESSION_INJECTION = {
 }
 ```
 
-**That's it!** The tool is automatically registered via `auto_register_all_tools()`.
+**That's it!** The tool is automatically registered via the server's tool auto-registration pass.
 
 ---
 
@@ -54,15 +54,15 @@ TOOLS_NEEDING_SESSION_INJECTION = {
 
 | Module | Purpose |
 |--------|---------|
-| `decorators.py` | `@mcp_tool` decorator, `ToolDefinition` dataclass, `action_router()`, unified `_TOOL_DEFINITIONS` registry |
+| `decorators.py` | `@mcp_tool` decorator, `ToolDefinition` dataclass, action-router helper, unified `_TOOL_DEFINITIONS` registry |
 | `middleware.py` | 8-step dispatch pipeline: identity → trajectory → kwargs → alias → inject → validate → rate limit → patterns |
-| `consolidated.py` | 7 consolidated tools built declaratively via `action_router()` |
+| `consolidated.py` | Consolidated tools built declaratively via the action-router helper |
 | `response_formatter.py` | Response mode filtering (auto/minimal/compact/standard/full) for `process_agent_update` |
-| `__init__.py` | `dispatch_tool()` orchestrates the middleware pipeline and calls handlers |
+| `__init__.py` | Dispatch entrypoint orchestrates the middleware pipeline and calls handlers |
 
 ### Auto-Registration System
 
-The `auto_register_all_tools()` function in `mcp_server.py`:
+The auto-registration function in `mcp_server.py`:
 1. Reads all tool definitions from `tool_schemas.py`
 2. **Filters to only tools in `_TOOL_DEFINITIONS`** (tools with `register=True`)
 3. Creates FastMCP wrappers for each tool
@@ -73,7 +73,7 @@ The `auto_register_all_tools()` function in `mcp_server.py`:
 
 ### Dispatch Pipeline
 
-When a tool is called, `dispatch_tool()` runs it through middleware steps defined in `middleware.py`:
+When a tool is called, the dispatch entrypoint runs it through middleware steps defined in `middleware.py`:
 
 ```
 resolve_identity → verify_trajectory → unwrap_kwargs → resolve_alias → inject_identity → validate_params
@@ -102,7 +102,7 @@ To reduce cognitive load, related tools are consolidated into single tools with 
 
 ### Creating a Consolidated Tool
 
-Use `action_router()` in `src/mcp_handlers/consolidated.py` — no manual if/elif needed:
+Use the action-router helper in `src/mcp_handlers/consolidated.py` — no manual if/elif needed:
 
 ```python
 from .decorators import action_router
@@ -121,7 +121,7 @@ handle_my_group = action_router(
 )
 ```
 
-`action_router()` handles: action extraction, validation, error messages with valid actions + examples, parameter remapping, and MCP registration.
+The action-router helper handles action extraction, validation, error messages with valid actions + examples, parameter remapping, and MCP registration.
 
 Individual handlers should use `register=False`:
 ```python
