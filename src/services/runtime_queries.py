@@ -311,10 +311,16 @@ async def get_health_check_data(arguments: Dict[str, Any], server=None) -> Dict[
                 redis = await get_redis()
                 if redis:
                     info = await redis.info("stats")
+                    hits = info.get("keyspace_hits", 0)
+                    misses = info.get("keyspace_misses", 0)
+                    total_lookups = hits + misses
                     checks["redis_cache"]["stats"] = {
-                        "keyspace_hits": info.get("keyspace_hits", 0),
-                        "keyspace_misses": info.get("keyspace_misses", 0),
+                        "keyspace_hits": hits,
+                        "keyspace_misses": misses,
+                        "keyspace_hit_rate_percent": round((hits / total_lookups) * 100, 1) if total_lookups else None,
                         "total_commands": info.get("total_commands_processed", 0),
+                        "scope": "redis_instance_wide",
+                        "note": "Keyspace hit/miss counts cover the whole Redis instance, not just session_cache lookups.",
                     }
                     try:
                         checks["redis_cache"]["keys"] = {

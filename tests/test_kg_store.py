@@ -332,7 +332,7 @@ class TestStoreKnowledgeGraph:
 
     @pytest.mark.asyncio
     async def test_store_no_agent_id_auto_generates(self, patch_common):
-        """When no agent_id and no session binding, one is auto-generated."""
+        """When no agent_id and no session binding, use a stable anonymous writer."""
         mock_mcp_server, mock_graph = patch_common
         from src.mcp_handlers.knowledge.handlers import handle_store_knowledge_graph
 
@@ -342,6 +342,9 @@ class TestStoreKnowledgeGraph:
 
         data = parse_result(result)
         assert data["success"] is True
+        assert data["agent_mode"] == "anonymous"
+        discovery = mock_graph.add_discovery.call_args[0][0]
+        assert discovery.agent_id.startswith("anonkg_")
 
     @pytest.mark.asyncio
     async def test_store_high_severity_requires_registered_agent(self, patch_common):
@@ -884,5 +887,4 @@ class TestBatchStoreAdditional:
 # ============================================================================
 # Archived filtering in search
 # ============================================================================
-
 

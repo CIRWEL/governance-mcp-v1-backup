@@ -527,17 +527,19 @@ class TestLeaveNote:
 
     @pytest.mark.asyncio
     async def test_leave_note_unregistered_agent(self, patch_common):
-        """Leave note fails for unregistered agent."""
+        """Leave note without binding uses anonymous writer mode."""
         mock_mcp_server, mock_graph = patch_common
         from src.mcp_handlers.knowledge.handlers import handle_leave_note
 
         result = await handle_leave_note({
-            "agent_id": "nonexistent-agent",
-            "summary": "Should fail",
+            "summary": "Anonymous note",
         })
 
         data = parse_result(result)
-        assert data["success"] is False
+        assert data["success"] is True
+        assert data["agent_mode"] == "anonymous"
+        discovery = mock_graph.add_discovery.call_args[0][0]
+        assert discovery.agent_id.startswith("anonkg_")
 
     @pytest.mark.asyncio
     async def test_leave_note_paused_agent(self, patch_common, registered_agent, mock_mcp_server):
@@ -860,6 +862,35 @@ class TestUpdateDiscoveryStatusAdditional:
             data = parse_result(result)
             assert data["success"] is False
             assert "permission" in data["error"].lower()
+            assert "resolved" in data["error"]
+            assert "closed" in data["error"]
+            assert "wont_fix" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_high_severity_non_owner_cannot_edit_details_while_resolving(self, patch_common, registered_agent):
+        """Non-owner cannot change content on a high severity discovery, even with an allowed closing status."""
+        mock_mcp_server, mock_graph = patch_common
+        from src.mcp_handlers.knowledge.handlers import handle_update_discovery_status_graph
+
+        disc = make_discovery(
+            id="2026-01-01T00:00:00.000000",
+            severity="critical",
+            agent_id="other-agent",
+        )
+        mock_graph.get_discovery = AsyncMock(return_value=disc)
+
+        with patch("src.mcp_handlers.utils.verify_agent_ownership", return_value=True):
+            result = await handle_update_discovery_status_graph({
+                "agent_id": registered_agent,
+                "discovery_id": "2026-01-01T00:00:00.000000",
+                "status": "resolved",
+                "details": "quietly changing the body",
+            })
+
+            data = parse_result(result)
+            assert data["success"] is False
+            assert "cannot edit" in data["error"].lower()
+            mock_graph.update_discovery.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_success_returns_false(self, patch_common, registered_agent):

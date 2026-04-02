@@ -209,6 +209,48 @@ def _resolve_agent_display(agent_id: str) -> Dict[str, str]:
     # Fallback: use agent_id as-is
     return {"agent_id": agent_id, "display_name": agent_id}
 
+
+def _derive_anonymous_writer_id(arguments: Dict[str, Any]) -> str:
+    """Derive a stable low-friction writer ID for anonymous low-severity writes."""
+    import hashlib
+    from ..context import get_context_client_session_id, get_context_session_key, get_session_signals
+
+    signals = get_session_signals()
+    source = (
+        arguments.get("client_session_id")
+        or get_context_client_session_id()
+        or get_context_session_key()
+        or (signals.x_session_id if signals else None)
+        or (signals.mcp_session_id if signals else None)
+        or (signals.x_client_id if signals else None)
+        or (signals.oauth_client_id if signals else None)
+        or (signals.ip_ua_fingerprint if signals else None)
+    )
+    client_hint = (signals.client_hint if signals else None) or (signals.transport if signals else None) or "client"
+    client_hint = "".join(ch if ch.isalnum() else "_" for ch in client_hint.lower()).strip("_") or "client"
+
+    if source:
+        digest = hashlib.sha256(str(source).encode("utf-8")).hexdigest()[:12]
+        return f"anonkg_{client_hint}_{digest}"
+    return f"anonkg_{client_hint}_local"
+
+
+def _resolve_low_friction_writer(arguments: Dict[str, Any]) -> tuple[str, Optional[TextContent], bool]:
+    """Resolve agent_id for low/medium knowledge writes.
+
+    If the caller has no explicit or bound identity, use a stable anonymous writer
+    ID instead of creating a new auto_* identity for each quick write.
+    """
+    from ..context import get_context_agent_id
+
+    if arguments.get("agent_id") or get_context_agent_id():
+        agent_id, error = require_agent_id(arguments)
+        return agent_id, error, False
+
+    agent_id = _derive_anonymous_writer_id(arguments)
+    arguments["agent_id"] = agent_id
+    return agent_id, None, True
+
 @mcp_tool("store_knowledge_graph", timeout=20.0, register=False)
 async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Store knowledge discovery/discoveries in graph - fast, non-blocking, transparent
@@ -225,6 +267,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
     # UX FIX (Feb 2026): Auto-generate display_name instead of blocking
     raw_severity = str(arguments.get("severity", "low")).lower()
     display_name_warning = None  # Track if we auto-generated a name
+    is_anonymous_writer = False
 
     if raw_severity in ["high", "critical"]:
         agent_id, error = require_registered_agent(arguments)
@@ -234,7 +277,7 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
             if display_name_error:
                 return [display_name_error]
     else:
-        agent_id, error = require_agent_id(arguments)
+        agent_id, error, is_anonymous_writer = _resolve_low_friction_writer(arguments)
 
     if error:
         return [error]
@@ -480,6 +523,13 @@ async def handle_store_knowledge_graph(arguments: Dict[str, Any]) -> Sequence[Te
             "agent": agent_display,  # Include full display info
             "discovery": discovery.to_dict(include_details=False)  # Summary only in response
         }
+
+        if is_anonymous_writer:
+            response["agent_mode"] = "anonymous"
+            response["_identity_hint"] = (
+                "Stored under a lightweight anonymous writer ID. "
+                "Bind an identity first if you want authorship continuity."
+            )
 
         # KG loop closure: remind agents to resolve when addressed
         response["_resolve_when_done"] = f"When this is addressed, close the loop: knowledge(action='update', discovery_id='{discovery_id}', status='resolved')"
@@ -1102,13 +1152,37 @@ async def handle_update_discovery_status_graph(arguments: Dict[str, Any]) -> Seq
                     }
                 )]
             
-            # Ownership check: non-owners can resolve/close, but not reopen or modify
-            if discovery.agent_id != agent_id and status not in ("resolved", "closed", "wont_fix"):
+            # Ownership check: non-owners may only close high-severity discoveries,
+            # and may not edit content/metadata while doing so.
+            allowed_non_owner_statuses = {"resolved", "closed", "wont_fix"}
+            requested_non_status_edits = [
+                field_name
+                for field_name, field_value in {
+                    "details/content": raw_details,
+                    "summary": summary,
+                    "severity": severity,
+                    "discovery_type": discovery_type,
+                    "tags": tags,
+                }.items()
+                if field_value is not None
+            ]
+            if discovery.agent_id != agent_id and requested_non_status_edits:
+                allowed_list = sorted(allowed_non_owner_statuses)
+                return [error_response(
+                    f"Permission denied: Non-owners cannot edit {', '.join(requested_non_status_edits)} on high-severity discovery '{discovery_id}'. "
+                    f"Allowed cross-agent status values: {allowed_list}.",
+                    recovery={
+                        "action": f"Retry with status only. Allowed values: {allowed_list}",
+                        "related_tools": ["get_discovery_details", "search_knowledge_graph"],
+                    }
+                )]
+            if discovery.agent_id != agent_id and status not in allowed_non_owner_statuses:
+                allowed_list = sorted(allowed_non_owner_statuses)
                 return [error_response(
                     f"Permission denied: Cannot set status '{status}' on high-severity discovery '{discovery_id}'. "
-                    f"Non-owners can only resolve/close high-severity discoveries.",
+                    f"Allowed cross-agent status values: {allowed_list}.",
                     recovery={
-                        "action": "Use status='resolved' or 'closed' to close another agent's discovery",
+                        "action": f"Use status in {allowed_list} to close another agent's discovery",
                         "related_tools": ["get_discovery_details", "search_knowledge_graph"],
                     }
                 )]
@@ -1570,8 +1644,9 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     # Set tool name in context for better error messages
     arguments["_tool_name"] = "leave_note"
 
-    # SECURITY FIX: Verify agent_id is registered (prevents phantom agent_ids)
-    agent_id, error = require_registered_agent(arguments)
+    # Notes are always low-severity, so allow a stable anonymous writer when
+    # no explicit or bound identity exists.
+    agent_id, error, is_anonymous_writer = _resolve_low_friction_writer(arguments)
     if error:
         return [error]
 
@@ -1680,7 +1755,7 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
 
         # UX FIX (Feb 2026): Clarify visibility - notes are shared and discoverable
         # KG loop closure: remind agents to resolve when addressed
-        return success_response({
+        response = {
             "message": f"Note saved",
             "note_id": note.id,
             "agent": agent_display,
@@ -1690,7 +1765,16 @@ async def handle_leave_note(arguments: Dict[str, Any]) -> Sequence[TextContent]:
             "discoverable": True,
             "_visibility_note": "Notes are shared and searchable by other agents. Use response_to to reply to discoveries.",
             "_resolve_when_done": f"When this is addressed, close the loop: knowledge(action='update', discovery_id='{note.id}', status='resolved')",
-        }, arguments=arguments)
+        }
+
+        if is_anonymous_writer:
+            response["agent_mode"] = "anonymous"
+            response["_identity_hint"] = (
+                "Stored under a lightweight anonymous writer ID. "
+                "Bind an identity first if you want authorship continuity."
+            )
+
+        return success_response(response, arguments=arguments)
 
     except Exception as e:
         return [error_response(f"Failed to leave note: {str(e)}")]
