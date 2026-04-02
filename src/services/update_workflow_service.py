@@ -97,4 +97,12 @@ async def run_process_update_workflow(ctx, *, serializer=None) -> Sequence[TextC
             f"The system has automatically cleaned stale locks. If this persists, try: "
             f"1) Wait a few seconds and retry, 2) Check for other Cursor/Claude sessions, "
             f"3) Use cleanup_stale_locks tool, or 4) Restart Cursor if stuck."
+            ,
+            error_code="LOCK_TIMEOUT",
+            error_category="system_error",
+            details={
+                "lock_error": True,
+                "agent_id": ctx.agent_id,
+            },
+            arguments=ctx.arguments,
         )]
