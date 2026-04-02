@@ -90,3 +90,13 @@ class TestPydanticSchemas:
         # Instead of manual code checking if limit is int, Pydantic type hints do it
         # E.g., list_tools (we handle this automatically)
         pass 
+
+    def test_knowledge_update_omitted_tags_stay_none(self):
+        """Unified knowledge(update) should not materialize omitted tags as []."""
+        from src.mcp_handlers.schemas.knowledge import KnowledgeParams
+
+        model = KnowledgeParams(action="update", discovery_id="disc-1", content="new body")
+
+        assert model.tags is None
+        dumped = model.model_dump()
+        assert dumped["tags"] is None
