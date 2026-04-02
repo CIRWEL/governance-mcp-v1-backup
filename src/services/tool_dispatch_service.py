@@ -1,0 +1,92 @@
+"""Shared tool-dispatch pipeline runner."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Optional, Sequence
+
+from mcp.types import TextContent
+
+
+async def run_tool_dispatch_pipeline(
+    *,
+    name: str,
+    arguments: Optional[Dict[str, Any]],
+    pre_steps,
+    post_steps,
+) -> Sequence[TextContent] | None:
+    """Run a configurable middleware pipeline and execute the resolved handler."""
+    from src.mcp_handlers import TOOL_HANDLERS
+    from src.mcp_handlers.context import reset_session_context, reset_trajectory_confidence
+    from src.mcp_handlers.error_helpers import tool_not_found_error
+    from src.mcp_handlers.middleware import DispatchContext
+    from src.mcp_handlers.middleware.identity_step import update_transport_binding
+    from src.logging_utils import get_logger
+
+    logger = get_logger(__name__)
+
+    if arguments is None:
+        arguments = {}
+
+    ctx = DispatchContext()
+
+    for step in pre_steps:
+        result = await step(name, arguments, ctx)
+        if isinstance(result, list):
+            if ctx.context_token is not None:
+                reset_session_context(ctx.context_token)
+            if ctx.trajectory_confidence_token is not None:
+                reset_trajectory_confidence(ctx.trajectory_confidence_token)
+            return result
+        name, arguments, ctx = result
+
+    handler = TOOL_HANDLERS.get(name)
+    if handler is None:
+        if ctx.context_token is not None:
+            reset_session_context(ctx.context_token)
+        if ctx.trajectory_confidence_token is not None:
+            reset_trajectory_confidence(ctx.trajectory_confidence_token)
+        return tool_not_found_error(name, list(TOOL_HANDLERS.keys()))
+
+    if ctx.migration_note:
+        logger.info(f"Tool alias used: '{ctx.original_name}' → '{name}'. Migration: {ctx.migration_note}")
+
+    for step in post_steps:
+        result = await step(name, arguments, ctx)
+        if isinstance(result, list):
+            if ctx.context_token is not None:
+                reset_session_context(ctx.context_token)
+            if ctx.trajectory_confidence_token is not None:
+                reset_trajectory_confidence(ctx.trajectory_confidence_token)
+            return result
+        name, arguments, ctx = result
+
+    try:
+        result = await handler(arguments)
+        if result:
+            if isinstance(result, (list, tuple)) and len(result) > 0:
+                if hasattr(result[0], "text") and "Handler not yet extracted" in result[0].text:
+                    return None
+            elif hasattr(result, "text"):
+                if "Handler not yet extracted" in result.text:
+                    return None
+
+        if ctx._transport_key:
+            try:
+                from src.mcp_handlers.context import get_context_agent_id
+                current_agent = get_context_agent_id()
+                if current_agent and current_agent != ctx.bound_agent_id:
+                    update_transport_binding(
+                        ctx._transport_key,
+                        current_agent,
+                        ctx.session_key or "",
+                        f"post_handler:{name}",
+                    )
+            except Exception:
+                pass
+
+        return result
+    finally:
+        if ctx.context_token is not None:
+            reset_session_context(ctx.context_token)
+        if ctx.trajectory_confidence_token is not None:
+            reset_trajectory_confidence(ctx.trajectory_confidence_token)

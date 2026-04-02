@@ -33,8 +33,8 @@ from src.metrics_registry import (
     SERVER_UPTIME,
 )
 from src.connection_tracker import CONNECTIONS_ACTIVE
-from src.mcp_handlers import dispatch_tool
 from src.broadcaster import broadcaster_instance
+from src.services.http_tool_service import execute_http_tool
 
 if TYPE_CHECKING:
     from starlette.applications import Starlette
@@ -43,6 +43,71 @@ if TYPE_CHECKING:
     from src.connection_tracker import ConnectionTracker
 
 logger = get_logger(__name__)
+
+
+def _serialize_mcp_content_item(item):
+    """Convert MCP content items into JSON-serializable dicts."""
+    if hasattr(item, "model_dump"):
+        return item.model_dump(exclude_none=True)
+    if isinstance(item, dict):
+        return item
+    if hasattr(item, "__dict__"):
+        return {k: v for k, v in vars(item).items() if v is not None}
+    return {"type": "unknown", "value": str(item)}
+
+
+def _build_http_tool_response(tool_name: str, result) -> dict:
+    """Normalize MCP handler output into the HTTP API response contract."""
+    if result is None:
+        return {
+            "name": tool_name,
+            "result": None,
+            "success": False,
+            "error": f"Tool '{tool_name}' returned no result"
+        }
+
+    if isinstance(result, (list, tuple)):
+        if len(result) == 0:
+            return {
+                "name": tool_name,
+                "result": None,
+                "success": False,
+                "error": f"Tool '{tool_name}' returned empty result"
+            }
+
+        if len(result) == 1 and hasattr(result[0], "text"):
+            try:
+                parsed = json.loads(result[0].text)
+                return {"name": tool_name, "result": parsed, "success": True}
+            except json.JSONDecodeError:
+                text_result = result[0].text if result[0].text else "{}"
+                return {"name": tool_name, "result": text_result, "success": True}
+
+        return {
+            "name": tool_name,
+            "result": {"content": [_serialize_mcp_content_item(item) for item in result]},
+            "success": True,
+        }
+
+    if isinstance(result, dict):
+        return {"name": tool_name, "result": result, "success": True}
+
+    result_str = str(result) if result else "null"
+    return {"name": tool_name, "result": result_str, "success": True}
+
+
+def _normalize_http_tool_name(body: dict, mcp_server_name: str) -> str:
+    """Resolve HTTP tool aliases to the canonical dispatch name."""
+    tool_name = body.get("name") or body.get("tool_name") or "unknown"
+    if not tool_name or tool_name == "unknown":
+        return "unknown"
+
+    # Compatibility: Some MCP clients surface names as `mcp_<server>_<tool>`.
+    # The HTTP API always dispatches by the canonical tool name (e.g. `list_tools`).
+    mcp_prefix = f"mcp_{mcp_server_name}_"
+    if tool_name.startswith(mcp_prefix):
+        return tool_name[len(mcp_prefix):]
+    return tool_name
 
 # ---------------------------------------------------------------------------
 # Trusted networks: localhost, Tailscale CGNAT, private RFC1918 ranges
@@ -249,7 +314,7 @@ async def http_call_tool(request):
                 "max_arguments": 100
             }, status_code=400)
 
-        tool_name = body.get("name") or body.get("tool_name") or "unknown"
+        tool_name = _normalize_http_tool_name(body, mcp_server_name)
         if not tool_name or tool_name == "unknown":
             return JSONResponse({"success": False, "error": "Missing 'name' field — pass the tool name as 'name', e.g. {\"name\": \"onboard\", \"arguments\": {...}}"}, status_code=400)
 
@@ -259,13 +324,6 @@ async def http_call_tool(request):
                 "success": False,
                 "error": "Invalid tool name format"
             }, status_code=400)
-
-        # Compatibility: Some MCP clients surface names as `mcp_<server>_<tool>`.
-        # The HTTP API always dispatches by the canonical tool name (e.g. `list_tools`).
-        # Accept the prefixed form to reduce client-side friction.
-        mcp_prefix = f"mcp_{mcp_server_name}_"
-        if tool_name.startswith(mcp_prefix):
-            tool_name = tool_name[len(mcp_prefix):]
 
         # DEPRECATED: SSE-specific tools removed
         # These tools are no longer registered but kept for backward compat
@@ -359,48 +417,10 @@ async def http_call_tool(request):
             agent_id=x_agent_id or (arguments.get("agent_id") if isinstance(arguments, dict) else None),
         )
         try:
-            result = await dispatch_tool(tool_name, arguments)
+            result = await execute_http_tool(tool_name, arguments)
         finally:
             reset_session_context(context_token)
-
-        # CRITICAL FIX: Ensure we always return a valid JSONResponse with non-empty body
-        # Empty responses cause Starlette middleware AssertionError (http.response.start vs http.response.body)
-        if result and len(result) > 0 and hasattr(result[0], 'text'):
-            import json as json_mod
-            try:
-                parsed = json_mod.loads(result[0].text)
-                # Ensure parsed result is not None/empty
-                response_data = {"name": tool_name, "result": parsed, "success": True}
-                return JSONResponse(response_data)
-            except json_mod.JSONDecodeError:
-                # Fallback: use raw text (ensure it's not empty)
-                text_result = result[0].text if result[0].text else "{}"
-                response_data = {"name": tool_name, "result": text_result, "success": True}
-                return JSONResponse(response_data)
-
-        # Handle empty/None results - always return valid JSON
-        if result is None:
-            response_data = {
-                "name": tool_name,
-                "result": None,
-                "success": False,
-                "error": f"Tool '{tool_name}' returned no result"
-            }
-        elif isinstance(result, (list, tuple)) and len(result) == 0:
-            response_data = {
-                "name": tool_name,
-                "result": None,
-                "success": False,
-                "error": f"Tool '{tool_name}' returned empty result"
-            }
-        else:
-            # Convert result to string, ensure non-empty
-            result_str = str(result) if result else "null"
-            response_data = {"name": tool_name, "result": result_str, "success": True}
-
-        # CRITICAL: Always return a properly formatted JSONResponse
-        # This prevents Starlette middleware AssertionError from empty/corrupted responses
-        return JSONResponse(response_data)
+        return JSONResponse(_build_http_tool_response(tool_name, result))
     except json.JSONDecodeError as e:
         # SECURITY: Sanitize JSON parsing errors
         logger.error(f"Invalid JSON in request: {e}", exc_info=True)

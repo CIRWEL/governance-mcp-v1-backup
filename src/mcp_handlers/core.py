@@ -14,6 +14,12 @@ from .utils import success_response, error_response, require_agent_id
 from .decorators import mcp_tool
 from config.governance_config import GovernanceConfig
 from src.logging_utils import get_logger
+from src.services.update_response_service import (
+    build_process_update_response_data,
+    serialize_process_update_response,
+)
+from src.services.runtime_queries import get_governance_metrics_data
+from src.services.update_workflow_service import run_process_update_workflow
 
 logger = get_logger(__name__)
 
@@ -105,28 +111,6 @@ def _assess_thermodynamic_significance(
     }
 
 
-def _generate_contextual_reflection(metrics: dict, interpreted: dict) -> str | None:
-    """Generate a reflection prompt only when state warrants attention. Returns None for healthy states."""
-    is_uninit = metrics.get('initialized') is False or metrics.get('status') == 'uninitialized'
-    if is_uninit:
-        return "First check-in — submit a process_agent_update to activate governance."
-
-    verdict = metrics.get('verdict', 'proceed')
-    if verdict in ('guide', 'pause', 'reject'):
-        return f"Your state triggered a {verdict} verdict. What changed?"
-
-    state = interpreted.get('state', {})
-    borderline = state.get('borderline')
-    if borderline:
-        return "You're near a basin boundary. Proceed carefully."
-
-    S = metrics.get('S')
-    if S is not None and S > 0.3:
-        return f"Entropy is elevated ({S:.2f}). What's contributing to disorder?"
-
-    return None
-
-
 @mcp_tool("get_governance_metrics", timeout=10.0)
 async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequence[TextContent]:
     """Get current governance state and metrics for an agent without updating state.
@@ -138,258 +122,8 @@ async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequenc
     agent_id, error = require_agent_id(arguments)
     if error:
         return [error]  # Wrap in list for Sequence[TextContent]
-
-    # Verbosity resolution (backward compat with lite param)
-    verbosity = arguments.get("verbosity")
-    if verbosity and verbosity in ("minimal", "standard", "full"):
-        lite = verbosity == "minimal"
-    else:
-        lite = arguments.get("lite", True)
-        verbosity = "minimal" if lite else "full"
-
-    # UX FIX (Dec 2025): Auto-register agent if not found
-    # This reduces friction - agents can query metrics immediately after identity() call
-    # Load monitor state from disk if not in memory (allows querying agents without recent updates)
-    # get_or_create_monitor() will auto-create if agent doesn't exist yet
-    monitor = mcp_server.get_or_create_monitor(agent_id)
-
-    # Reduce context bloat by excluding nested state dict (all values still at top level)
-    include_state = arguments.get("include_state", False)
-    metrics = monitor.get_metrics(include_state=include_state)
-
-    # Add EISV labels for API documentation
-    from src.governance_monitor import UNITARESMonitor
-    metrics['eisv_labels'] = UNITARESMonitor.get_eisv_labels()
-    
-    # Standardize metrics reporting with agent_id and context
-    from src.mcp_handlers.utils import format_metrics_report
-    standardized_metrics = format_metrics_report(
-        metrics=metrics,
-        agent_id=agent_id,
-        include_timestamp=True,
-        include_context=True
-    )
-    try:
-        from .context import get_session_resolution_source
-        standardized_metrics["session_continuity"] = {
-            "resolution_source": get_session_resolution_source(),
-        }
-    except Exception:
-        pass
-    
-    # Add agent purpose if available (v2.5.2+)
-    meta = mcp_server.agent_metadata.get(agent_id)
-    if meta and getattr(meta, 'purpose', None):
-        standardized_metrics['purpose'] = meta.purpose
-    
-    # Add calibration feedback (similar to process_agent_update)
-    calibration_feedback = {}
-    
-    # Complexity calibration: Show derived complexity (if available from recent updates)
-    try:
-        meta = mcp_server.agent_metadata.get(agent_id)
-        if meta:
-            # Get last reported complexity from metadata (if stored)
-            # Note: This is approximate - actual reported complexity is in process_agent_update
-            # But we can show derived complexity vs system expectations
-            derived_complexity = metrics.get('complexity', None)
-            if derived_complexity is not None:
-                # System-derived complexity from state
-                calibration_feedback['complexity'] = {
-                    'derived': derived_complexity,
-                    'message': f"System-derived complexity: {derived_complexity:.2f} (based on current state)"
-                }
-    except Exception as e:
-        logger.debug(f"Could not add complexity calibration feedback: {e}")
-    
-    # Confidence calibration: Show system-wide calibration status
-    # Use centralized helper to avoid duplication
-    from src.mcp_handlers.utils import get_calibration_feedback
-    confidence_feedback = get_calibration_feedback(include_complexity=False)
-    if confidence_feedback:
-        calibration_feedback.update(confidence_feedback)
-    
-    if calibration_feedback:
-        standardized_metrics['calibration_feedback'] = calibration_feedback
-
-    # =========================================================
-    # INTERPRETATION LAYER (v2 API) - Human-readable state
-    # =========================================================
-    try:
-        risk_score = metrics.get('risk_score') or metrics.get('latest_risk_score')
-        interpreted_state = monitor.state.interpret_state(risk_score=risk_score)
-        standardized_metrics['state'] = interpreted_state
-        
-        # Add one-line summary for quick scanning
-        health = interpreted_state.get('health', 'unknown')
-        mode = interpreted_state.get('mode', 'unknown')
-        basin = interpreted_state.get('basin', 'unknown')
-        standardized_metrics['summary'] = f"{health} | {mode} | {basin} basin"
-    except Exception as e:
-        logger.debug(f"Could not generate state interpretation: {e}")
-
-    # =========================================================
-    # v4.2-P SATURATION DIAGNOSTICS - Pressure gauge for I-channel
-    # =========================================================
-    # This exposes the "smoking gun" sat_margin metric that indicates
-    # whether the system is being pushed toward boundary saturation
-    try:
-        from governance_core import compute_saturation_diagnostics
-        from governance_core.parameters import Theta, DEFAULT_THETA
-
-        # Get UNITARES state from monitor
-        unitares_state = monitor.state.unitaires_state
-        theta = getattr(monitor.state, 'unitaires_theta', None) or DEFAULT_THETA
-
-        if unitares_state:
-            sat_diag = compute_saturation_diagnostics(unitares_state, theta)
-
-            # Surface key metrics for agents
-            standardized_metrics['saturation_diagnostics'] = {
-                'sat_margin': sat_diag['sat_margin'],
-                'dynamics_mode': sat_diag['dynamics_mode'],
-                'will_saturate': sat_diag['will_saturate'],
-                'at_boundary': sat_diag['at_boundary'],
-                'I_equilibrium': sat_diag['I_equilibrium_linear'],
-                'forcing_term_A': sat_diag['A'],
-                '_interpretation': (
-                    "⚠️ Positive sat_margin means push-to-boundary (logistic mode will saturate I→1)"
-                    if sat_diag['sat_margin'] > 0
-                    else "✓ Negative sat_margin - stable interior equilibrium exists"
-                )
-            }
-    except Exception as e:
-        logger.debug(f"Could not compute saturation diagnostics: {e}")
-
-    # Conditional reflection — only when state warrants attention
-    reflection = _generate_contextual_reflection(metrics, standardized_metrics)
-    if reflection:
-        standardized_metrics['reflection'] = reflection
-
-    # STANDARD VERBOSITY: middle tier — key metrics without diagnostics
-    if verbosity == "standard":
-        state = standardized_metrics.get('state', {})
-        standard_metrics = {
-            'agent_id': agent_id,
-            'display_name': getattr(meta, 'label', None) if meta else None,
-            'E': metrics.get('E'),
-            'I': metrics.get('I'),
-            'S': metrics.get('S'),
-            'V': metrics.get('V'),
-            'coherence': metrics.get('coherence'),
-            'verdict': metrics.get('verdict', 'uninitialized'),
-            'risk_score': metrics.get('risk_score'),
-            'basin': state.get('basin'),
-            'mode': state.get('mode'),
-            'summary': standardized_metrics.get('summary'),
-            'guidance': state.get('guidance'),
-        }
-        if reflection:
-            standard_metrics['reflection'] = reflection
-        standard_metrics['_note'] = "Use verbosity='full' for diagnostics, 'minimal' for quick check"
-        return success_response(standard_metrics)
-
-    # LITE MODE: Return minimal essential metrics WITH contextual interpretation
-    # Debug: include what lite value was received so agents can troubleshoot
-    standardized_metrics['_debug_lite_received'] = lite
-
-    if lite:
-        # Standard thresholds (aligned with physics model: coherence full range [0, 1])
-        COHERENCE_GOOD = 0.50  # Upper half of normal range
-        COHERENCE_LOW = 0.45   # Below physics floor
-        RISK_THRESHOLD_MEDIUM = 0.5
-        RISK_THRESHOLD_HIGH = 0.75
-
-        # Extract key values
-        coherence = metrics.get('coherence')
-        risk_score = metrics.get('risk_score')
-        health = standardized_metrics.get('state', {}).get('health', 'unknown')
-
-        # Traffic light status based on health
-        status_indicator = {
-            'healthy': '🟢',
-            'moderate': '🟡',
-            'critical': '🔴',
-            'unknown': '⚪'
-        }.get(health, '⚪')
-
-        # Check if agent is uninitialized (no process_update() calls yet)
-        is_uninitialized = metrics.get('initialized') is False or metrics.get('status') == 'uninitialized'
-
-        # Status display - clearer for uninitialized agents
-        if is_uninitialized:
-            status_display = "⚪ uninitialized"
-            coherence_status = '⚪ pending (first check-in required)'
-            risk_status = '⚪ pending (first check-in required)'
-        else:
-            status_display = f"{status_indicator} {health}"
-            # Three-tier coherence: good (>=0.50), moderate (0.45-0.50), low (<0.45)
-            if coherence is None:
-                coherence_status = '⚪ unknown'
-            elif coherence >= COHERENCE_GOOD:
-                coherence_status = '🟢 good'
-            elif coherence >= COHERENCE_LOW:
-                coherence_status = '🟡 moderate'
-            else:
-                coherence_status = '🔴 low'
-            risk_status = '🟢 low' if risk_score is not None and risk_score < RISK_THRESHOLD_MEDIUM else ('🟡 medium' if risk_score is not None and risk_score < RISK_THRESHOLD_HIGH else '🔴 high' if risk_score is not None else '⚪ unknown')
-
-        # Format void with more precision - small non-zero values are meaningful
-        void_raw = metrics.get('V')
-        if void_raw is not None and void_raw != 0:
-            # Show 6 decimals for small non-zero values to make drift visible
-            void_display = round(void_raw, 6)
-        else:
-            void_display = 0.0 if void_raw == 0 else void_raw
-
-        lite_metrics = {
-            'agent_id': agent_id,
-            'status': status_display,
-            'purpose': getattr(meta, 'purpose', None),  # Added for social awareness
-            'summary': standardized_metrics.get('summary', 'unknown'),
-            # EISV with contextual bounds
-            'E': {'value': metrics.get('E'), 'range': '[0, 1]', 'note': 'Energy capacity'},
-            'I': {'value': metrics.get('I'), 'range': '[0, 1]', 'note': 'Information integrity'},
-            'S': {'value': metrics.get('S'), 'range': '[0, 1]', 'ideal': '<0.2', 'note': 'Entropy (lower=better)'},
-            'V': {'value': void_display, 'range': '[-1, 1]', 'ideal': 'near 0', 'note': 'Void (E-I imbalance, settles toward 0)'},
-            # Key metrics with thresholds
-            'coherence': {
-                'value': coherence,
-                'range': '[0, 1]',  # Full C(V,Theta) range; typical equilibrium ~0.45-0.55
-                'status': coherence_status
-            },
-            'risk_score': {
-                'value': risk_score,
-                'threshold': RISK_THRESHOLD_MEDIUM,
-                'status': risk_status
-            },
-        }
-        # Include interpreted state if available
-        if 'state' in standardized_metrics:
-            lite_metrics['mode'] = standardized_metrics['state'].get('mode')
-            lite_metrics['basin'] = standardized_metrics['state'].get('basin')
-
-        if is_uninitialized:
-            lite_metrics['verdict'] = 'uninitialized'
-            lite_metrics['guidance'] = 'Submit one check-in to activate governance.'
-            lite_metrics['next_action'] = {
-                'tool': 'process_agent_update',
-                'example': "process_agent_update(response_text='Starting work', complexity=0.3, confidence=0.7)",
-                'note': "get_governance_metrics is read-only; it does not initialize state."
-            }
-            lite_metrics['related_tools'] = ['process_agent_update', 'onboard', 'identity']
-
-        lite_metrics['thresholds'] = {
-            'coherence_critical': GovernanceConfig.COHERENCE_CRITICAL_THRESHOLD,
-            'coherence_good': COHERENCE_GOOD,
-            'risk_medium': RISK_THRESHOLD_MEDIUM,
-            'risk_high': RISK_THRESHOLD_HIGH,
-            'target_coherence': GovernanceConfig.TARGET_COHERENCE,
-        }
-        lite_metrics['_note'] = "Use lite=false for full diagnostics"
-        return success_response(lite_metrics)
-
-    return success_response(standardized_metrics)
+    response_data = await get_governance_metrics_data(agent_id, arguments, server=mcp_server)
+    return success_response(response_data)
 
 @mcp_tool("simulate_update", timeout=30.0, register=False)
 async def handle_simulate_update(arguments: ToolArgumentsDict) -> Sequence[TextContent]:
@@ -547,14 +281,6 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
     """
     from .validators import apply_param_aliases
     from .updates.context import UpdateContext
-    from .updates.phases import (
-        resolve_identity_and_guards,
-        handle_onboarding_and_resume,
-        transform_inputs,
-        execute_locked_update,
-        execute_post_update_effects,
-    )
-    from .updates.pipeline import run_enrichment_pipeline
     import src.mcp_handlers.updates.enrichments  # noqa: F401 — triggers registration
 
     # MAGNET PATTERN: Accept fuzzy inputs (text, message, work -> response_text)
@@ -569,99 +295,8 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
 
     ctx = UpdateContext(arguments=arguments, mcp_server=mcp_server)
 
-    # ── Phases 1-3: Pre-lock (may return early) ───────────────────
-    early_exit = await resolve_identity_and_guards(ctx)
-    if early_exit:
-        return early_exit
-
-    early_exit = await handle_onboarding_and_resume(ctx)
-    if early_exit:
-        return early_exit
-
-    early_exit = transform_inputs(ctx)
-    if early_exit:
-        return early_exit
-
-    # ── Phases 4-6: Under lock ────────────────────────────────────
     try:
-        async with mcp_server.lock_manager.acquire_agent_lock_async(ctx.agent_id, timeout=2.0, max_retries=1):
-            # Phase 4: Core ODE update
-            early_exit = await execute_locked_update(ctx)
-            if early_exit:
-                return early_exit
-
-            # Cache monitor on ctx so Phase 5/6 don't re-lookup
-            ctx.monitor = mcp_server.monitors.get(ctx.agent_id)
-
-            # Phase 5: Side effects (health, CIRS, PG, outcomes)
-            await execute_post_update_effects(ctx)
-
-            # Phase 6: Build & enrich response
-            ctx.response_data = ctx.result.copy()
-            ctx.response_data["agent_id"] = ctx.agent_id
-            ctx.response_data["identity_assurance"] = ctx.identity_assurance
-
-            # Run enrichments (each is fail-safe internally)
-            await run_enrichment_pipeline(ctx)
-
-            # Response mode filtering
-            try:
-                from .response_formatter import format_response
-                ctx.response_data = format_response(
-                    ctx.response_data,
-                    ctx.arguments,
-                    meta=ctx.meta,
-                    is_new_agent=ctx.is_new_agent,
-                    key_was_generated=ctx.key_was_generated,
-                    api_key_auto_retrieved=ctx.api_key_auto_retrieved,
-                    task_type=ctx.task_type,
-                )
-            except Exception as fmt_err:
-                logger.error(f"Response formatting failed: {fmt_err}", exc_info=True)
-
-            # Serialize and return (skip agent_signature — duplicates response content)
-            ctx.arguments["lite_response"] = True
-            try:
-                return success_response(ctx.response_data, agent_id=ctx.agent_uuid, arguments=ctx.arguments)
-            except Exception as serialization_error:
-                logger.error(f"Failed to serialize response: {serialization_error}", exc_info=True)
-                metrics = ctx.result.get("metrics", {})
-                return [TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "success": True,
-                        "status": ctx.result.get("status", "unknown"),
-                        "decision": ctx.result.get("decision", {}),
-                        "metrics": {
-                            "E": float(metrics.get("E", 0)),
-                            "I": float(metrics.get("I", 0)),
-                            "S": float(metrics.get("S", 0)),
-                            "V": float(metrics.get("V", 0)),
-                            "coherence": float(metrics.get("coherence", 0)),
-                            "risk_score": float(metrics.get("risk_score", 0))
-                        },
-                        "_warning": "Response serialization had issues - some fields may be missing"
-                    })
-                )]
-    except TimeoutError:
-        try:
-            from src.lock_cleanup import cleanup_stale_state_locks
-            project_root = Path(__file__).parent.parent.parent
-            cleanup_result = await ctx.loop.run_in_executor(
-                None, cleanup_stale_state_locks, project_root, 60.0, False
-            )
-            if cleanup_result['cleaned'] > 0:
-                logger.info(f"Auto-recovery: Cleaned {cleanup_result['cleaned']} stale lock(s) after timeout")
-        except Exception as cleanup_error:
-            logger.warning(f"Could not perform emergency lock cleanup: {cleanup_error}")
-
-        return [error_response(
-            f"Failed to acquire lock for agent '{ctx.agent_id}' after automatic retries and cleanup. "
-            f"This usually means another active process is updating this agent. "
-            f"The system has automatically cleaned stale locks. If this persists, try: "
-            f"1) Wait a few seconds and retry, 2) Check for other Cursor/Claude sessions, "
-            f"3) Use cleanup_stale_locks tool, or 4) Restart Cursor if stuck."
-        )]
+        return await run_process_update_workflow(ctx, serializer=success_response)
     except PermissionError as e:
         return [error_response(
             f"Authentication failed: {str(e)}",
@@ -705,4 +340,3 @@ async def handle_process_agent_update(arguments: ToolArgumentsDict) -> Sequence[
                 "workflow": "1. Check system health 2. Review server logs 3. Restart MCP server if needed"
             }
         )]
-

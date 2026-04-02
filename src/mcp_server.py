@@ -34,8 +34,6 @@ import sys
 import os
 import asyncio
 import argparse
-import signal
-import atexit
 import time
 from pathlib import Path
 from typing import Any, Dict, Set, Optional
@@ -643,29 +641,14 @@ async def main():
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         print(f"\n❌ Database initialization failed: {e}", file=sys.stderr)
+        release_server_lock(lock_fd)
+        remove_server_pid_file()
         sys.exit(1)
 
     # Give audit logger a reference to the event loop for executor-thread writes
     from src.audit_log import AuditLogger
     AuditLogger._event_loop = asyncio.get_running_loop()
 
-    # Register cleanup handlers
-    def cleanup():
-        # Close database connections
-        try:
-            import asyncio
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(close_db())
-            loop.close()
-        except Exception as e:
-            logger.warning(f"Error closing database: {e}")
-        release_server_lock(lock_fd)
-        remove_server_pid_file()
-    
-    atexit.register(cleanup)
-    signal.signal(signal.SIGINT, lambda s, f: (cleanup(), sys.exit(0)))
-    signal.signal(signal.SIGTERM, lambda s, f: (cleanup(), sys.exit(0)))
-    
     endpoint = f"http://{args.host}:{args.port}/mcp"
     config_json = f'{{"url": "{endpoint}"}}'
 
@@ -965,17 +948,19 @@ async def main():
         )
         server = uvicorn.Server(config)
         await server.serve()
-        
     except ImportError:
         print("Error: uvicorn not installed. Install with: pip install uvicorn", file=sys.stderr)
-        release_server_lock(lock_fd)
-        remove_server_pid_file()
         sys.exit(1)
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)
+        sys.exit(1)
+    finally:
+        try:
+            await close_db()
+        except Exception as e:
+            logger.warning(f"Error closing database: {e}")
         release_server_lock(lock_fd)
         remove_server_pid_file()
-        sys.exit(1)
 
 
 if __name__ == "__main__":
@@ -983,11 +968,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nServer stopped.")
-        release_server_lock(None)  # Cleanup will be handled by atexit, but try here too
-        remove_server_pid_file()
         sys.exit(0)
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
-        release_server_lock(None)
-        remove_server_pid_file()
         sys.exit(1)

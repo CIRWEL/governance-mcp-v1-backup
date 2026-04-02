@@ -769,7 +769,7 @@ class TestHandleIdentityAdapter:
 
     @pytest.mark.asyncio
     async def test_identity_name_claim_resolves_existing(self, patch_identity_deps, mock_db, mock_redis, mock_raw_redis):
-        """identity(name='X') resolves via name claim when agent exists (lines 1208-1228)."""
+        """identity(name='X') resolves via name claim when no explicit session binding is provided."""
         from src.mcp_handlers.identity.handlers import handle_identity_adapter
 
         test_uuid = str(uuid.uuid4())
@@ -783,7 +783,6 @@ class TestHandleIdentityAdapter:
         mock_db.create_session = AsyncMock()
 
         result = await handle_identity_adapter({
-            "client_session_id": "name-adapter-test",
             "name": "TestBot",
             "resume": True,
         })
@@ -794,6 +793,36 @@ class TestHandleIdentityAdapter:
         assert data["identity_status"] == "resumed"
         assert data.get("resumed") is True
         assert data.get("resumed_by_name") is True
+
+    @pytest.mark.asyncio
+    async def test_identity_explicit_session_beats_name_claim(self, patch_identity_deps, mock_db, mock_redis, mock_raw_redis):
+        """Explicit client_session_id should win over name-claim recovery."""
+        from src.mcp_handlers.identity.handlers import handle_identity_adapter
+
+        bound_uuid = str(uuid.uuid4())
+        claimed_uuid = str(uuid.uuid4())
+        mock_redis.get.return_value = {
+            "agent_id": bound_uuid,
+            "display_agent_id": "Gpt_5_4_Codex_20260401",
+            "label": "Codex Dogfood",
+        }
+        mock_db.find_agent_by_label.return_value = claimed_uuid
+        mock_db.get_identity.return_value = SimpleNamespace(
+            identity_id="i1", metadata={"agent_id": "Gpt_5_4_Codex_20260401"}
+        )
+        mock_db.get_agent_label.return_value = "Codex Dogfood"
+
+        result = await handle_identity_adapter({
+            "client_session_id": "agent-explicit123",
+            "name": "Codex Dogfood",
+            "resume": True,
+        })
+        data = parse_result(result)
+
+        assert data["success"] is True
+        assert data["uuid"] == bound_uuid
+        assert data.get("resumed") is True
+        assert not data.get("resumed_by_name", False)
 
     @pytest.mark.asyncio
     async def test_identity_resumes_existing_agent(self, patch_identity_deps, mock_db, mock_redis, mock_raw_redis):
@@ -1146,6 +1175,59 @@ class TestHandleOnboardV2:
 
         assert onboard_data["uuid"] == existing_uuid
         assert identity_data["uuid"] == existing_uuid
+        assert identity_data["client_session_id"] == stable_session_id
+
+    @pytest.mark.asyncio
+    async def test_onboard_persists_stable_session_id_for_redis_miss(self, patch_onboard_deps, mock_db, mock_redis, mock_raw_redis):
+        """Returned stable client_session_id should still resume via PostgreSQL when Redis misses."""
+        from src.mcp_handlers.identity.handlers import handle_onboard_v2, handle_identity_adapter
+
+        sessions = {}
+        created_uuid = None
+        stable_session_id = None
+
+        async def cache_get(session_id):
+            return None
+
+        async def create_session(session_id, identity_id, expires_at, client_type="mcp", client_info=None):
+            sessions[session_id] = SimpleNamespace(agent_id=client_info.get("agent_uuid"))
+
+        async def get_session(session_id):
+            return sessions.get(session_id)
+
+        async def get_identity(agent_uuid):
+            return SimpleNamespace(
+                identity_id=f"ident-{agent_uuid[:8]}",
+                metadata={"agent_id": "Gpt_5_4_Codex_20260401"},
+            )
+
+        mock_redis.get.side_effect = cache_get
+        mock_db.get_session.side_effect = get_session
+        mock_db.create_session.side_effect = create_session
+        mock_db.get_identity.side_effect = get_identity
+        mock_db.get_agent_label.return_value = "Codex Dogfood"
+        mock_db.find_agent_by_label.return_value = None
+
+        onboard_result = await handle_onboard_v2({
+            "client_session_id": "resume-base",
+            "resume": True,
+            "model_type": "gpt-5.4-codex",
+        })
+        onboard_data = parse_result(onboard_result)
+        created_uuid = onboard_data["uuid"]
+        stable_session_id = onboard_data["client_session_id"]
+
+        assert stable_session_id in sessions
+        assert sessions[stable_session_id].agent_id == created_uuid
+
+        identity_result = await handle_identity_adapter({
+            "client_session_id": stable_session_id,
+            "resume": True,
+            "model_type": "gpt-5.4-codex",
+        })
+        identity_data = parse_result(identity_result)
+
+        assert identity_data["uuid"] == created_uuid
         assert identity_data["client_session_id"] == stable_session_id
 
     @pytest.mark.asyncio

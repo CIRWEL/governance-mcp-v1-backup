@@ -10,12 +10,14 @@ import pytest
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
+from mcp.types import ImageContent, TextContent
 from starlette.testclient import TestClient
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from tests.http_test_app import create_test_app
+from src.http_api import _build_http_tool_response, _normalize_http_tool_name
 
 
 # ============================================================================
@@ -163,3 +165,70 @@ class TestCallToolEndpoint:
         })
         call_args = mock_dispatch.call_args
         assert isinstance(call_args[0][1], dict)
+
+
+class TestHttpToolResponseSerialization:
+
+    def test_single_text_json_preserves_legacy_result_shape(self):
+        response = _build_http_tool_response(
+            "health_check",
+            [TextContent(type="text", text=json.dumps({"status": "ok"}))]
+        )
+        assert response == {
+            "name": "health_check",
+            "result": {"status": "ok"},
+            "success": True,
+        }
+
+    def test_multiple_text_blocks_preserve_all_content(self):
+        response = _build_http_tool_response(
+            "multi_text",
+            [
+                TextContent(type="text", text="first"),
+                TextContent(type="text", text="second"),
+            ]
+        )
+        assert response["success"] is True
+        assert response["result"]["content"] == [
+            {"type": "text", "text": "first"},
+            {"type": "text", "text": "second"},
+        ]
+
+    def test_non_text_content_is_not_dropped(self):
+        response = _build_http_tool_response(
+            "image_tool",
+            [ImageContent(type="image", data="abc123", mimeType="image/png")]
+        )
+        assert response["success"] is True
+        assert response["result"]["content"] == [
+            {"type": "image", "data": "abc123", "mimeType": "image/png"}
+        ]
+
+    def test_direct_dict_result_is_preserved(self):
+        response = _build_http_tool_response(
+            "health_check",
+            {"status": "healthy", "checks": {"db": {"status": "healthy"}}},
+        )
+        assert response == {
+            "name": "health_check",
+            "result": {"status": "healthy", "checks": {"db": {"status": "healthy"}}},
+            "success": True,
+        }
+
+
+class TestHttpToolNameNormalization:
+
+    def test_prefixed_mcp_tool_name_maps_to_canonical_name(self):
+        assert _normalize_http_tool_name(
+            {"name": "mcp_unitares_health_check"},
+            "unitares",
+        ) == "health_check"
+
+    def test_tool_name_field_is_used_when_name_missing(self):
+        assert _normalize_http_tool_name(
+            {"tool_name": "identity"},
+            "unitares",
+        ) == "identity"
+
+    def test_missing_name_returns_unknown(self):
+        assert _normalize_http_tool_name({}, "unitares") == "unknown"

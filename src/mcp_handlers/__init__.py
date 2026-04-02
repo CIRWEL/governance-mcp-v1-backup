@@ -186,73 +186,12 @@ async def dispatch_tool(name: str, arguments: Optional[Dict[str, Any]]) -> Seque
     Pipeline: identity → trajectory → kwargs → alias → inject → validate → rate limit → patterns → execute.
     Each step is defined in middleware.py for testability.
     """
-    from .middleware import (
-        DispatchContext, PRE_DISPATCH_STEPS, POST_VALIDATION_STEPS,
+    from .middleware import PRE_DISPATCH_STEPS, POST_VALIDATION_STEPS
+    from src.services.tool_dispatch_service import run_tool_dispatch_pipeline
+
+    return await run_tool_dispatch_pipeline(
+        name=name,
+        arguments=arguments,
+        pre_steps=PRE_DISPATCH_STEPS,
+        post_steps=POST_VALIDATION_STEPS,
     )
-    from .context import reset_session_context, reset_trajectory_confidence
-
-    if arguments is None:
-        arguments = {}
-
-    ctx = DispatchContext()
-
-    # Pre-dispatch pipeline (short-circuits on error)
-    for step in PRE_DISPATCH_STEPS:
-        result = await step(name, arguments, ctx)
-        if isinstance(result, list):
-            # Short-circuit: clean up context and return error
-            if ctx.context_token is not None:
-                reset_session_context(ctx.context_token)
-            return result
-        name, arguments, ctx = result
-
-    # Handler lookup
-    handler = TOOL_HANDLERS.get(name)
-    if handler is None:
-        if ctx.context_token is not None:
-            reset_session_context(ctx.context_token)
-        return tool_not_found_error(name, list(TOOL_HANDLERS.keys()))
-
-    # Log migration note if alias was used
-    if ctx.migration_note:
-        logger.info(f"Tool alias used: '{ctx.original_name}' → '{name}'. Migration: {ctx.migration_note}")
-
-    # Post-validation pipeline (best-effort, may short-circuit for rate limits)
-    for step in POST_VALIDATION_STEPS:
-        result = await step(name, arguments, ctx)
-        if isinstance(result, list):
-            if ctx.context_token is not None:
-                reset_session_context(ctx.context_token)
-            return result
-        name, arguments, ctx = result
-
-    try:
-        result = await handler(arguments)
-        if result:
-            if isinstance(result, (list, tuple)) and len(result) > 0:
-                if "Handler not yet extracted" in result[0].text:
-                    return None
-            elif hasattr(result, 'text'):
-                if "Handler not yet extracted" in result.text:
-                    return None
-
-        # Post-handler: update sticky cache if handler changed identity
-        # (e.g. onboard, identity(force_new), bind_session)
-        if ctx._transport_key:
-            try:
-                from .context import get_context_agent_id
-                current_agent = get_context_agent_id()
-                if current_agent and current_agent != ctx.bound_agent_id:
-                    from .middleware.identity_step import update_transport_binding
-                    update_transport_binding(
-                        ctx._transport_key, current_agent,
-                        ctx.session_key or "", f"post_handler:{name}"
-                    )
-            except Exception:
-                pass
-
-        return result
-    finally:
-        reset_session_context(ctx.context_token)
-        if ctx.trajectory_confidence_token is not None:
-            reset_trajectory_confidence(ctx.trajectory_confidence_token)
