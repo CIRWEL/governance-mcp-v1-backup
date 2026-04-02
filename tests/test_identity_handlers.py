@@ -2206,7 +2206,6 @@ class TestContextUpdateExceptions:
 
         with patch("src.mcp_handlers.context.update_context_agent_id", side_effect=Exception("Context error")):
             result = await handle_identity_adapter({
-                "client_session_id": "ctx-name-fail",
                 "name": "CtxFailAgent",
                 "resume": True,
             })

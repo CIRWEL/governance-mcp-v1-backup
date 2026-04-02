@@ -1374,7 +1374,7 @@ class TestGenerateContextualReflection:
     """Tests for _generate_contextual_reflection()."""
 
     def test_uninitialized_returns_first_checkin_message(self):
-        from src.mcp_handlers.core import _generate_contextual_reflection
+        from src.services.runtime_queries import _generate_contextual_reflection
         result = _generate_contextual_reflection(
             {"initialized": False, "status": "uninitialized"},
             {}
@@ -1383,7 +1383,7 @@ class TestGenerateContextualReflection:
         assert "First check-in" in result
 
     def test_guide_verdict_returns_reflection(self):
-        from src.mcp_handlers.core import _generate_contextual_reflection
+        from src.services.runtime_queries import _generate_contextual_reflection
         result = _generate_contextual_reflection(
             {"initialized": True, "verdict": "guide", "S": 0.1},
             {"state": {}}
@@ -1392,7 +1392,7 @@ class TestGenerateContextualReflection:
         assert "guide" in result
 
     def test_pause_verdict_returns_reflection(self):
-        from src.mcp_handlers.core import _generate_contextual_reflection
+        from src.services.runtime_queries import _generate_contextual_reflection
         result = _generate_contextual_reflection(
             {"initialized": True, "verdict": "pause", "S": 0.1},
             {"state": {}}
@@ -1400,7 +1400,7 @@ class TestGenerateContextualReflection:
         assert "pause" in result
 
     def test_basin_boundary_returns_reflection(self):
-        from src.mcp_handlers.core import _generate_contextual_reflection
+        from src.services.runtime_queries import _generate_contextual_reflection
         result = _generate_contextual_reflection(
             {"initialized": True, "verdict": "proceed", "S": 0.1},
             {"state": {"borderline": {"S": {"value": 0.28}}}}
@@ -1409,7 +1409,7 @@ class TestGenerateContextualReflection:
         assert "basin boundary" in result
 
     def test_high_entropy_returns_reflection(self):
-        from src.mcp_handlers.core import _generate_contextual_reflection
+        from src.services.runtime_queries import _generate_contextual_reflection
         result = _generate_contextual_reflection(
             {"initialized": True, "verdict": "proceed", "S": 0.45},
             {"state": {}}
@@ -1419,7 +1419,7 @@ class TestGenerateContextualReflection:
         assert "0.45" in result
 
     def test_healthy_state_returns_none(self):
-        from src.mcp_handlers.core import _generate_contextual_reflection
+        from src.services.runtime_queries import _generate_contextual_reflection
         result = _generate_contextual_reflection(
             {"initialized": True, "verdict": "proceed", "S": 0.15},
             {"state": {}}

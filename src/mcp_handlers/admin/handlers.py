@@ -14,7 +14,6 @@ from ..decorators import mcp_tool
 from ..validators import validate_file_path_policy
 from src.logging_utils import get_logger
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
-from src.services.runtime_queries import get_health_check_data
 
 logger = get_logger(__name__)
 
@@ -279,6 +278,7 @@ def set_workspace_last_agent(mcp_server, agent_id: str) -> None:
 @mcp_tool("health_check", timeout=20.0, rate_limit_exempt=True)
 async def handle_health_check(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Handle health_check tool - quick health check of system components"""
+    from src.services.runtime_queries import get_health_check_data
     response_data = await get_health_check_data(arguments, server=mcp_server)
     return success_response(response_data)
 

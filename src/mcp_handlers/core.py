@@ -18,7 +18,6 @@ from src.services.update_response_service import (
     build_process_update_response_data,
     serialize_process_update_response,
 )
-from src.services.runtime_queries import get_governance_metrics_data
 from src.services.update_workflow_service import run_process_update_workflow
 
 logger = get_logger(__name__)
@@ -122,6 +121,7 @@ async def handle_get_governance_metrics(arguments: ToolArgumentsDict) -> Sequenc
     agent_id, error = require_agent_id(arguments)
     if error:
         return [error]  # Wrap in list for Sequence[TextContent]
+    from src.services.runtime_queries import get_governance_metrics_data
     response_data = await get_governance_metrics_data(agent_id, arguments, server=mcp_server)
     return success_response(response_data)
 
