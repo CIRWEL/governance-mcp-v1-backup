@@ -7,7 +7,7 @@ Thanks for your interest in contributing to UNITARES. This guide covers the prac
 ### Prerequisites
 
 - Python 3.12 or newer
-- Docker (for PostgreSQL + AGE)
+- PostgreSQL 16+ with Apache AGE + pgvector (examples below use PostgreSQL 17)
 - Redis (optional, for session caching)
 
 ### Clone and Install
@@ -21,21 +21,15 @@ pip install -r requirements-core.txt
 
 ### Database
 
-UNITARES uses PostgreSQL 16+ with the [Apache AGE](https://github.com/apache/age) graph extension for the knowledge graph, and pgvector for embeddings. The easiest way to get both running:
+UNITARES uses PostgreSQL 16+ with the [Apache AGE](https://github.com/apache/age) graph extension for the knowledge graph, and pgvector for embeddings.
+
+See `db/postgres/README.md` for full setup instructions (Homebrew PostgreSQL 17 + AGE + pgvector).
+
+**Important:** Always access the database instance referenced by `DB_POSTGRES_URL`:
 
 ```bash
-docker compose -f scripts/age/docker-compose.age.yml up -d
+psql "$DB_POSTGRES_URL"
 ```
-
-This starts a `postgres-age` container on port 5432 with both extensions pre-installed. The governance database and test database are created automatically on first run.
-
-**Important:** Always access the database through Docker, not bare `psql`:
-
-```bash
-docker exec postgres-age psql -U postgres -d governance
-```
-
-Bare `psql` may connect to a different PostgreSQL instance on the host and give misleading results.
 
 ## Running Tests
 

@@ -131,21 +131,30 @@ The `onboard()` response includes ready-to-use templates for your next calls —
 
 ### Installation
 
-**Prerequisites:** Python 3.12+, PostgreSQL 16+ with [AGE extension](https://github.com/apache/age), Redis (optional — session cache only, not required)
+**Prerequisites:** Python 3.12+, PostgreSQL 16+ with Apache AGE + pgvector (examples below use PostgreSQL 17), Redis (optional — session cache only, not required)
 
 ```bash
 git clone https://github.com/CIRWEL/unitares.git
 cd unitares
-pip install -r requirements-core.txt
+
+# HTTP server / normal local deployment
+pip install -r requirements-full.txt
+
+# Database target
+export DB_BACKEND=postgres
+export DB_POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/governance
+export DB_AGE_GRAPH=governance_graph
+export UNITARES_KNOWLEDGE_BACKEND=age
 
 # MCP server (multi-client)
 python src/mcp_server.py --port 8767
-
-# Or stdio mode (single-client)
-python src/mcp_server_std.py
 ```
 
-> **Note:** The EISV dynamics engine (`unitares-core`) is a compiled dependency installed automatically via `requirements-core.txt`. See [CONTRIBUTING.md](CONTRIBUTING.md) for build details.
+For a minimal stdio/proxy setup, `requirements-core.txt` is still available, but the normal local server path is `requirements-full.txt`.
+
+For database setup details (Homebrew PostgreSQL 17 + AGE + pgvector), see [db/postgres/README.md](db/postgres/README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
+> **Note:** The EISV dynamics engine (`unitares-core`) is a compiled dependency installed automatically via the requirements files. See [CONTRIBUTING.md](CONTRIBUTING.md) for build details.
 
 ### MCP Configuration
 
@@ -233,7 +242,7 @@ Behavioral EISV (`src/behavioral_state.py`, `src/behavioral_assessment.py`) runs
 
 | Storage | Purpose | Required |
 |---------|---------|----------|
-| PostgreSQL + AGE | Agent state, knowledge graph, dialectic, calibration | Yes |
+| PostgreSQL + AGE + pgvector | Agent state, knowledge graph, dialectic, calibration | Yes |
 | Redis | Session cache only — falls back gracefully without it | Optional |
 
 ---
@@ -274,7 +283,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and code 
 
 ## Licensing
 
-The MCP server, dashboard, tooling, and all code in this repo are **MIT licensed** — see [LICENSE](LICENSE). The EISV dynamics engine (`unitares-core`) is a **proprietary compiled dependency**. It installs automatically via `requirements-core.txt`, but its source is not in this repo. You can freely use, modify, and deploy the server; the mathematical core is not open source. See [CONTRIBUTING.md](CONTRIBUTING.md#compiled-dependency) for details.
+The MCP server, dashboard, tooling, and all code in this repo are **MIT licensed** — see [LICENSE](LICENSE). The EISV dynamics engine (`unitares-core`) is a **proprietary compiled dependency**. It installs automatically via the requirements files, but its source is not in this repo. You can freely use, modify, and deploy the server; the mathematical core is not open source. See [CONTRIBUTING.md](CONTRIBUTING.md#compiled-dependency) for details.
 
 ---
 

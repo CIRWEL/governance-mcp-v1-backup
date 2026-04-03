@@ -1,8 +1,7 @@
 -- Apache AGE bootstrap for local prototyping.
 --
 -- Usage:
---   docker compose -f scripts/age/docker-compose.age.yml up -d
---   docker exec -i postgres-age psql -U postgres -d postgres < scripts/age/bootstrap.sql
+--   psql "$DB_POSTGRES_URL" < scripts/age/bootstrap.sql
 --
 -- Notes:
 -- - AGE requires loading the extension and setting search_path for each session.

@@ -1,11 +1,10 @@
 # Database Architecture
 
-**Last Updated**: 2026-03-05
+**Last Updated**: 2026-04-02
 **Status**: PostgreSQL-only (SQLite backend removed Feb 2026)
 
-> **WARNING**: Homebrew `postgresql@17` on port 5433 is NOT UNITARES — it belongs to a
-> separate project. The ONLY PostgreSQL for UNITARES is Docker `postgres-age` on port 5432.
-> Always use `docker exec postgres-age psql -U postgres -d governance` for queries.
+> **Rule**: The canonical UNITARES database is whatever instance `DB_POSTGRES_URL` points to.
+> Do not assume Docker, Homebrew, or a specific port. Query the configured instance directly.
 
 ## Overview
 
@@ -20,7 +19,7 @@ The governance MCP uses PostgreSQL as the sole database backend:
 
 ### 1. PostgreSQL (Primary Storage)
 
-**Container**: `postgres-age` (Docker)
+**Instance**: configured via `DB_POSTGRES_URL`
 **Database**: `governance`
 **Purpose**: Single source of truth for all persistent data
 
@@ -57,13 +56,13 @@ The governance MCP uses PostgreSQL as the sole database backend:
 
 **Schema Location**: `core` schema in PostgreSQL
 **Schema Version**: Tracked in `core.schema_migrations` (current: v2)
-**Backup**: Automatic PostgreSQL backups (Docker volume)
+**Backup**: `pg_dump` against `DB_POSTGRES_URL` or an equivalent server-level backup
 
 ---
 
 ### 2. Redis (Session Cache)
 
-**Service**: Docker `governance-redis` (127.0.0.1:6379)
+**Service**: typically local Redis on `127.0.0.1:6379`
 **Purpose**: Fast ephemeral data with persistence across server restarts
 
 **What's Stored:**
@@ -95,6 +94,12 @@ The governance MCP uses PostgreSQL as the sole database backend:
 
 ```bash
 export DB_POSTGRES_URL="postgresql://postgres:postgres@localhost:5432/governance"
+```
+
+Optional but recommended for graph queries:
+
+```bash
+export DB_AGE_GRAPH="governance_graph"
 ```
 
 **Code Location**: `src/db/__init__.py` — the shared database accessor always returns `PostgresBackend`.
@@ -185,10 +190,10 @@ Response includes `status_breakdown` with counts per status type:
 curl http://localhost:8767/health
 
 # PostgreSQL
-docker exec postgres-age psql -U postgres -d governance -c "SELECT COUNT(*) FROM core.agents;"
+psql "$DB_POSTGRES_URL" -c "SELECT COUNT(*) FROM core.agents;"
 
 # Schema version
-docker exec postgres-age psql -U postgres -d governance -c "SELECT * FROM core.schema_migrations;"
+psql "$DB_POSTGRES_URL" -c "SELECT * FROM core.schema_migrations;"
 
 # Redis
 redis-cli DBSIZE
@@ -197,8 +202,8 @@ redis-cli GET "session:test-session-id"
 
 ### Backup
 ```bash
-# PostgreSQL (automatic via Docker volume)
-docker exec postgres-age pg_dump -U postgres governance > backup.sql
+# PostgreSQL
+pg_dump "$DB_POSTGRES_URL" > backup.sql
 
 # Redis (manual snapshot)
 redis-cli BGSAVE
@@ -208,14 +213,12 @@ redis-cli BGSAVE
 
 **PostgreSQL connection issues:**
 ```bash
-# Check container
-docker ps | grep postgres-age
+# Check configured database target
+echo "$DB_POSTGRES_URL"
+pg_isready -d "$DB_POSTGRES_URL"
 
-# Check logs
-docker logs postgres-age
-
-# Restart
-docker restart postgres-age
+# Simple connectivity probe
+psql "$DB_POSTGRES_URL" -c "SELECT 1;"
 ```
 
 **Redis unavailable:**

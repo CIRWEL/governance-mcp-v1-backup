@@ -1,8 +1,8 @@
 # Core (minimal) dependencies for UNITARES Governance MCP
 #
 # Use this for:
-# - stdio MCP server (`src/mcp_server_std.py`)
-# - most local development where you don't need SSE/HTTP
+# - thin stdio / proxy-oriented setups
+# - environments where you are not running the full local HTTP server
 #
 # Install:
 #   pip install -r requirements-core.txt
@@ -15,5 +15,4 @@ numpy>=1.24.0,<3.0.0
 
 # EISV dynamics engine (compiled, private repo)
 unitares-core>=2.3.0
-
 

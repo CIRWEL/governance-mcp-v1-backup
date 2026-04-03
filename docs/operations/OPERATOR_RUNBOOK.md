@@ -10,7 +10,7 @@ From the repo root:
 ./scripts/ops/start_with_deps.sh
 ```
 
-This waits for Docker, starts `postgres-age` if needed, then launches the governance server on port `8767`.
+This ensures PostgreSQL is reachable at `DB_POSTGRES_URL`, then launches the governance server on port `8767`.
 
 If you already know dependencies are ready and only want the server:
 
@@ -36,7 +36,7 @@ This verifies:
 
 - local HTTP health on `http://127.0.0.1:8767/health`
 - whether `data/.mcp_server.pid` maps to a live process
-- whether the `postgres-age` container is running and ready
+- whether PostgreSQL is reachable at `DB_POSTGRES_URL`
 
 The `health_check()` tool now also returns `operator_summary`:
 
@@ -106,16 +106,17 @@ Fix:
 ./scripts/ops/start_with_deps.sh
 ```
 
-### PostgreSQL container not running
+### PostgreSQL not reachable
 
 Symptom:
 
-- `check_health.sh` reports `postgres-age container not running`
+- `check_health.sh` reports PostgreSQL unreachable
 
 Fix:
 
 ```bash
-docker start postgres-age
+pg_isready -d "$DB_POSTGRES_URL"
+brew services start postgresql@17
 ./scripts/ops/start_with_deps.sh
 ```
 

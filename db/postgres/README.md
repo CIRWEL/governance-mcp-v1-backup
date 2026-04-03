@@ -13,58 +13,42 @@ This directory contains the schema and setup files for migrating to PostgreSQL w
 
 ## Setup Instructions
 
-### 1. Install PostgreSQL
+### PostgreSQL 17 on macOS
+
+#### 1. Install PostgreSQL 17 and pgvector
 
 ```bash
-# Ubuntu/Debian
-sudo apt-get install postgresql postgresql-contrib
-
-# macOS
-brew install postgresql
-
-# Or use Docker
-docker run -d --name postgres-governance \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=governance \
-  -p 5432:5432 \
-  postgres:16
+brew install postgresql@17 pgvector
+brew services start postgresql@17
 ```
 
-### 2. Install Apache AGE Extension
+If your Homebrew instance is not listening on `5432`, either reconfigure it or set `DB_POSTGRES_URL` to the actual host/port.
+
+#### 2. Build/install Apache AGE against the same PostgreSQL 17
 
 ```bash
-# Clone AGE repository
+export PG_CONFIG=/opt/homebrew/opt/postgresql@17/bin/pg_config
 git clone https://github.com/apache/age.git
 cd age
-
-# Follow AGE installation instructions
-# See the Apache AGE setup guide (docs site).
+make PG_CONFIG="$PG_CONFIG"
+make install PG_CONFIG="$PG_CONFIG"
 ```
 
-Or use the AGE Docker image:
+#### 3. Create database, extensions, relational schema, and graph
 
 ```bash
-docker run -d --name postgres-age \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=governance \
-  -p 5432:5432 \
-  apache/age:latest
+createdb -h localhost -p 5432 -U postgres governance
+
+export DB_POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/governance
+export DB_AGE_GRAPH=governance_graph
+
+psql "$DB_POSTGRES_URL" -f db/postgres/init-extensions.sql
+psql "$DB_POSTGRES_URL" -f db/postgres/schema.sql
+psql "$DB_POSTGRES_URL" -f db/postgres/partitions.sql
+psql "$DB_POSTGRES_URL" -f db/postgres/graph_schema.sql
 ```
 
-### 3. Create Database and Schema
-
-```bash
-# Connect to PostgreSQL
-psql -U postgres -d governance
-
-# Run schema
-\i db/postgres/schema.sql
-
-# Verify AGE extension / graph
-SELECT * FROM ag_catalog.create_graph('governance_graph');
-```
-
-### 4. Configure Environment
+### Configure Environment
 
 ```bash
 export DB_BACKEND=postgres
@@ -87,8 +71,7 @@ The main runtime DB backend is controlled by `DB_BACKEND`, but the **knowledge g
 |---------|-------|-------------|
 | **AGE** (recommended) | `age` | PostgreSQL + Apache AGE graph database |
 | **PostgreSQL FTS** | `postgres` | Native PostgreSQL with tsvector full-text search |
-| **SQLite** (legacy) | `sqlite` | Original SQLite FTS5 backend |
-| **Auto** (default) | `auto` | Selects `age` if available, falls back to `postgres` if `DB_BACKEND=postgres` |
+| **Auto** (default) | `auto` | Uses PostgreSQL FTS when `DB_BACKEND=postgres` |
 
 ```bash
 # Recommended: Use AGE for graph operations
@@ -102,33 +85,32 @@ export UNITARES_KNOWLEDGE_BACKEND=auto
 ```
 
 **Note:** When `UNITARES_KNOWLEDGE_BACKEND=auto` (default), the system will:
-1. Try AGE if `age` module is available
-2. Fall back to PostgreSQL FTS if `DB_BACKEND=postgres`
-3. Fall back to SQLite otherwise
+1. Use PostgreSQL FTS if `DB_BACKEND=postgres`
+2. Otherwise require an explicit supported backend
 
-### 5. Run Migration
+### Migrations / Backfills
 
-```bash
-# Dry run first
-python scripts/migrate_to_postgres_age.py --dry-run
+The repo no longer has a single monolithic `migrate_to_postgres_age.py` entrypoint.
+Current maintenance utilities are targeted scripts under `scripts/migration/` and
+`scripts/age/`.
 
-# Actual migration
-python scripts/migrate_to_postgres_age.py
-```
-
-### 5.1 Knowledge Graph Migration (SQLite to PostgreSQL)
-
-If you have existing knowledge graph data in SQLite (`data/governance.db`):
+Common examples:
 
 ```bash
-# Preview what will be migrated
-python scripts/migrate_knowledge_to_postgres.py --dry-run
+# Backfill missing pgvector embeddings
+python scripts/migration/backfill_embeddings.py --dry-run
 
-# Run migration
-python scripts/migrate_knowledge_to_postgres.py --batch-size 100
+# Regenerate embeddings for a selected agent's discoveries
+python scripts/migration/regenerate_embeddings.py --dry-run --agent system_migration
+
+# Export legacy SQLite knowledge to an AGE-compatible SQL import
+python scripts/age/export_knowledge_sqlite_to_age.py \
+  --sqlite data/governance.db \
+  --out /tmp/age_import.sql
 ```
 
-This migrates discoveries, tags, and edges from SQLite to the PostgreSQL knowledge schema.
+Before running any targeted backfill, make sure the base schema, extensions, and graph
+already exist in the destination database.
 
 ## Schema Overview
 
@@ -173,13 +155,16 @@ After running the schema, these checks catch 90% of setup mistakes:
 
 ```bash
 # 1) Confirm Postgres connectivity
-psql $DB_POSTGRES_URL -c "SELECT 1"
+psql "$DB_POSTGRES_URL" -c "SELECT 1"
 
 # 2) Confirm AGE extension exists
-psql $DB_POSTGRES_URL -c "SELECT name, installed_version FROM pg_available_extensions WHERE name='age'"
+psql "$DB_POSTGRES_URL" -c "SELECT name, installed_version FROM pg_available_extensions WHERE name='age'"
+
+# 2b) Confirm pgvector exists
+psql "$DB_POSTGRES_URL" -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('age', 'vector') ORDER BY extname"
 
 # 3) Confirm the graph exists
-psql $DB_POSTGRES_URL -c "SELECT graphid, name FROM ag_catalog.ag_graph WHERE name='governance_graph'"
+psql "$DB_POSTGRES_URL" -c "SELECT graphid, name FROM ag_catalog.ag_graph WHERE name='governance_graph'"
 ```
 
 ## Schema Versioning
@@ -250,7 +235,7 @@ SELECT * FROM ag_catalog.create_graph('governance_graph');
 
 ```bash
 # Test connection
-psql $DB_POSTGRES_URL -c "SELECT 1"
+psql "$DB_POSTGRES_URL" -c "SELECT 1"
 
 # Check pool settings
 export DB_POSTGRES_MIN_CONN=2
@@ -261,4 +246,5 @@ export DB_POSTGRES_MAX_CONN=10
 
 - **Graph name mismatch**: your graph is not `governance_graph` but `DB_AGE_GRAPH` wasn’t updated.
 - **Extension not enabled in the DB**: you installed AGE on the host but didn’t run `CREATE EXTENSION age;` inside the target database.
+- **pgvector missing**: the relational schema creates `core.discovery_embeddings`, so `CREATE EXTENSION vector;` must succeed too.
 - **Running graph/data migration before schema**: apply `db/postgres/schema.sql` before running any AGE backfill or migration tooling.

@@ -1,31 +1,24 @@
 #!/usr/bin/env bash
 # backup_governance.sh — Daily PostgreSQL backup for UNITARES governance DB
 # Scheduled via ~/Library/LaunchAgents/com.unitares.governance-backup.plist
-# (template: scripts/ops/com.unitares.governance-backup.plist)
 #
-# Dumps the governance database from the postgres-age Docker container,
+# Dumps the governance database from native Homebrew PostgreSQL@17,
 # compresses with gzip, and retains the last N backup files.
-#
-# Hardening: start stopped container, optional docker compose up, wait for
-# pg_isready, pg_dump retries, last_backup_status.json, optional macOS alert.
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_DEFAULT_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
-# Auto-detect repo root when script lives in scripts/ (for docker compose recovery).
-if [ -z "${GOVERNANCE_REPO:-}" ] && [ -f "$_DEFAULT_REPO/docker-compose.yml" ]; then
-    GOVERNANCE_REPO="$_DEFAULT_REPO"
-fi
+PG_BIN="/opt/homebrew/opt/postgresql@17/bin"
 
 BACKUP_DIR="${BACKUP_DIR:-$HOME/backups/governance}"
-CONTAINER="${CONTAINER:-postgres-age}"
 DATABASE="${DATABASE:-governance}"
+PG_USER="${PG_USER:-postgres}"
+PG_HOST="${PG_HOST:-localhost}"
+PG_PORT="${PG_PORT:-5432}"
 # Keep the last N backup files (not calendar days; filename list order).
 KEEP_DAYS="${KEEP_DAYS:-14}"
 LOG="${LOG:-$BACKUP_DIR/backup.log}"
 
-# Wait for Postgres inside the container (handles slow restarts).
+# Wait for Postgres (handles slow restarts).
 PG_READY_ATTEMPTS="${PG_READY_ATTEMPTS:-30}"
 PG_READY_SLEEP_SEC="${PG_READY_SLEEP_SEC:-2}"
 
@@ -71,57 +64,30 @@ alert_failure() {
     fi
 }
 
-docker_daemon_ok() {
-    docker info >/dev/null 2>&1
-}
-
-container_running() {
-    docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true
-}
-
-container_exists() {
-    docker inspect "$CONTAINER" --format='{{.Name}}' >/dev/null 2>&1
-}
-
-ensure_container_running() {
-    if container_running; then
+ensure_postgres_running() {
+    if "$PG_BIN/pg_isready" -h "$PG_HOST" -p "$PG_PORT" -q 2>/dev/null; then
         return 0
     fi
 
-    log "WARN: Container '$CONTAINER' is not running; attempting recovery"
+    log "WARN: PostgreSQL not reachable; attempting to start via brew services"
+    brew services start postgresql@17 2>/dev/null || true
+    sleep 2
 
-    if ! docker_daemon_ok; then
-        log "ERROR: Docker daemon not reachable (is Docker Desktop running?)"
-        write_status_error "Docker daemon not reachable"
-        alert_failure "Governance backup: Docker not running"
+    if ! "$PG_BIN/pg_isready" -h "$PG_HOST" -p "$PG_PORT" -q 2>/dev/null; then
+        log "ERROR: PostgreSQL not reachable after start attempt"
+        write_status_error "PostgreSQL not reachable"
+        alert_failure "Governance backup: PostgreSQL not running"
         return 1
     fi
 
-    if container_exists; then
-        log "Starting existing container $CONTAINER"
-        docker start "$CONTAINER" >/dev/null || true
-    fi
-
-    if ! container_running && [ -n "${GOVERNANCE_REPO:-}" ] && [ -f "$GOVERNANCE_REPO/docker-compose.yml" ]; then
-        log "Running: docker compose up -d (from GOVERNANCE_REPO=$GOVERNANCE_REPO)"
-        (cd "$GOVERNANCE_REPO" && docker compose up -d postgres-age) || true
-    fi
-
-    if ! container_running; then
-        log "ERROR: Could not start '$CONTAINER' (set GOVERNANCE_REPO to repo with docker-compose.yml for compose recovery)"
-        write_status_error "Container not running after recovery attempts"
-        alert_failure "Governance backup: postgres-age not running"
-        return 1
-    fi
-
-    log "Container '$CONTAINER' is running"
+    log "PostgreSQL is running"
     return 0
 }
 
 wait_for_postgres() {
     local i=0
     while [ "$i" -lt "$PG_READY_ATTEMPTS" ]; do
-        if docker exec "$CONTAINER" pg_isready -U postgres -d "$DATABASE" >/dev/null 2>&1; then
+        if "$PG_BIN/pg_isready" -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$DATABASE" >/dev/null 2>&1; then
             return 0
         fi
         i=$((i + 1))
@@ -134,12 +100,12 @@ wait_for_postgres() {
 }
 
 run_pg_dump() {
-    docker exec "$CONTAINER" pg_dump -U postgres "$DATABASE" | gzip >"$BACKUP_FILE"
+    "$PG_BIN/pg_dump" -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$DATABASE" | gzip >"$BACKUP_FILE"
 }
 
 # --- main ---
 
-if ! ensure_container_running; then
+if ! ensure_postgres_running; then
     exit 1
 fi
 

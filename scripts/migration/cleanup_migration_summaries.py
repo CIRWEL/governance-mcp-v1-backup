@@ -20,18 +20,16 @@ import sys
 
 
 def run_psql(query: str, load_age: bool = False, use_json: bool = False) -> str:
-    """Run a SQL query via docker exec."""
+    """Run a SQL query against the governance database."""
     if load_age:
         # Prepend AGE loading
         query = f'''LOAD 'age';
 SET search_path = ag_catalog, "$user", public;
 {query}'''
 
-    cmd = [
-        'docker', 'exec', 'postgres-age',
-        'psql', '-U', 'postgres', '-d', 'governance',
-        '-t', '-A'
-    ]
+    import os
+    db_url = os.environ.get('DB_POSTGRES_URL', 'postgresql://postgres:postgres@localhost:5432/governance')
+    cmd = ['psql', db_url, '-t', '-A']
     if use_json:
         cmd.extend(['-F', '\t'])  # Tab separator
     cmd.extend(['-c', query])

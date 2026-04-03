@@ -122,15 +122,16 @@ tail -f data/logs/mcp_server_error.log
 
 **Solutions:**
 
-1. **Check PostgreSQL container:**
+1. **Check the configured PostgreSQL target:**
    ```bash
-   docker ps | grep postgres-age
-   docker exec postgres-age pg_isready -U postgres
+   echo "$DB_POSTGRES_URL"
+   pg_isready -d "$DB_POSTGRES_URL"
+   psql "$DB_POSTGRES_URL" -c "SELECT 1"
    ```
 
-2. **Start if not running:**
+2. **Start PostgreSQL if not running:**
    ```bash
-   docker start postgres-age
+   brew services start postgresql@17
    ```
 
 3. **Check environment variables:**
@@ -138,9 +139,9 @@ tail -f data/logs/mcp_server_error.log
    echo $DB_POSTGRES_URL  # Should be set
    ```
 
-4. **Check container logs:**
+4. **Check logs:**
    ```bash
-   docker logs postgres-age --tail 50
+   tail -50 data/logs/mcp_server_error.log
    ```
 
 ---
@@ -258,11 +259,11 @@ curl http://localhost:8767/health
 
 ```bash
 # Backup first!
-docker exec postgres-age pg_dump -U postgres governance > backup_$(date +%Y%m%d).sql
+pg_dump "$DB_POSTGRES_URL" > backup_$(date +%Y%m%d).sql
 
-# Reset PostgreSQL
-docker exec postgres-age psql -U postgres -c "DROP DATABASE IF EXISTS governance;"
-docker exec postgres-age psql -U postgres -c "CREATE DATABASE governance;"
+# Reset PostgreSQL (use an admin DB on the same server)
+psql "${DB_POSTGRES_ADMIN_URL:-postgresql://postgres:postgres@localhost:5432/postgres}" -c "DROP DATABASE IF EXISTS governance;"
+psql "${DB_POSTGRES_ADMIN_URL:-postgresql://postgres:postgres@localhost:5432/postgres}" -c "CREATE DATABASE governance;"
 
 # Restart server (schema auto-creates)
 launchctl unload ~/Library/LaunchAgents/com.unitares.governance-mcp.plist

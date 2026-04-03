@@ -4,7 +4,7 @@ Export knowledge graph data from SQLite (data/governance.db) into an Apache AGE 
 Design goals:
 - No new Python deps (stdlib only).
 - Non-invasive: does NOT modify runtime backends; this is a prototype/evaluation helper.
-- Export is a plain .sql file you can pipe into psql inside the AGE container.
+- Export is a plain .sql file you can pipe into psql.
 
 AGE execution model reminder:
 - Each session must run:
@@ -18,9 +18,8 @@ Example:
     --sqlite data/governance.db \
     --out /tmp/age_import.sql
 
-  docker compose -f scripts/age/docker-compose.age.yml up -d
-  docker exec -i postgres-age psql -U postgres -d postgres < scripts/age/bootstrap.sql
-  docker exec -i postgres-age psql -U postgres -d postgres < /tmp/age_import.sql
+  psql "$DB_POSTGRES_URL" < scripts/age/bootstrap.sql
+  psql "$DB_POSTGRES_URL" < /tmp/age_import.sql
 """
 
 from __future__ import annotations

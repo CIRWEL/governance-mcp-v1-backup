@@ -2,7 +2,7 @@
 -- Creates the graph and initial node/edge labels for knowledge graph queries
 --
 -- Run after schema.sql and partitions.sql:
---   docker exec -i postgres-age psql -U postgres -d governance < db/postgres/graph_schema.sql
+--   psql "$DB_POSTGRES_URL" -f db/postgres/graph_schema.sql
 
 -- Load AGE extension
 LOAD 'age';

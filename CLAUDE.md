@@ -7,7 +7,7 @@ UNITARES governance MCP server. Thermodynamic governance framework for AI agents
 ## Stack
 
 - Python 3.12+, asyncio
-- PostgreSQL + AGE (Apache Graph Extension) via Docker (`postgres-age` on port 5432)
+- PostgreSQL@17 + AGE 1.7.0 (Apache Graph Extension) via Homebrew on port 5432
 - Redis (optional session cache, port 6379)
 - Pydantic v2 for parameter validation
 - MCP (Model Context Protocol) server on port 8767
@@ -35,9 +35,9 @@ UNITARES governance MCP server. Thermodynamic governance framework for AI agents
 
 ## Database
 
-- **ONE database**: Docker `postgres-age` container on port 5432 (`postgresql://postgres:postgres@localhost:5432/governance`)
-- Requires Docker Desktop running. If governance crashes with "Connect call failed", start Docker Desktop.
-- Access: `docker exec postgres-age psql -U postgres -d governance`
+- **ONE database**: Homebrew PostgreSQL@17 on port 5432 (`postgresql://postgres:postgres@localhost:5432/governance`)
+- Requires `brew services start postgresql@17`. If governance crashes with "Connect call failed", check `pg_isready -h localhost -p 5432`.
+- Access: `psql -h localhost -U postgres -d governance`
 - Backups: `/Users/cirwel/backups/governance/` (daily pg_dump via launchd)
 - Do NOT create additional PostgreSQL instances, databases, or migration layers. One database, one location.
 

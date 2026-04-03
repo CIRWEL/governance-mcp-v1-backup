@@ -6,10 +6,10 @@
 -- philosophical depth over time.
 --
 -- Usage:
---   docker exec -i postgres-age psql -U postgres -d postgres < scripts/age/philosophical_queries.sql
+--   psql "$DB_POSTGRES_URL" < scripts/age/philosophical_queries.sql
 --
 -- Prerequisites:
---   - AGE container running
+--   - PostgreSQL with AGE extension running
 --   - Data imported via export_knowledge_sqlite_to_age.py
 
 LOAD 'age';

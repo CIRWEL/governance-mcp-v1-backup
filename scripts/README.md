@@ -85,7 +85,7 @@ Installed location: `~/Library/LaunchAgents/`
 ## Subdirectories
 
 ### `age/`
-AGE (Apache Graph Extension) utilities — Docker config, bootstrap SQL, export scripts, sample Cypher queries.
+AGE (Apache Graph Extension) utilities — bootstrap SQL, export scripts, sample Cypher queries.
 
 ### `analysis/`
 Analysis and reporting scripts.

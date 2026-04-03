@@ -101,7 +101,7 @@ Agents contribute discoveries to a shared graph (PostgreSQL + AGE):
 
 ```
 +------------------------------+
-|  PostgreSQL+AGE (Docker 5432) |
+|  PostgreSQL+AGE (port 5432)   |
 |  +- core.identities          |     All agent state, audit,
 |  +- core.agent_state         |     and knowledge lives here.
 |  +- audit.events             |
@@ -110,7 +110,7 @@ Agents contribute discoveries to a shared graph (PostgreSQL + AGE):
 |  +- core.calibration         |
 |  +- core.tool_usage          |
 |                              |
-|  Redis (Docker 6379)         |     Session cache only.
+|  Redis (port 6379)           |     Session cache only.
 |  audit_log.jsonl (raw)       |     Falls back gracefully without Redis.
 +------------------------------+
 ```
