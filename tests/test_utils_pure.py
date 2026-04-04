@@ -568,6 +568,14 @@ class TestFormatMetricsReport:
         assert result["E"] == 0.8
         assert result["I"] == 0.9
 
+    def test_include_context_prefers_primary_eisv(self):
+        metrics = {
+            "E": 0.1, "I": 0.2, "S": 0.3, "V": 0.4,
+            "primary_eisv": {"E": 0.8, "I": 0.9, "S": 0.1, "V": -0.05},
+        }
+        result = format_metrics_report(metrics, "agent_1", include_timestamp=False)
+        assert result["eisv"] == {"E": 0.8, "I": 0.9, "S": 0.1, "V": -0.05}
+
     def test_include_context_no_eisv_when_not_present(self):
         metrics = {"coherence": 0.7}
         result = format_metrics_report(metrics, "agent_1", include_timestamp=False)
@@ -665,6 +673,18 @@ class TestFormatMetricsText:
         }
         result = format_metrics_text(metrics)
         assert "E=0.900" in result
+
+    def test_primary_eisv_label_used_when_source_present(self):
+        metrics = {
+            "agent_id": "a1",
+            "E": 0.5,
+            "I": 0.6,
+            "S": 0.2,
+            "V": 0.0,
+            "primary_eisv_source": "behavioral",
+        }
+        result = format_metrics_text(metrics)
+        assert "Primary EISV:" in result
 
     def test_key_metrics_formatted_as_float(self):
         metrics = {"agent_id": "a1", "coherence": 0.75, "risk_score": 0.3}

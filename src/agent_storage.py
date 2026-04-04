@@ -436,9 +436,17 @@ async def record_agent_state(
     risk_score: Optional[float] = None,
     phi: Optional[float] = None,
     verdict: Optional[str] = None,
+    primary_eisv: Optional[Dict[str, Any]] = None,
+    primary_eisv_source: Optional[str] = None,
+    behavioral_eisv: Optional[Dict[str, Any]] = None,
+    ode_eisv: Optional[Dict[str, Any]] = None,
+    ode_diagnostics: Optional[Dict[str, Any]] = None,
 ) -> int:
     """
     Record agent EISV state to PostgreSQL.
+
+    Flat E/I/S/V remain compatibility aliases for the primary EISV. Explicit
+    behavioral/ODE splits are stored in state_json when available.
 
     Returns the state_id of the created record.
     """
@@ -457,10 +465,46 @@ async def record_agent_state(
     }
     db_regime = regime if regime in allowed_regimes else 'nominal'
 
+    def _compact_dict(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return None
+        cleaned = {k: v for k, v in payload.items() if v is not None}
+        return cleaned or None
+
+    resolved_primary_eisv = _compact_dict(primary_eisv) or {
+        "E": E,
+        "I": I,
+        "S": S,
+        "V": V,
+    }
+    resolved_ode_eisv = _compact_dict(ode_eisv) or {
+        "E": E,
+        "I": I,
+        "S": S,
+        "V": V,
+    }
+    resolved_ode_diagnostics = _compact_dict(ode_diagnostics) or {}
+    if risk_score is not None and "risk_score" not in resolved_ode_diagnostics:
+        resolved_ode_diagnostics["risk_score"] = risk_score
+    if phi is not None and "phi" not in resolved_ode_diagnostics:
+        resolved_ode_diagnostics["phi"] = phi
+    if verdict is not None and "verdict" not in resolved_ode_diagnostics:
+        resolved_ode_diagnostics["verdict"] = verdict
+    if coherence is not None and "coherence" not in resolved_ode_diagnostics:
+        resolved_ode_diagnostics["coherence"] = coherence
+    if regime is not None and "regime" not in resolved_ode_diagnostics:
+        resolved_ode_diagnostics["regime"] = regime
+
     # Build state_json
     state_json = {
         "E": E,
         "health_status": health_status,
+        "primary_eisv": resolved_primary_eisv,
+        "primary_eisv_source": (
+            primary_eisv_source
+            or ("behavioral" if behavioral_eisv else "legacy_flat")
+        ),
+        "ode_eisv": resolved_ode_eisv,
     }
     if risk_score is not None:
         state_json["risk_score"] = risk_score
@@ -468,6 +512,11 @@ async def record_agent_state(
         state_json["phi"] = phi
     if verdict is not None:
         state_json["verdict"] = verdict
+    behavioral_payload = _compact_dict(behavioral_eisv)
+    if behavioral_payload is not None:
+        state_json["behavioral_eisv"] = behavioral_payload
+    if resolved_ode_diagnostics:
+        state_json["ode_diagnostics"] = resolved_ode_diagnostics
 
     state_id = await db.record_agent_state(
         identity_id=identity.identity_id,

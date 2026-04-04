@@ -327,6 +327,41 @@ class TestGetGovernanceMetrics:
             assert "summary" in data
 
     @pytest.mark.asyncio
+    async def test_get_metrics_full_mode_exposes_eisv_split(self, mock_mcp_server, mock_monitor):
+        """Full mode should expose primary, behavioral, and ODE EISV explicitly."""
+        mock_monitor.get_metrics.return_value = {
+            "E": 0.7, "I": 0.6, "S": 0.2, "V": 0.0,
+            "primary_eisv": {"E": 0.7, "I": 0.6, "S": 0.2, "V": 0.0},
+            "primary_eisv_source": "behavioral",
+            "behavioral_eisv": {"E": 0.7, "I": 0.6, "S": 0.2, "V": 0.0, "confidence": 1.0},
+            "ode_eisv": {"E": 0.5, "I": 0.55, "S": 0.3, "V": 0.05},
+            "ode_diagnostics": {"phi": 0.33, "coherence": 0.52, "regime": "CONVERGENCE", "verdict": "safe"},
+            "coherence": 0.52, "risk_score": 0.3,
+            "initialized": True, "status": "ok",
+            "complexity": 0.5,
+        }
+        mock_mcp_server.agent_metadata = {"agent-1": MagicMock(purpose=None)}
+        mock_mcp_server.get_or_create_monitor.return_value = mock_monitor
+
+        with patch("src.mcp_handlers.core.mcp_server", mock_mcp_server), \
+             patch("src.mcp_handlers.core.require_agent_id", return_value=("agent-1", None)), \
+             patch("src.governance_monitor.UNITARESMonitor") as MockMonitorClass:
+
+            MockMonitorClass.get_eisv_labels.return_value = {
+                "E": "Energy", "I": "Information", "S": "Entropy", "V": "Void"
+            }
+
+            from src.mcp_handlers.core import handle_get_governance_metrics
+            result = await handle_get_governance_metrics({"lite": False})
+
+            data = json.loads(result[0].text)
+            assert data["primary_eisv_source"] == "behavioral"
+            assert data["eisv"] == data["primary_eisv"]
+            assert "state_semantics" in data
+            assert data["behavioral_eisv"]["confidence"] == 1.0
+            assert data["ode_eisv"]["V"] == 0.05
+
+    @pytest.mark.asyncio
     async def test_get_metrics_uninitialized_agent(self, mock_mcp_server):
         """Uninitialized agent should show pending status in lite mode."""
         state = SimpleNamespace(

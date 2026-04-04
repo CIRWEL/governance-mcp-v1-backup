@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class DashboardParams(BaseModel):
-    """Read-only system overview: all agents with EISV state."""
+    """Read-only system overview: primary EISV plus behavioral/ODE diagnostics for all agents."""
     recent_days: int = Field(default=1, description="Only show agents active within this many days (0=all)")
     min_updates: int = Field(default=1, description="Minimum check-in count to include")
     limit: int = Field(default=15, ge=1, le=100, description="Maximum number of agents to return")

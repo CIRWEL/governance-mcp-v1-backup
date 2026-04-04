@@ -838,6 +838,30 @@ class TestRecordAgentState:
         assert state_json["verdict"] == "safe"
 
     @pytest.mark.asyncio
+    async def test_state_json_persists_explicit_eisv_layers(self):
+        identity = _make_identity()
+        db = _mock_db(get_identity=identity, record_agent_state=1)
+        with patch("src.agent_storage.get_db", return_value=db):
+            from src.agent_storage import record_agent_state
+            await record_agent_state(
+                "agent-1",
+                E=0.5, I=0.5, S=0.5, V=0.0,
+                regime="nominal", coherence=1.0,
+                primary_eisv={"E": 0.61, "I": 0.62, "S": 0.12, "V": -0.01},
+                primary_eisv_source="behavioral",
+                behavioral_eisv={"E": 0.61, "I": 0.62, "S": 0.12, "V": -0.01, "confidence": 1.0},
+                ode_eisv={"E": 0.55, "I": 0.56, "S": 0.18, "V": 0.03},
+                ode_diagnostics={"phi": 0.42, "regime": "CONVERGENCE", "verdict": "safe"},
+            )
+
+        state_json = db.record_agent_state.call_args.kwargs["state_json"]
+        assert state_json["primary_eisv"]["E"] == 0.61
+        assert state_json["primary_eisv_source"] == "behavioral"
+        assert state_json["behavioral_eisv"]["confidence"] == 1.0
+        assert state_json["ode_eisv"]["V"] == 0.03
+        assert state_json["ode_diagnostics"]["phi"] == 0.42
+
+    @pytest.mark.asyncio
     async def test_optional_fields_omitted_when_none(self):
         identity = _make_identity()
         db = _mock_db(get_identity=identity, record_agent_state=1)

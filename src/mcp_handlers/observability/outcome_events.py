@@ -63,27 +63,45 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
     if outcome_score is None:
         outcome_score = 0.0 if is_bad else 1.0
 
-    detail = arguments.get("detail") or {}
+    detail = dict(arguments.get("detail") or {})
 
-    # Fetch latest EISV snapshot for this agent (ODE state from DB)
+    # Fetch EISV snapshot for this outcome. Explicit snapshots are allowed so
+    # exogenous callers can preserve the pairing even when they are outside a
+    # stateful governance session.
     db = get_db()
-    eisv = await db.get_latest_eisv_by_agent_id(agent_id)
+    explicit_eisv = arguments.get("eisv_snapshot")
+    snapshot_source = "missing"
+    eisv = None
+    if isinstance(explicit_eisv, dict):
+        eisv = explicit_eisv
+        snapshot_source = "explicit"
+    else:
+        eisv = await db.get_latest_eisv_by_agent_id(agent_id)
+        if eisv:
+            snapshot_source = "db_latest_eisv"
 
-    eisv_e = eisv["E"] if eisv else None
-    eisv_i = eisv["I"] if eisv else None
-    eisv_s = eisv["S"] if eisv else None
-    eisv_v = eisv["V"] if eisv else None
-    eisv_phi = eisv["phi"] if eisv else None
-    eisv_verdict = eisv["verdict"] if eisv else None
-    eisv_coherence = eisv["coherence"] if eisv else None
-    eisv_regime = eisv["regime"] if eisv else None
+    eisv_e = eisv.get("E") if eisv else None
+    eisv_i = eisv.get("I") if eisv else None
+    eisv_s = eisv.get("S") if eisv else None
+    eisv_v = eisv.get("V") if eisv else None
+    eisv_phi = eisv.get("phi") if eisv else None
+    eisv_verdict = eisv.get("verdict") if eisv else None
+    eisv_coherence = eisv.get("coherence") if eisv else None
+    eisv_regime = eisv.get("regime") if eisv else None
+    detail["snapshot_source"] = snapshot_source
+    if eisv is None:
+        detail["snapshot_missing"] = True
+    elif eisv.get("primary_eisv_source") and "primary_eisv_source" not in detail:
+        detail["primary_eisv_source"] = eisv.get("primary_eisv_source")
+    if eisv and eisv.get("behavioral_eisv") and "behavioral_eisv" not in detail:
+        detail["behavioral_eisv"] = eisv.get("behavioral_eisv")
 
     # Embed behavioral EISV (observation-first, per-agent) alongside ODE snapshot
     try:
         monitor = mcp_server.monitors.get(agent_id) if hasattr(mcp_server, 'monitors') else None
         if monitor:
             bstate = getattr(monitor, '_behavioral_state', None)
-            if bstate and bstate.confidence > 0:
+            if bstate and bstate.confidence > 0 and 'behavioral_eisv' not in detail:
                 detail['behavioral_eisv'] = {
                     'E': round(bstate.E, 4),
                     'I': round(bstate.I, 4),
@@ -168,6 +186,11 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
             "verdict": eisv_verdict,
             "coherence": eisv_coherence,
             "regime": eisv_regime,
+            "primary_eisv": eisv.get("primary_eisv") if eisv else None,
+            "primary_eisv_source": eisv.get("primary_eisv_source") if eisv else None,
+            "behavioral_eisv": eisv.get("behavioral_eisv") if eisv else None,
+            "ode_eisv": eisv.get("ode_eisv") if eisv else None,
+            "ode_diagnostics": eisv.get("ode_diagnostics") if eisv else None,
         } if eisv else None,
     })
 

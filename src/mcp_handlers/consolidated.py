@@ -74,20 +74,30 @@ from .dialectic.handlers import (
     handle_reassign_reviewer,
 )
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
-from .observability.pi_orchestration import (
-    handle_pi_list_tools,
-    handle_pi_get_context,
-    handle_pi_health,
-    handle_pi_sync_eisv,
-    handle_pi_display,
-    handle_pi_say,
-    handle_pi_post_message,
-    handle_pi_lumen_qa,
-    handle_pi_query,
-    handle_pi_workflow,
-    handle_pi_git_pull,
-    handle_pi_system_power,
-)
+
+# Pi orchestration is an optional plugin — loads only when the module is available.
+# Set UNITARES_DISABLE_PI_TOOLS=1 to skip even if the module exists.
+import os as _os
+_PI_AVAILABLE = False
+if not _os.environ.get("UNITARES_DISABLE_PI_TOOLS"):
+    try:
+        from .observability.pi_orchestration import (
+            handle_pi_list_tools,
+            handle_pi_get_context,
+            handle_pi_health,
+            handle_pi_sync_eisv,
+            handle_pi_display,
+            handle_pi_say,
+            handle_pi_post_message,
+            handle_pi_lumen_qa,
+            handle_pi_query,
+            handle_pi_workflow,
+            handle_pi_git_pull,
+            handle_pi_system_power,
+        )
+        _PI_AVAILABLE = True
+    except ImportError:
+        pass
 
 # ============================================================
 # Consolidated Knowledge Graph Tool

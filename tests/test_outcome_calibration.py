@@ -402,6 +402,65 @@ class TestExplicitOutcomeEventCalibration:
             immediate_outcome=False,  # is_bad=True → not is_bad = False
         )
 
+    @pytest.mark.asyncio
+    async def test_explicit_snapshot_used_when_db_snapshot_missing(self):
+        """Explicit snapshot preserves EISV pairing for exogenous callers."""
+        mock_db = MagicMock()
+        mock_db.record_outcome_event = AsyncMock(return_value='oe-5')
+        mock_db.get_latest_eisv_by_agent_id = AsyncMock(return_value=None)
+
+        with patch('src.db.get_db', return_value=mock_db), \
+             patch('src.mcp_handlers.observability.outcome_events.mcp_server') as mock_server, \
+             patch('src.mcp_handlers.context.get_context_agent_id', return_value='agent-explicit'):
+
+            mock_server.monitors = {}
+
+            from src.mcp_handlers.observability.outcome_events import handle_outcome_event
+            await handle_outcome_event({
+                'outcome_type': 'test_passed',
+                'eisv_snapshot': {
+                    'E': 0.61,
+                    'I': 0.72,
+                    'S': 0.19,
+                    'V': -0.04,
+                    'phi': 0.11,
+                    'verdict': 'safe',
+                    'coherence': 0.48,
+                    'regime': 'CONVERGENCE',
+                },
+            })
+
+        call = mock_db.record_outcome_event.call_args.kwargs
+        assert call['eisv_e'] == 0.61
+        assert call['eisv_i'] == 0.72
+        assert call['eisv_s'] == 0.19
+        assert call['eisv_v'] == -0.04
+        assert call['detail']['snapshot_source'] == 'explicit'
+        assert 'snapshot_missing' not in call['detail']
+
+    @pytest.mark.asyncio
+    async def test_snapshot_missing_flag_added_when_no_snapshot_available(self):
+        """Missing snapshots are tagged for grounded-study filtering."""
+        mock_db = MagicMock()
+        mock_db.record_outcome_event = AsyncMock(return_value='oe-6')
+        mock_db.get_latest_eisv_by_agent_id = AsyncMock(return_value=None)
+
+        with patch('src.db.get_db', return_value=mock_db), \
+             patch('src.mcp_handlers.observability.outcome_events.mcp_server') as mock_server, \
+             patch('src.mcp_handlers.context.get_context_agent_id', return_value='agent-missing'):
+
+            mock_server.monitors = {}
+
+            from src.mcp_handlers.observability.outcome_events import handle_outcome_event
+            await handle_outcome_event({
+                'outcome_type': 'test_passed',
+            })
+
+        call = mock_db.record_outcome_event.call_args.kwargs
+        assert call['eisv_e'] is None
+        assert call['detail']['snapshot_source'] == 'missing'
+        assert call['detail']['snapshot_missing'] is True
+
 
 # ============================================================================
 # Schema: OutcomeEventParams confidence field
@@ -426,3 +485,8 @@ class TestOutcomeEventParamsSchema:
         from src.mcp_handlers.schemas.core import OutcomeEventParams
         params = OutcomeEventParams(outcome_type='test_passed')
         assert params.confidence is None
+
+    def test_eisv_snapshot_field_exists(self):
+        from src.mcp_handlers.schemas.core import OutcomeEventParams
+        fields = OutcomeEventParams.model_fields
+        assert 'eisv_snapshot' in fields

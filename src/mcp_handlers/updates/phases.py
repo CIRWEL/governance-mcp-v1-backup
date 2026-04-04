@@ -1051,6 +1051,11 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
             risk_score=ctx.risk_score,
             phi=ctx.metrics_dict.get('phi', 0.0),
             verdict=ctx.metrics_dict.get('verdict', 'continue'),
+            primary_eisv=ctx.metrics_dict.get('primary_eisv'),
+            primary_eisv_source=ctx.metrics_dict.get('primary_eisv_source'),
+            behavioral_eisv=ctx.metrics_dict.get('behavioral_eisv'),
+            ode_eisv=ctx.metrics_dict.get('ode_eisv') or ctx.metrics_dict.get('ode'),
+            ode_diagnostics=ctx.metrics_dict.get('ode_diagnostics'),
         )
         logger.debug(f"PostgreSQL: Recorded state for {agent_id}")
     except ValueError:
@@ -1073,6 +1078,11 @@ async def execute_post_update_effects(ctx: UpdateContext) -> None:
                 risk_score=ctx.risk_score,
                 phi=ctx.metrics_dict.get('phi', 0.0),
                 verdict=ctx.metrics_dict.get('verdict', 'continue'),
+                primary_eisv=ctx.metrics_dict.get('primary_eisv'),
+                primary_eisv_source=ctx.metrics_dict.get('primary_eisv_source'),
+                behavioral_eisv=ctx.metrics_dict.get('behavioral_eisv'),
+                ode_eisv=ctx.metrics_dict.get('ode_eisv') or ctx.metrics_dict.get('ode'),
+                ode_diagnostics=ctx.metrics_dict.get('ode_diagnostics'),
             )
             logger.debug(f"PostgreSQL: Created agent and recorded state for {agent_id}")
         except Exception as create_error:

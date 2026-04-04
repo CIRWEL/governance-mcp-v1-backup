@@ -169,6 +169,7 @@ class TestDashboardBasic:
         assert "has_more" in data
         assert data["offset"] == 0
         assert data["has_more"] is False
+        assert "state_semantics" in data
 
 
 # ============================================================================
@@ -482,6 +483,47 @@ class TestDashboardEISVMerge:
         data = parse_result(result)
         # Should use s.energy (0.42), NOT state_json["E"] (0.99)
         assert data["agents"][0]["eisv"]["E"] == 0.42
+
+    @pytest.mark.asyncio
+    async def test_exposes_primary_behavioral_and_ode_layers(self, mock_db, mock_server):
+        state = AgentStateRecord(
+            state_id=1,
+            identity_id=1,
+            agent_id="agent-1",
+            recorded_at=datetime.now(timezone.utc),
+            energy=0.42,
+            entropy=0.3,
+            integrity=0.8,
+            stability_index=0.0,
+            void=0.1,
+            regime="nominal",
+            coherence=0.9,
+            state_json={
+                "E": 0.42,
+                "risk_score": 0.1,
+                "verdict": "proceed",
+                "primary_eisv": {"E": 0.71, "I": 0.81, "S": 0.11, "V": -0.02},
+                "primary_eisv_source": "behavioral",
+                "behavioral_eisv": {"E": 0.71, "I": 0.81, "S": 0.11, "V": -0.02, "confidence": 1.0},
+                "ode_eisv": {"E": 0.52, "I": 0.61, "S": 0.21, "V": 0.04},
+                "ode_diagnostics": {"phi": 0.33, "coherence": 0.9, "regime": "CONVERGENCE", "verdict": "safe"},
+            },
+        )
+        mock_db.get_all_latest_agent_states.return_value = [state]
+        mock_server.agent_metadata = {"agent-1": make_metadata("agent-1")}
+
+        with patch("src.mcp_handlers.admin.dashboard.get_db", return_value=mock_db), \
+             patch("src.mcp_handlers.admin.dashboard.mcp_server", mock_server):
+            from src.mcp_handlers.admin.dashboard import handle_dashboard
+            result = await handle_dashboard({})
+
+        data = parse_result(result)
+        agent = data["agents"][0]
+        assert agent["primary_eisv_source"] == "behavioral"
+        assert agent["primary_eisv"]["E"] == 0.71
+        assert agent["behavioral_eisv"]["confidence"] == 1.0
+        assert agent["ode_eisv"]["V"] == 0.04
+        assert agent["ode_diagnostics"]["phi"] == 0.33
 
 
 # ============================================================================

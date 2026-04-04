@@ -108,6 +108,7 @@ def get_monitor_metrics(monitor: Any, include_state: bool = True) -> Dict:
     # Prefer behavioral verdict when available (observation-first, not thermostat)
     behavioral_verdict = getattr(monitor, '_last_behavioral_verdict', None)
     verdict = behavioral_verdict if behavioral_verdict else ode_verdict
+    behavioral_assessment = getattr(monitor, '_last_behavioral_assessment', None)
 
     risk_score_value = current_risk if current_risk is not None else mean_risk
 
@@ -121,8 +122,39 @@ def get_monitor_metrics(monitor: Any, include_state: bool = True) -> Dict:
     beh = getattr(monitor, '_behavioral_state', None)
     if beh is not None and beh.confidence >= 0.3:
         pE, pI, pS, pV = float(beh.E), float(beh.I), float(beh.S), float(beh.V)
+        primary_eisv_source = 'behavioral'
     else:
         pE, pI, pS, pV = float(state.E), float(state.I), float(state.S), float(state.V)
+        primary_eisv_source = 'ode_fallback'
+
+    behavioral_eisv = beh.to_dict() if beh is not None else None
+    if behavioral_eisv is not None and behavioral_assessment is not None:
+        behavioral_eisv.update({
+            'health': behavioral_assessment.health,
+            'verdict': behavioral_assessment.verdict,
+            'risk': behavioral_assessment.risk,
+            'coherence': behavioral_assessment.coherence,
+        })
+    primary_eisv = {
+        'E': pE,
+        'I': pI,
+        'S': pS,
+        'V': pV,
+    }
+    ode_eisv = {
+        'E': float(state.E),
+        'I': float(state.I),
+        'S': float(state.S),
+        'V': float(state.V),
+    }
+    ode_diagnostics = {
+        'phi': float(phi),
+        'coherence': None if is_uninitialized else float(state.coherence),
+        'regime': str(regime),
+        'verdict': ode_verdict,
+        'lambda1': float(state.lambda1),
+        'void_active': bool(state.void_active),
+    }
 
     result = {
         'agent_id': monitor.agent_id,
@@ -130,6 +162,11 @@ def get_monitor_metrics(monitor: Any, include_state: bool = True) -> Dict:
         'I': pI,
         'S': pS,
         'V': pV,
+        'primary_eisv': primary_eisv,
+        'primary_eisv_source': primary_eisv_source,
+        'behavioral_eisv': behavioral_eisv,
+        'ode_eisv': ode_eisv,
+        'ode_diagnostics': ode_diagnostics,
         'coherence': None if is_uninitialized else float(state.coherence),
         'lambda1': float(state.lambda1),
         'regime': str(regime),
@@ -152,12 +189,7 @@ def get_monitor_metrics(monitor: Any, include_state: bool = True) -> Dict:
             'violations': stability_result['violations'],
             'notes': stability_result['notes']
         },
-        'ode': {
-            'E': float(state.E),
-            'I': float(state.I),
-            'S': float(state.S),
-            'V': float(state.V),
-        }
+        'ode': dict(ode_eisv)
     }
 
     # UNITARES v4.1 basin + convergence tracking

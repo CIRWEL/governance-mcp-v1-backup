@@ -5,7 +5,7 @@ from .mixins import AgentIdentityMixin
 
 class GetGovernanceMetricsParams(AgentIdentityMixin):
     """
-    Get current governance state and metrics for an agent without updating state.
+    Get current primary EISV, plus behavioral/ODE diagnostics, without updating state.
     """
     include_state: Union[bool, str, None] = Field(
         default=False,
@@ -162,6 +162,10 @@ class OutcomeEventParams(AgentIdentityMixin):
     outcome_score: Optional[float] = Field(None, description="Quality score 0.0 (worst) to 1.0 (best). Inferred from type if omitted.")
     is_bad: Optional[bool] = Field(None, description="Whether this is a negative outcome. Inferred from type if omitted.")
     detail: Optional[Dict[str, Any]] = Field(None, description="Type-specific metadata (e.g., mark_count, test_name, error_message)")
+    eisv_snapshot: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional explicit snapshot. Flat E/I/S/V should reflect primary_eisv values; behavioral_eisv and ode_eisv may also be included.",
+    )
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Agent confidence at outcome time (0-1). Looked up from last check-in if omitted.")
     agent_id: Optional[str] = Field(None, description="Agent ID. Falls back to session-bound agent_id if omitted.")
 
@@ -194,5 +198,3 @@ class CallModelParams(AgentIdentityMixin):
     max_tokens: float = Field(500, description="Maximum tokens in response. Default: 500")
     temperature: float = Field(0.7, description="Temperature (creativity). Range: 0.0-1.0. Default: 0.7")
     privacy: Literal["local", "auto", "cloud"] = Field("local", description="Privacy mode. Options: local (Ollama, default), auto (system chooses), cloud (external providers)")
-
-

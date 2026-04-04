@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 from src.audit_log import audit_logger
 from src.calibration import calibration_checker
 from src.runtime_config import get_effective_threshold
+from src.eisv_semantics import get_state_semantics
 
 # Extracted monitor subsystems (Phase 6 decomposition)
 from src.monitor_void import check_void_state as _check_void_state, calculate_void_frequency as _calculate_void_frequency
@@ -145,6 +146,7 @@ class UNITARESMonitor:
         # Behavioral EISV: observation-first state (no ODE, no attractor)
         self._behavioral_state = BehavioralEISV()
         self._last_behavioral_verdict: Optional[str] = None  # safe/caution/high-risk
+        self._last_behavioral_assessment = None
         self._cached_outcome_history: Optional[list] = None  # Populated by Phase 5, used by process_update
 
         # Continuous self-validation: track previous verdict for trajectory comparison
@@ -837,6 +839,7 @@ class UNITARESMonitor:
             agent_context={'task_type': task_type},
         )
         self._last_behavioral_verdict = behavioral_assessment.verdict
+        self._last_behavioral_assessment = behavioral_assessment
 
         # ── ODE Dynamics (Diagnostic) ──
         # The ODE engine runs in parallel but does NOT drive verdicts when
@@ -907,9 +910,11 @@ class UNITARESMonitor:
                 )
         
         # Step 4: Estimate risk (also gets UNITARES verdict)
-        phi, unitares_verdict, risk_score, task_type_adjustment, original_risk_score = (
+        phi, ode_verdict, ode_risk_score, task_type_adjustment, original_risk_score = (
             self._compute_phi_and_risk(grounded_agent_state, agent_state, task_type)
         )
+        unitares_verdict = ode_verdict
+        risk_score = ode_risk_score
 
         # ── Behavioral Verdict Override ──
         # Behavioral assessment is the PRIMARY verdict source. ODE verdict
@@ -988,11 +993,47 @@ class UNITARESMonitor:
         # Primary EISV: behavioral (per-agent EMA observations) when confident,
         # ODE fallback for new agents. ODE values preserved in 'ode' sub-field.
         pE, pI, pS, pV = self.get_primary_eisv()
+        behavioral_eisv = self._behavioral_state.to_dict()
+        behavioral_eisv.update({
+            'health': behavioral_assessment.health,
+            'verdict': behavioral_assessment.verdict,
+            'risk': behavioral_assessment.risk,
+            'coherence': behavioral_assessment.coherence,
+        })
+        primary_eisv = {
+            'E': float(pE),
+            'I': float(pI),
+            'S': float(pS),
+            'V': float(pV),
+        }
+        ode_eisv = {
+            'E': float(self.state.E),
+            'I': float(self.state.I),
+            'S': float(self.state.S),
+            'V': float(self.state.V),
+        }
+        primary_eisv_source = (
+            'behavioral' if self._behavioral_state.confidence >= 0.3 else 'ode_fallback'
+        )
+        ode_diagnostics = {
+            'phi': float(phi),
+            'coherence': float(self.state.coherence),
+            'regime': str(getattr(self.state, 'regime', 'divergence')),
+            'verdict': ode_verdict,
+            'risk_score': float(ode_risk_score),
+            'lambda1': float(self.state.lambda1),
+            'void_active': bool(void_active),
+        }
         metrics = {
-            'E': pE,
-            'I': pI,
-            'S': pS,
-            'V': pV,
+            'E': primary_eisv['E'],
+            'I': primary_eisv['I'],
+            'S': primary_eisv['S'],
+            'V': primary_eisv['V'],
+            'primary_eisv': primary_eisv,
+            'primary_eisv_source': primary_eisv_source,
+            'behavioral_eisv': behavioral_eisv,
+            'ode_eisv': ode_eisv,
+            'ode_diagnostics': ode_diagnostics,
             'coherence': float(self.state.coherence),
             'lambda1': float(self.state.lambda1),
             'risk_score': float(risk_score),  # Governance/operational risk (70% phi-based + 30% traditional)
@@ -1007,12 +1048,7 @@ class UNITARESMonitor:
         }
         
         metrics['lambda1_update_skips'] = int(self.state.lambda1_update_skips)
-        metrics['ode'] = {
-            'E': float(self.state.E),
-            'I': float(self.state.I),
-            'S': float(self.state.S),
-            'V': float(self.state.V),
-        }
+        metrics['ode'] = dict(ode_eisv)
 
         return self._build_result(
             status=status,
@@ -1431,6 +1467,7 @@ class UNITARESMonitor:
             'status': status,
             'decision': decision,
             'metrics': metrics,
+            'state_semantics': get_state_semantics(),
             'timestamp': datetime.now().isoformat(),
             # TRANSPARENCY: Surface confidence reliability info (was computed but hidden)
             'confidence_reliability': {

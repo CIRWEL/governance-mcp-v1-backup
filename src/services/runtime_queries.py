@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from config.governance_config import GovernanceConfig
+from src.eisv_semantics import get_state_semantics
 from src.logging_utils import get_logger
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
 
@@ -59,6 +60,7 @@ async def get_governance_metrics_data(agent_id: str, arguments: Dict[str, Any], 
         include_timestamp=True,
         include_context=True,
     )
+    standardized_metrics["state_semantics"] = get_state_semantics()
     try:
         from src.mcp_handlers.context import get_session_resolution_source
         standardized_metrics["session_continuity"] = {
@@ -145,10 +147,19 @@ async def get_governance_metrics_data(agent_id: str, arguments: Dict[str, Any], 
             "mode": state.get("mode"),
             "summary": standardized_metrics.get("summary"),
             "guidance": state.get("guidance"),
+            "state_semantics": standardized_metrics.get("state_semantics"),
+            "primary_eisv_source": metrics.get("primary_eisv_source"),
+            "primary_eisv": metrics.get("primary_eisv"),
+            "behavioral_eisv": metrics.get("behavioral_eisv"),
+            "ode_eisv": metrics.get("ode_eisv") or metrics.get("ode"),
+            "ode_diagnostics": metrics.get("ode_diagnostics"),
         }
         if reflection:
             standard_metrics["reflection"] = reflection
-        standard_metrics["_note"] = "Use verbosity='full' for diagnostics, 'minimal' for quick check"
+        standard_metrics["_note"] = (
+            "Flat E/I/S/V alias primary_eisv. "
+            "Use behavioral_eisv and ode_eisv to inspect the split explicitly."
+        )
         return standard_metrics
 
     standardized_metrics["_debug_lite_received"] = lite
@@ -197,6 +208,11 @@ async def get_governance_metrics_data(agent_id: str, arguments: Dict[str, Any], 
             "status": status_display,
             "purpose": getattr(meta, "purpose", None),
             "summary": standardized_metrics.get("summary", "unknown"),
+            "primary_eisv_source": metrics.get("primary_eisv_source"),
+            "state_semantics": {
+                "flat_fields": standardized_metrics["state_semantics"]["flat_fields"],
+                "primary_eisv_source": standardized_metrics["state_semantics"]["primary_eisv_source"],
+            },
             "E": {"value": metrics.get("E"), "range": "[0, 1]", "note": "Energy capacity"},
             "I": {"value": metrics.get("I"), "range": "[0, 1]", "note": "Information integrity"},
             "S": {"value": metrics.get("S"), "range": "[0, 1]", "ideal": "<0.2", "note": "Entropy (lower=better)"},
@@ -223,7 +239,10 @@ async def get_governance_metrics_data(agent_id: str, arguments: Dict[str, Any], 
             "risk_high": 0.75,
             "target_coherence": GovernanceConfig.TARGET_COHERENCE,
         }
-        lite_metrics["_note"] = "Use lite=false for full diagnostics"
+        lite_metrics["_note"] = (
+            "Flat E/I/S/V shown here are the primary EISV. "
+            "Use lite=false for the behavioral/ODE split."
+        )
         return lite_metrics
 
     return standardized_metrics

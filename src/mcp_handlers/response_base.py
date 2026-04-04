@@ -34,9 +34,12 @@ def format_metrics_report(
             standardized["health_status"] = metrics["health_status"]
 
         eisv_metrics = {}
-        for key in ["E", "I", "S", "V"]:
-            if key in metrics:
-                eisv_metrics[key] = metrics[key]
+        if isinstance(metrics.get("primary_eisv"), dict):
+            eisv_metrics = dict(metrics["primary_eisv"])
+        else:
+            for key in ["E", "I", "S", "V"]:
+                if key in metrics:
+                    eisv_metrics[key] = metrics[key]
         if eisv_metrics:
             standardized["eisv"] = eisv_metrics
 
@@ -62,15 +65,20 @@ def format_metrics_text(metrics: Dict[str, Any]) -> str:
         status = metrics["health_status"]
         lines.append(f"Health: {status}")
 
+    eisv_label = "Primary EISV" if "primary_eisv_source" in metrics else "EISV"
+
     if "eisv" in metrics:
         eisv = metrics["eisv"]
-        lines.append(f"EISV: E={eisv.get('E', 0):.3f} I={eisv.get('I', 0):.3f} S={eisv.get('S', 0):.3f} V={eisv.get('V', 0):.3f}")
+        lines.append(f"{eisv_label}: E={eisv.get('E', 0):.3f} I={eisv.get('I', 0):.3f} S={eisv.get('S', 0):.3f} V={eisv.get('V', 0):.3f}")
     elif any(k in metrics for k in ["E", "I", "S", "V"]):
         e = metrics.get("E", 0)
         i = metrics.get("I", 0)
         s = metrics.get("S", 0)
         v = metrics.get("V", 0)
-        lines.append(f"EISV: E={e:.3f} I={i:.3f} S={s:.3f} V={v:.3f}")
+        lines.append(f"{eisv_label}: E={e:.3f} I={i:.3f} S={s:.3f} V={v:.3f}")
+
+    if "primary_eisv_source" in metrics:
+        lines.append(f"Primary EISV source: {metrics['primary_eisv_source']}")
 
     key_metrics = ["coherence", "risk_score", "phi", "verdict", "lambda1"]
     for key in key_metrics:

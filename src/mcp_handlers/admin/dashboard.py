@@ -11,14 +11,84 @@ from ..utils import success_response, error_response
 from ..decorators import mcp_tool
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
 from src.db import get_db
+from src.eisv_semantics import get_state_semantics
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
 
-@mcp_tool("dashboard", timeout=15.0, description="Read-only system overview: all agents with EISV state. No session binding required.")
+def _round_maybe(value: Any) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return round(float(value), 4)
+    return value
+
+
+def _round_payload(payload: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    return {key: _round_maybe(value) for key, value in payload.items()}
+
+
+def _state_views_from_record(state: Any) -> Dict[str, Any]:
+    sj = state.state_json or {}
+    primary = dict(sj.get("primary_eisv") or {})
+    primary.setdefault("E", state.energy)
+    primary.setdefault("I", state.integrity)
+    primary.setdefault("S", state.entropy)
+    primary.setdefault("V", state.void)
+
+    ode = dict(sj.get("ode_eisv") or sj.get("ode") or {})
+    ode.setdefault("E", state.energy)
+    ode.setdefault("I", state.integrity)
+    ode.setdefault("S", state.entropy)
+    ode.setdefault("V", state.void)
+
+    behavioral = sj.get("behavioral_eisv")
+    primary_source = sj.get("primary_eisv_source") or (
+        "behavioral" if behavioral else "legacy_flat"
+    )
+    risk = sj.get("risk_score")
+    verdict = sj.get("verdict", (sj.get("ode_diagnostics") or {}).get("verdict", "proceed"))
+
+    ode_diagnostics = dict(sj.get("ode_diagnostics") or {})
+    ode_diagnostics.setdefault("phi", sj.get("phi"))
+    ode_diagnostics.setdefault("coherence", state.coherence)
+    ode_diagnostics.setdefault("regime", state.regime)
+    ode_diagnostics.setdefault("verdict", verdict)
+    ode_diagnostics.setdefault("risk_score", risk)
+
+    primary_rounded = _round_payload(primary)
+    ode_rounded = _round_payload(ode)
+    behavioral_rounded = _round_payload(behavioral)
+    ode_diagnostics_rounded = _round_payload(ode_diagnostics)
+
+    result = {
+        "eisv": {
+            **(primary_rounded or {}),
+            "coherence": _round_maybe(state.coherence),
+            "basin": state.regime,
+            "risk": _round_maybe(risk) if risk is not None else 0,
+            "verdict": verdict,
+        },
+        "primary_eisv": primary_rounded,
+        "primary_eisv_source": primary_source,
+        "ode_eisv": ode_rounded,
+        "ode": ode_rounded,
+        "ode_diagnostics": ode_diagnostics_rounded,
+    }
+    if behavioral_rounded is not None:
+        result["behavioral_eisv"] = behavioral_rounded
+        result["behavioral"] = behavioral_rounded
+    return result
+
+
+@mcp_tool("dashboard", timeout=15.0, description="Read-only system overview: primary EISV plus behavioral/ODE diagnostics for all agents. No session binding required.")
 async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent]:
-    """Return all active agents with their current EISV vectors."""
+    """Return all active agents with primary EISV and behavioral/ODE diagnostics."""
     try:
         db = get_db()
         states = await db.get_all_latest_agent_states()
@@ -26,19 +96,7 @@ async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent
         # Index states by agent_id — E now comes from s.energy (extracted in _row_to_agent_state)
         state_by_agent: Dict[str, Any] = {}
         for s in states:
-            sj = s.state_json or {}
-            risk = sj.get("risk_score", 0)
-            verdict = sj.get("verdict", "proceed")
-            state_by_agent[s.agent_id] = {
-                "E": round(s.energy, 4) if s.energy is not None else None,
-                "I": round(s.integrity, 4) if s.integrity is not None else None,
-                "S": round(s.entropy, 4) if s.entropy is not None else None,
-                "V": round(s.void, 4) if s.void is not None else None,
-                "coherence": round(s.coherence, 4) if s.coherence is not None else None,
-                "basin": s.regime,
-                "risk": round(risk, 4) if risk is not None else 0,
-                "verdict": verdict,
-            }
+            state_by_agent[s.agent_id] = _state_views_from_record(s)
 
         # Filter: recent_days=1 by default (show today's agents + Lumen)
         recent_days = int(arguments.get("recent_days", 1))
@@ -83,7 +141,7 @@ async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent
                 "last_update": getattr(meta, "last_update", None),
             }
             if eisv:
-                agent_entry["eisv"] = eisv
+                agent_entry.update(eisv)
 
             # ODE diagnostic overlay from in-memory monitors (primary EISV
             # is now behavioral, stored in DB via process_update metrics)
@@ -91,35 +149,49 @@ async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent
                 monitors = getattr(mcp_server, 'monitors', None)
                 if isinstance(monitors, dict):
                     monitor = monitors.get(agent_id)
-                    if monitor and hasattr(monitor, 'state'):
-                        ode_state = monitor.state
-                        ode_risk = float(ode_state.risk_history[-1]) if ode_state.risk_history else None
-                        ode_entry = {
-                            "E": round(float(ode_state.E), 4),
-                            "I": round(float(ode_state.I), 4),
-                            "S": round(float(ode_state.S), 4),
-                            "V": round(float(ode_state.V), 4),
-                        }
-                        if ode_risk is not None:
-                            ode_entry["risk"] = round(ode_risk, 4)
-                        agent_entry["ode"] = ode_entry
-
-                        # Use live ODE risk as primary when DB value is missing/zero
-                        if ode_risk is not None and not agent_entry.get("eisv", {}).get("risk"):
-                            agent_entry.setdefault("eisv", {})["risk"] = round(ode_risk, 4)
-
-                    if monitor and hasattr(monitor, '_behavioral_state'):
-                        beh = monitor._behavioral_state
-                        if getattr(beh, 'confidence', 0) >= 0.3:
-                            agent_entry["behavioral"] = {
-                                "E": round(beh.E, 4),
-                                "I": round(beh.I, 4),
-                                "S": round(beh.S, 4),
-                                "V": round(beh.V, 4),
+                    if monitor:
+                        live_metrics = monitor.get_metrics(include_state=False)
+                        primary_live = _round_payload(
+                            live_metrics.get("primary_eisv")
+                            or {
+                                "E": live_metrics.get("E"),
+                                "I": live_metrics.get("I"),
+                                "S": live_metrics.get("S"),
+                                "V": live_metrics.get("V"),
                             }
-                        beh_verdict = getattr(monitor, '_last_behavioral_verdict', None)
-                        if beh_verdict:
-                            agent_entry.setdefault("eisv", {})["behavioral_verdict"] = beh_verdict
+                        )
+                        if primary_live is not None:
+                            agent_entry["primary_eisv"] = primary_live
+                        if live_metrics.get("primary_eisv_source"):
+                            agent_entry["primary_eisv_source"] = live_metrics.get("primary_eisv_source")
+
+                        ode_live = _round_payload(live_metrics.get("ode_eisv") or live_metrics.get("ode"))
+                        if ode_live is not None:
+                            agent_entry["ode_eisv"] = ode_live
+                            agent_entry["ode"] = ode_live
+
+                        behavioral_live = _round_payload(live_metrics.get("behavioral_eisv"))
+                        if behavioral_live is not None:
+                            agent_entry["behavioral_eisv"] = behavioral_live
+                            agent_entry["behavioral"] = behavioral_live
+
+                        ode_diagnostics_live = _round_payload(live_metrics.get("ode_diagnostics"))
+                        if ode_diagnostics_live is not None:
+                            agent_entry["ode_diagnostics"] = ode_diagnostics_live
+
+                        compat_eisv = dict(agent_entry.get("eisv", {}))
+                        if primary_live is not None:
+                            compat_eisv.update(primary_live)
+                        if live_metrics.get("coherence") is not None:
+                            compat_eisv["coherence"] = _round_maybe(live_metrics.get("coherence"))
+                        if live_metrics.get("regime") is not None:
+                            compat_eisv["basin"] = live_metrics.get("regime")
+                        if live_metrics.get("risk_score") is not None:
+                            compat_eisv["risk"] = _round_maybe(live_metrics.get("risk_score"))
+                        if live_metrics.get("verdict") is not None:
+                            compat_eisv["verdict"] = live_metrics.get("verdict")
+                        if compat_eisv:
+                            agent_entry["eisv"] = compat_eisv
             except Exception:
                 pass  # Overlay is best-effort
 
@@ -144,6 +216,8 @@ async def handle_dashboard(arguments: ToolArgumentsDict) -> Sequence[TextContent
             "showing": len(agents),
             "offset": offset,
             "has_more": (offset + len(agents)) < total,
+            "state_semantics": get_state_semantics(),
+            "_note": "`eisv` is the primary EISV view. Use `behavioral_eisv` and `ode_eisv` to inspect the split.",
         })
 
     except Exception as e:

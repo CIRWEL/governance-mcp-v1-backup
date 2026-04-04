@@ -645,6 +645,7 @@ class TestProcessUpdate:
         assert 'metrics' in result
         assert 'timestamp' in result
         assert 'confidence_reliability' in result
+        assert 'state_semantics' in result
 
     def test_metrics_structure(self, monitor):
         """Metrics should contain all EISV values."""
@@ -1288,6 +1289,25 @@ class TestGetMetrics:
         metrics = monitor.get_metrics()
         assert metrics['history_size'] == 5
         assert metrics['initialized'] is True
+
+    def test_metrics_expose_behavioral_and_ode_layers(self, monitor):
+        """Metrics should expose the primary/behavioral/ODE split explicitly."""
+        for _ in range(12):
+            monitor.process_update({'response_text': 'Test.', 'complexity': 0.5})
+
+        metrics = monitor.get_metrics()
+
+        assert metrics['primary_eisv_source'] == 'behavioral'
+        assert metrics['primary_eisv'] == {
+            'E': metrics['E'],
+            'I': metrics['I'],
+            'S': metrics['S'],
+            'V': metrics['V'],
+        }
+        assert 'behavioral_eisv' in metrics
+        assert 'ode_eisv' in metrics
+        assert 'ode_diagnostics' in metrics
+        assert metrics['ode'] == metrics['ode_eisv']
 
 
 # ============================================================================
