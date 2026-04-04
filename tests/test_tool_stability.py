@@ -104,10 +104,10 @@ class TestResolveToolAlias:
         name, alias = resolve_tool_alias("checkin")
         assert name == "process_agent_update"
 
-    def test_pi_health_alias(self):
-        name, alias = resolve_tool_alias("pi_health")
-        assert name == "pi"
-        assert alias.inject_action == "health"
+    def test_dialectic_get_alias(self):
+        name, alias = resolve_tool_alias("get_dialectic_session")
+        assert name == "dialectic"
+        assert alias.inject_action == "get"
 
     def test_list_agents_alias(self):
         name, alias = resolve_tool_alias("list_agents")

@@ -1,7 +1,14 @@
 import pytest
 from pydantic import ValidationError
 from src.tool_schemas import get_pydantic_schemas
-from src.tool_schemas import get_pydantic_schemas
+
+
+def _has_pi_plugin():
+    try:
+        import unitares_pi_plugin
+        return True
+    except ImportError:
+        return False
 
 class TestPydanticSchemas:
     """Tests to ensure our new Pydantic schema validation is robust and has 
@@ -72,9 +79,13 @@ class TestPydanticSchemas:
         for name, model_cls in schemas.items():
             assert hasattr(model_cls, "model_validate"), f"Schema for {name} must be a Pydantic model"
 
+    @pytest.mark.skipif(
+        not _has_pi_plugin(),
+        reason="unitares-pi-plugin not installed"
+    )
     def test_pi_params_validation(self):
         """Verify complex discriminated unions or enums in PiParams work."""
-        from src.mcp_handlers.schemas.pi_orchestration import PiParams
+        from unitares_pi_plugin.schemas import PiParams
         valid_health = PiParams(action="health")
         assert valid_health.action == "health"
 

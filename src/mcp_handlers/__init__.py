@@ -128,28 +128,9 @@ from .cirs import (
     maybe_emit_resonance_signal,  # Hook for process_agent_update
     maybe_apply_neighbor_pressure,  # Hook for process_agent_update
 )
-# Pi Orchestration - Mac→Pi coordination tools (Feb 2026)
-# Optional plugin: proxies calls to anima-mcp on Pi via Streamable HTTP.
-# Set UNITARES_DISABLE_PI_TOOLS=1 to skip loading.
-import os as _os
-if not _os.environ.get("UNITARES_DISABLE_PI_TOOLS"):
-    try:
-        from .observability.pi_orchestration import (
-            handle_pi_list_tools,
-            handle_pi_get_context,
-            handle_pi_health,
-            handle_pi_sync_eisv,
-            handle_pi_display,
-            handle_pi_say,
-            handle_pi_post_message,
-            handle_pi_lumen_qa,
-            handle_pi_query,
-            handle_pi_workflow,
-            handle_pi_git_pull,
-            handle_pi_restart_service,  # SSH-based fallback when MCP is down
-        )
-    except ImportError:
-        pass
+# Pi orchestration tools are provided by the unitares-pi-plugin package (entry_point).
+# Install it to enable pi() tools. See plugin_loader.py.
+
 # Keep helper functions from identity_shared.py (used by dispatch_tool)
 from .identity.shared import (
     get_bound_agent_id,
@@ -178,8 +159,11 @@ __all__ = ['dispatch_tool', 'TOOL_HANDLERS', 'error_response', 'success_response
 # Imports above ensure decorators run and register tools automatically
 TOOL_HANDLERS: Dict[str, callable] = {}
 
-# Populate registry from decorator-registered tools
-# All handlers use @mcp_tool decorator which auto-registers them
+# Load plugins (entry_points) before populating registry so their @mcp_tool decorators run
+from src.plugin_loader import load_plugins
+load_plugins()
+
+# Populate registry from decorator-registered tools (includes plugin tools)
 decorator_registry = get_decorator_registry()
 for tool_name, handler in decorator_registry.items():
     TOOL_HANDLERS[tool_name] = handler

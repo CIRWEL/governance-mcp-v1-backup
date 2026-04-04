@@ -90,14 +90,18 @@ def classify_outcome_provenance(outcome_type: str, detail: Any) -> str:
     if outcome_type in {"trajectory_validated", "cirs_resonance"}:
         return "endogenous"
 
-    if outcome_type in {"test_passed", "test_failed", "drawing_completed", "drawing_abandoned"}:
+    if outcome_type in {"test_passed", "test_failed"}:
         return "exogenous"
 
-    if outcome_type in {"task_completed", "task_failed"}:
-        if parsed.get("source") == "auto_checkin":
-            return "endogenous"
+    # Auto-checkin outcomes are endogenous (self-reported, not externally verified)
+    if parsed.get("source") == "auto_checkin":
+        return "endogenous"
+
+    # Domain-specific outcomes with measurable results are exogenous
+    if any(outcome_type.endswith(s) for s in ("_completed", "_abandoned", "_passed", "_failed")):
         if parsed.get("action"):
             return "exogenous"
+        return "exogenous"
 
     return "unknown"
 

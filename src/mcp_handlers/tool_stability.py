@@ -242,31 +242,8 @@ _TOOL_ALIASES: Dict[str, ToolAlias] = {
     # Feb 2026 Tool Consolidation - removed tools map to consolidated versions
     # ==========================================================================
 
-    # Pi tools → pi(action='...')
-    "pi_health": ToolAlias(old_name="pi_health", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='health')", inject_action="health"),
-    "pi_get_context": ToolAlias(old_name="pi_get_context", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='context')", inject_action="context"),
-    "pi_sync_eisv": ToolAlias(old_name="pi_sync_eisv", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='sync_eisv')", inject_action="sync_eisv"),
-    "pi_display": ToolAlias(old_name="pi_display", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='display')", inject_action="display"),
-    "pi_say": ToolAlias(old_name="pi_say", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='say', text='...')", inject_action="say"),
-    "pi_post_message": ToolAlias(old_name="pi_post_message", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='message', message='...')", inject_action="message"),
-    "pi_lumen_qa": ToolAlias(old_name="pi_lumen_qa", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='qa')", inject_action="qa"),
-    "pi_query": ToolAlias(old_name="pi_query", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='query', text='...')", inject_action="query"),
-    "pi_workflow": ToolAlias(old_name="pi_workflow", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='workflow', workflow='...')", inject_action="workflow"),
-    "pi_git_pull": ToolAlias(old_name="pi_git_pull", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='git_pull')", inject_action="git_pull"),
-    "pi_system_power": ToolAlias(old_name="pi_system_power", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='power')", inject_action="power"),
-    "pi_list_tools": ToolAlias(old_name="pi_list_tools", new_name="pi", reason="consolidated",
-        migration_note="Use pi(action='tools')", inject_action="tools"),
+    # Pi tools provided by unitares-pi-plugin (entry_point).
+    # Plugin registers its own aliases via register_extra_aliases().
 
     # Observe tools → observe(action='...')
     "observe_agent": ToolAlias(old_name="observe_agent", new_name="observe", reason="consolidated",
@@ -411,4 +388,9 @@ def get_tool_stability(tool_name: str) -> ToolStability:
 def list_all_aliases() -> Dict[str, ToolAlias]:
     """Get all tool aliases (for admin/debugging)"""
     return _TOOL_ALIASES.copy()
+
+
+def register_extra_aliases(aliases: Dict[str, ToolAlias]) -> None:
+    """Merge plugin-provided tool aliases into the registry."""
+    _TOOL_ALIASES.update(aliases)
 

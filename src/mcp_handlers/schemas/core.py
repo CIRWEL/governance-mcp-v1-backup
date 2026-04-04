@@ -158,7 +158,7 @@ class ProcessAgentUpdateParams(AgentIdentityMixin):
 
 class OutcomeEventParams(AgentIdentityMixin):
     """Parameters for outcome_event"""
-    outcome_type: Literal["drawing_completed", "drawing_abandoned", "test_passed", "test_failed", "tool_rejected", "task_completed", "task_failed"] = Field(..., description="Type of outcome event")
+    outcome_type: str = Field(..., description="Type of outcome event. Known types: test_passed, test_failed, task_completed, task_failed, tool_rejected. Domain-specific types accepted (e.g. drawing_completed, deploy_succeeded). Suffix convention: *_failed/*_abandoned → bad, *_completed/*_passed → good.", max_length=64)
     outcome_score: Optional[float] = Field(None, description="Quality score 0.0 (worst) to 1.0 (best). Inferred from type if omitted.")
     is_bad: Optional[bool] = Field(None, description="Whether this is a negative outcome. Inferred from type if omitted.")
     detail: Optional[Dict[str, Any]] = Field(None, description="Type-specific metadata (e.g., mark_count, test_name, error_message)")

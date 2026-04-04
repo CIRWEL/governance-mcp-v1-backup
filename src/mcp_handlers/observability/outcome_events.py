@@ -17,6 +17,7 @@ from ..utils import success_response, error_response
 from ..decorators import mcp_tool
 from src.logging_utils import get_logger
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
+from src.services.identity_payloads import attach_identity_handles
 logger = get_logger(__name__)
 
 # Known outcome types with automatic good/bad classification.
@@ -82,10 +83,11 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
             error_category="identity_error",
         )]
 
-    # Infer is_bad if not provided
+    # Infer is_bad if not provided — uses known types, then suffix convention
     is_bad = arguments.get("is_bad")
     if is_bad is None:
-        is_bad = outcome_type in BAD_OUTCOME_TYPES
+        classified = classify_outcome_type(outcome_type)
+        is_bad = classified if classified is not None else False
 
     # Infer outcome_score if not provided
     outcome_score = arguments.get("outcome_score")
@@ -93,11 +95,32 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
         outcome_score = 0.0 if is_bad else 1.0
 
     detail = dict(arguments.get("detail") or {})
+    db = get_db()
+    meta = getattr(mcp_server, "agent_metadata", {}).get(agent_id) if hasattr(mcp_server, "agent_metadata") else None
+    display_name = getattr(meta, "label", None) if meta else None
+    public_agent_id = getattr(meta, "structured_id", None) if meta else None
+    if not public_agent_id or display_name is None:
+        try:
+            identity = await db.get_identity(agent_id)
+            if identity and identity.metadata:
+                metadata = identity.metadata
+                public_agent_id = (
+                    metadata.get("public_agent_id")
+                    or metadata.get("agent_id")
+                    or metadata.get("structured_id")
+                    or public_agent_id
+                )
+                display_name = display_name or metadata.get("label")
+            if display_name is None:
+                display_name = await db.get_agent_label(agent_id)
+        except Exception:
+            pass
+    if not public_agent_id:
+        public_agent_id = agent_id
 
     # Fetch EISV snapshot for this outcome. Explicit snapshots are allowed so
     # exogenous callers can preserve the pairing even when they are outside a
     # stateful governance session.
-    db = get_db()
     explicit_eisv = arguments.get("eisv_snapshot")
     snapshot_source = "missing"
     eisv = None
@@ -118,6 +141,7 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
     eisv_coherence = eisv.get("coherence") if eisv else None
     eisv_regime = eisv.get("regime") if eisv else None
     detail["snapshot_source"] = snapshot_source
+    detail.setdefault("public_agent_id", public_agent_id)
     if eisv is None:
         detail["snapshot_missing"] = True
     elif eisv.get("primary_eisv_source") and "primary_eisv_source" not in detail:
@@ -201,7 +225,8 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
         except Exception as e_cal:
             logger.debug(f"Calibration from outcome_event skipped: {e_cal}")
 
-    return success_response({
+    response_payload = {
+        "agent_id": agent_id,
         "outcome_id": outcome_id,
         "outcome_type": outcome_type,
         "is_bad": is_bad,
@@ -221,7 +246,14 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
             "ode_eisv": eisv.get("ode_eisv") if eisv else None,
             "ode_diagnostics": eisv.get("ode_diagnostics") if eisv else None,
         } if eisv else None,
-    })
+    }
+    attach_identity_handles(
+        response_payload,
+        agent_uuid=agent_id,
+        public_agent_id=public_agent_id,
+        display_name=display_name,
+    )
+    return success_response(response_payload, agent_id=agent_id, arguments=arguments)
 
 
 @mcp_tool("outcome_correlation", timeout=30.0)

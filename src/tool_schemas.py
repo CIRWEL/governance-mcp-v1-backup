@@ -23,12 +23,12 @@ def _load_pydantic_schemas():
         "src.mcp_handlers.schemas.knowledge",
         "src.mcp_handlers.schemas.dialectic",
         "src.mcp_handlers.schemas.observability",
-        "src.mcp_handlers.schemas.pi_orchestration",
         "src.mcp_handlers.schemas.calibration",
         "src.mcp_handlers.schemas.identity",
         "src.mcp_handlers.schemas.admin",
         "src.mcp_handlers.schemas.dashboard",
     ]
+    mods.extend(_EXTRA_SCHEMA_MODULES)
     all_schemas = {}
     for mod_name in mods:
         mod = importlib.import_module(mod_name)
@@ -51,6 +51,15 @@ def _load_pydantic_schemas():
 
 
 _PYDANTIC_SCHEMAS_CACHE = None
+_EXTRA_SCHEMA_MODULES: list[str] = []
+
+
+def register_extra_schemas(module_path: str) -> None:
+    """Register a plugin's Pydantic schema module for discovery."""
+    global _PYDANTIC_SCHEMAS_CACHE
+    _EXTRA_SCHEMA_MODULES.append(module_path)
+    _PYDANTIC_SCHEMAS_CACHE = None  # Invalidate cache so next call re-discovers
+
 
 def get_pydantic_schemas():
     """Get or load Pydantic schemas (cached)."""
@@ -126,18 +135,7 @@ TOOL_ORDER = [
     "cirs_protocol",
     "self_recovery",
     "operator_resume_agent",
-    "pi_get_context",
-    "pi_health",
-    "pi_sync_eisv",
-    "pi_display",
-    "pi_say",
-    "pi_post_message",
-    "pi_query",
-    "pi_workflow",
-    "pi_git_pull",
-    "pi_system_power",
-    "pi_restart_service",
-    "pi",
+    # Pi tools (pi_*, pi) provided by unitares-pi-plugin entry_point
     "observe",
     "dialectic",
     "dashboard",

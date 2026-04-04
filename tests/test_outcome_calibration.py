@@ -270,6 +270,8 @@ class TestExplicitOutcomeEventCalibration:
             'E': 0.7, 'I': 0.75, 'S': 0.15, 'V': -0.03,
             'phi': 0.1, 'verdict': 'safe', 'coherence': 0.48, 'regime': 'CONVERGENCE',
         })
+        mock_db.get_identity = AsyncMock(return_value=None)
+        mock_db.get_agent_label = AsyncMock(return_value=None)
 
         mock_checker = MagicMock()
         mock_checker.record_prediction = MagicMock()
@@ -310,6 +312,8 @@ class TestExplicitOutcomeEventCalibration:
             'E': 0.7, 'I': 0.75, 'S': 0.15, 'V': -0.03,
             'phi': 0.1, 'verdict': 'safe', 'coherence': 0.48, 'regime': 'CONVERGENCE',
         })
+        mock_db.get_identity = AsyncMock(return_value=None)
+        mock_db.get_agent_label = AsyncMock(return_value=None)
 
         mock_monitor = MagicMock()
         mock_monitor._prev_confidence = 0.7
@@ -347,6 +351,8 @@ class TestExplicitOutcomeEventCalibration:
             'E': 0.7, 'I': 0.75, 'S': 0.15, 'V': -0.03,
             'phi': 0.1, 'verdict': 'safe', 'coherence': 0.48, 'regime': 'CONVERGENCE',
         })
+        mock_db.get_identity = AsyncMock(return_value=None)
+        mock_db.get_agent_label = AsyncMock(return_value=None)
 
         mock_checker = MagicMock()
 
@@ -365,6 +371,38 @@ class TestExplicitOutcomeEventCalibration:
         parsed = parse_result(result)
         assert parsed.get('outcome_id') == 'oe-3'
         mock_checker.record_prediction.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_outcome_event_falls_back_to_identity_metadata_for_public_id(self):
+        """Outcome responses should expose persisted public_agent_id even without runtime metadata."""
+        mock_db = MagicMock()
+        mock_db.record_outcome_event = AsyncMock(return_value='oe-3b')
+        mock_db.get_latest_eisv_by_agent_id = AsyncMock(return_value={
+            'E': 0.7, 'I': 0.75, 'S': 0.15, 'V': -0.03,
+            'phi': 0.1, 'verdict': 'safe', 'coherence': 0.48, 'regime': 'CONVERGENCE',
+        })
+        mock_db.get_identity = AsyncMock(return_value=SimpleNamespace(
+            identity_id="i1",
+            metadata={"public_agent_id": "mcp_20260404", "label": "Codex Agent"},
+        ))
+        mock_db.get_agent_label = AsyncMock(return_value="Codex Agent")
+
+        with patch('src.db.get_db', return_value=mock_db), \
+             patch('src.mcp_handlers.observability.outcome_events.mcp_server') as mock_server, \
+             patch('src.mcp_handlers.context.get_context_agent_id', return_value='agent-metadata'):
+
+            mock_server.agent_metadata = {}
+            mock_server.monitors = {}
+
+            from src.mcp_handlers.observability.outcome_events import handle_outcome_event
+            result = await handle_outcome_event({
+                'outcome_type': 'task_completed',
+            })
+
+        parsed = parse_result(result)
+        assert parsed['agent_id'] == 'agent-metadata'
+        assert parsed['public_agent_id'] == 'mcp_20260404'
+        assert parsed['display_name'] == 'Codex Agent'
 
     @pytest.mark.asyncio
     async def test_test_failed_records_tactical_with_bad_outcome(self):

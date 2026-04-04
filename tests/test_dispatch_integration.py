@@ -217,19 +217,19 @@ class TestResolveAlias:
     async def test_inject_action_adds_action(self):
         """inject_action adds action parameter when not present."""
         ctx = _make_ctx()
-        # pi_health has inject_action="health"
-        name, args, ctx_out = await resolve_alias("pi_health", {}, ctx)
-        assert name == "pi"
-        assert args.get("action") == "health"
+        # get_dialectic_session has inject_action="get"
+        name, args, ctx_out = await resolve_alias("get_dialectic_session", {}, ctx)
+        assert name == "dialectic"
+        assert args.get("action") == "get"
 
     @pytest.mark.asyncio
     async def test_inject_action_does_not_override(self):
         """inject_action does not override existing action parameter."""
         ctx = _make_ctx()
         name, args, ctx_out = await resolve_alias(
-            "pi_health", {"action": "custom_action"}, ctx
+            "get_dialectic_session", {"action": "custom_action"}, ctx
         )
-        assert name == "pi"
+        assert name == "dialectic"
         assert args["action"] == "custom_action"
 
     @pytest.mark.asyncio
@@ -370,10 +370,10 @@ class TestResolveToolAlias:
         actual, alias_info = resolve_tool_alias("start")
         assert actual == "onboard"
 
-    def test_pi_health_inject_action(self):
-        actual, alias_info = resolve_tool_alias("pi_health")
-        assert actual == "pi"
-        assert alias_info.inject_action == "health"
+    def test_dialectic_inject_action(self):
+        actual, alias_info = resolve_tool_alias("get_dialectic_session")
+        assert actual == "dialectic"
+        assert alias_info.inject_action == "get"
 
     def test_list_agents_maps_to_agent(self):
         actual, alias_info = resolve_tool_alias("list_agents")

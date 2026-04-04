@@ -554,12 +554,7 @@ def start_all_background_tasks(connection_tracker, set_ready):
     _supervised_create_task(stuck_agent_recovery_task(), name="stuck_agent_recovery")
     _supervised_create_task(server_warmup_task(set_ready), name="server_warmup")
 
-    try:
-        from src.mcp_handlers.observability.pi_orchestration import eisv_sync_task
-        _supervised_create_task(eisv_sync_task(interval_minutes=5.0), name="eisv_sync")
-        logger.info("[EISV_SYNC] Started periodic Pi EISV sync")
-    except Exception as e:
-        logger.warning(f"[EISV_SYNC] Could not start: {e}")
+    # Pi EISV sync is registered by unitares-pi-plugin via entry_point
 
     _supervised_create_task(session_cleanup_task(interval_hours=6.0), name="session_cleanup")
     logger.info("[SESSION_CLEANUP] Started periodic expired session cleanup (every 6h)")

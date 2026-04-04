@@ -121,57 +121,7 @@ class TestGovernanceHealth:
         print(f"[PASS] Missing params handled: {str(result)[:100]}...")
 
 
-class TestPiOrchestration:
-    """Test Pi orchestration failure modes."""
-
-    def test_pi_health_when_available(self):
-        """Drill 4: Pi health check when tunnel is up."""
-        result = make_mcp_request(GOVERNANCE_URL, "tools/call", {
-            "name": "pi_health",
-            "arguments": {}
-        })
-
-        assert "result" in result, f"Expected result: {result}"
-        content = result["result"]["content"][0]["text"]
-        data = json.loads(content)
-
-        if data.get("success"):
-            print(f"[PASS] Pi healthy, latency: {data.get('latency_ms', 'N/A')}ms")
-        else:
-            print(f"[INFO] Pi unreachable (expected if tunnel down): {data.get('error', 'unknown')}")
-
-    def test_pi_sync_eisv_graceful_failure(self):
-        """Drill 5: EISV sync should fail gracefully if Pi unreachable."""
-        result = make_mcp_request(GOVERNANCE_URL, "tools/call", {
-            "name": "pi_sync_eisv",
-            "arguments": {}
-        })
-
-        assert "result" in result
-        content = result["result"]["content"][0]["text"]
-        data = json.loads(content)
-
-        # Should either succeed or have a proper error message
-        if data.get("success"):
-            print(f"[PASS] Sync succeeded: E={data['eisv']['E']:.2f}")
-        else:
-            assert "error" in data or "Error" in content
-            print(f"[PASS] Graceful failure: {data.get('error', content[:50])}")
-
-    def test_pi_workflow_timeout_handling(self):
-        """Drill 6: Workflow should handle slow Pi responses."""
-        start = time.time()
-        result = make_mcp_request(GOVERNANCE_URL, "tools/call", {
-            "name": "pi_workflow",
-            "arguments": {"workflow": "full_status"}
-        })
-        elapsed = time.time() - start
-
-        assert "result" in result
-        content = result["result"]["content"][0]["text"]
-
-        # Should complete or timeout gracefully
-        print(f"[PASS] Workflow completed in {elapsed:.2f}s")
+# TestPiOrchestration removed — Pi tools are now in unitares-pi-plugin repo.
 
 
 class TestCrossDeviceAudit:
@@ -188,28 +138,7 @@ class TestCrossDeviceAudit:
         else:
             print(f"[INFO] Audit log not found at {audit_path}")
 
-    def test_eisv_sync_creates_audit_entry(self):
-        """Drill 8: EISV sync should create audit entry."""
-        # Get initial audit log size
-        import os
-        audit_path = "/Users/cirwel/projects/governance-mcp-v1/data/audit.jsonl"
-        initial_size = os.path.getsize(audit_path) if os.path.exists(audit_path) else 0
-
-        # Trigger a sync
-        make_mcp_request(GOVERNANCE_URL, "tools/call", {
-            "name": "pi_sync_eisv",
-            "arguments": {}
-        })
-
-        # Check if audit log grew
-        if os.path.exists(audit_path):
-            new_size = os.path.getsize(audit_path)
-            if new_size > initial_size:
-                print(f"[PASS] Audit log grew: {initial_size} -> {new_size} bytes")
-            else:
-                print(f"[INFO] Audit log unchanged (Pi may be unreachable)")
-        else:
-            print(f"[INFO] Audit log not found")
+    # test_eisv_sync_creates_audit_entry removed — Pi tools in unitares-pi-plugin
 
 
 class TestConsolidatedTools:

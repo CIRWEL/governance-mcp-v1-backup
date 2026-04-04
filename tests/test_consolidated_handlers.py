@@ -370,9 +370,7 @@ class TestConsolidatedRegistration:
         from src.mcp_handlers import consolidated  # noqa: F401
         assert "observe" in _TOOL_DEFINITIONS
 
-    def test_pi_registered(self):
-        from src.mcp_handlers import consolidated  # noqa: F401
-        assert "pi" in _TOOL_DEFINITIONS
+    # test_pi_registered removed — Pi tools provided by unitares-pi-plugin
 
     def test_dialectic_registered(self):
         from src.mcp_handlers import consolidated  # noqa: F401
@@ -571,43 +569,7 @@ class TestObserveHandler:
         assert valid == expected
 
 
-class TestPiHandler:
-    """Tests for the pi consolidated handler."""
-
-    @pytest.mark.asyncio
-    async def test_missing_action_returns_error(self):
-        from src.mcp_handlers.consolidated import handle_pi
-        result = await handle_pi({})
-        data = _parse_response(result)
-        assert data["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_invalid_action_returns_error(self):
-        from src.mcp_handlers.consolidated import handle_pi
-        result = await handle_pi({"action": "self_destruct"})
-        data = _parse_response(result)
-        assert data["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_valid_action_delegates(self):
-        from src.mcp_handlers.consolidated import handle_pi
-        mock_health = _make_mock_handler({"status": "healthy"})
-        with _patch_router_action(handle_pi, "health", mock_health):
-            result = await handle_pi({"action": "health"})
-            data = _parse_response(result)
-            assert data["status"] == "healthy"
-            mock_health.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_valid_actions_list_complete(self):
-        from src.mcp_handlers.consolidated import handle_pi
-        result = await handle_pi({"action": "bad"})
-        data = _parse_response(result)
-        valid = sorted(data["recovery"]["valid_actions"])
-        expected = sorted(["tools", "context", "health", "sync_eisv", "display",
-                           "say", "message", "qa", "query", "workflow",
-                           "git_pull", "power"])
-        assert valid == expected
+# TestPiHandler removed — Pi tools provided by unitares-pi-plugin
 
 
 class TestDialecticHandler:

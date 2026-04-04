@@ -11,3 +11,8 @@ def _load_descriptions() -> dict:
 
 
 TOOL_DESCRIPTIONS = _load_descriptions()
+
+
+def register_extra_descriptions(descriptions: dict) -> None:
+    """Merge plugin-provided tool descriptions into the registry."""
+    TOOL_DESCRIPTIONS.update(descriptions)
