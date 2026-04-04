@@ -1,9 +1,9 @@
 """
 Tool Modes - Define subsets of tools for different use cases
 
-Minimal mode: 4 essential tools - perfect for getting started (includes list_tools for discovery)
-Lite mode: Essential tools only (~10 tools) - optimized for local models
-Full mode: All tools (49 tools) - for cloud models with large context windows
+Minimal mode: 6 essential tools for onboarding (includes list_tools for discovery)
+Lite mode: Consolidated default surface optimized for local models
+Full mode: All schema-defined tools for the broadest surface
 Note: Tool-mode filtering is applied by servers that choose to enforce it (e.g. stdio list_tools).
       Full mode should always include *all* schema tools even if categories lag behind.
 

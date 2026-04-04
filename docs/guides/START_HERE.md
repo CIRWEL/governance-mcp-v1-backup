@@ -39,15 +39,15 @@ get_governance_metrics(
 
 ## Tool Modes (Optional)
 
-The server defaults to **lite mode** (~17 consolidated tools). Most agents never need to change this.
+The server defaults to **lite mode** (the consolidated default surface). Most agents never need to change this.
 
 | Mode | Tools | Set via |
 |------|-------|---------|
-| `minimal` | 6 (onboard, identity, process_agent_update, get_governance_metrics, list_tools, describe_tool) | `GOVERNANCE_TOOL_MODE=minimal` |
-| `lite` | ~17 consolidated tools (default) | `GOVERNANCE_TOOL_MODE=lite` |
-| `full` | All 30 registered tools | `GOVERNANCE_TOOL_MODE=full` |
+| `minimal` | 6 core tools (onboard, identity, process_agent_update, get_governance_metrics, list_tools, describe_tool) | `GOVERNANCE_TOOL_MODE=minimal` |
+| `lite` | Consolidated default surface (default) | `GOVERNANCE_TOOL_MODE=lite` |
+| `full` | Broadest server surface | `GOVERNANCE_TOOL_MODE=full` |
 
-`list_tools` and `describe_tool` are always available in any mode.
+Use `list_tools()` as the live source of truth for what your current transport/server instance actually exposes.
 
 ---
 

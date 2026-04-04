@@ -230,6 +230,83 @@ class TestRunGroundskeeper:
 
 
 # =============================================================================
+# Tests: ensure_identity safety
+# =============================================================================
+
+class TestEnsureIdentity:
+    """Tests for Vigil identity resume safety."""
+
+    @pytest.mark.asyncio
+    async def test_ensure_identity_uses_continuity_token(self):
+        """Strong resume should use the saved continuity token."""
+        agent = _make_agent()
+        agent.call_tool = AsyncMock(return_value={
+            "success": True,
+            "session_continuity": {
+                "client_session_id": "agent-vigil",
+                "continuity_token": "token-new",
+            },
+            "label": "Vigil",
+        })
+        session = MagicMock()
+
+        with patch("heartbeat_agent.load_session", return_value={
+            "client_session_id": "agent-vigil",
+            "continuity_token": "token-old",
+        }), patch("heartbeat_agent.save_session") as mock_save, \
+             patch("heartbeat_agent.log"):
+            result = await agent.ensure_identity(session)
+
+        assert result is True
+        agent.call_tool.assert_awaited_once_with(session, "identity", {
+            "resume": True,
+            "continuity_token": "token-old",
+        })
+        mock_save.assert_called_once_with("agent-vigil", "token-new")
+
+    @pytest.mark.asyncio
+    async def test_ensure_identity_blocks_without_continuity_token(self):
+        """Automatic resume should fail closed when the saved token is missing."""
+        agent = _make_agent()
+        agent.call_tool = AsyncMock()
+        session = MagicMock()
+
+        with patch("heartbeat_agent.load_session", return_value={
+            "client_session_id": "agent-vigil",
+        }), patch("heartbeat_agent.log") as mock_log:
+            result = await agent.ensure_identity(session)
+
+        assert result is False
+        agent.call_tool.assert_not_called()
+        assert any(
+            "Automatic name-based resume is disabled" in call.args[0]
+            for call in mock_log.call_args_list
+        )
+
+    @pytest.mark.asyncio
+    async def test_ensure_identity_does_not_fallback_to_name_after_token_failure(self):
+        """Failed strong resume should not retry with a name-based claim."""
+        agent = _make_agent()
+        agent.call_tool = AsyncMock(return_value={
+            "success": False,
+            "error": "token_invalid",
+        })
+        session = MagicMock()
+
+        with patch("heartbeat_agent.load_session", return_value={
+            "client_session_id": "agent-vigil",
+            "continuity_token": "token-old",
+        }), patch("heartbeat_agent.log"):
+            result = await agent.ensure_identity(session)
+
+        assert result is False
+        agent.call_tool.assert_awaited_once_with(session, "identity", {
+            "resume": True,
+            "continuity_token": "token-old",
+        })
+
+
+# =============================================================================
 # Tests: with_audit flag
 # =============================================================================
 

@@ -63,10 +63,12 @@ VERSION_REFERENCES = [
     ("pyproject.toml", [
         (r'version = "([\d.]+)"', r'version = "{version}"'),
     ]),
-    # README.md - title and footer
+    # README.md - footer
     ("README.md", [
-        (r'# UNITARES Governance Framework v([\d.]+)', r'# UNITARES Governance Framework v{version}'),
-        (r'\*\*Version:\*\* ([\d.]+)', r'**Version:** {version}'),
+        (
+            r'Built by \[@CIRWEL\]\(https://github\.com/CIRWEL\) \| \*\*v([\d.]+)\*\*',
+            r'Built by [@CIRWEL](https://github.com/CIRWEL) | **v{version}**',
+        ),
     ]),
     # Tool schemas - example response versions
     ("src/tool_schemas.py", [

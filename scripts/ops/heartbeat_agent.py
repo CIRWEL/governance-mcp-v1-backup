@@ -427,6 +427,8 @@ class HeartbeatAgent:
     async def ensure_identity(self, session: ClientSession) -> bool:
         """Resume persistent Vigil identity using saved continuity token."""
         try:
+            recovery_cmd = "python3 scripts/ops/heartbeat_agent.py --once --force-new"
+
             # Explicit bootstrap: create fresh identity and save token
             if self.force_new:
                 log("Bootstrapping fresh identity (--force-new)")
@@ -447,38 +449,33 @@ class HeartbeatAgent:
             # Don't pass name — it triggers name-claim path which requires trajectory_signature.
             # Session-key resolution via token is sufficient to find the identity.
             token = saved.get("continuity_token")
-            if token:
-                result = await self.call_tool(session, "identity", {
-                    "resume": True,
-                    "continuity_token": token,
-                })
-                if result.get("success"):
-                    return self._capture_identity(result, "token")
-                log(f"Token resume failed: {result.get('error', result)}")
+            if not token:
+                log(
+                    "IDENTITY BLOCKED: no continuity_token in .vigil_session. "
+                    "Automatic name-based resume is disabled to prevent identity splits. "
+                    f"Run manually once: {recovery_cmd}"
+                )
+                return False
 
-            # Resume by name (works if no trajectory verification needed)
             result = await self.call_tool(session, "identity", {
-                "name": self.label,
                 "resume": True,
+                "continuity_token": token,
             })
-
-            # Handle options prompt
-            if result.get("options"):
-                result = await self.call_tool(session, "identity", {
-                    "name": self.label,
-                    "resume": True,
-                })
 
             # Trajectory verification required — need a human to bootstrap
             if result.get("recovery", {}).get("reason") == "trajectory_required":
                 log("IDENTITY BLOCKED: trajectory verification required. "
-                    "Run manually once: python3 scripts/ops/heartbeat_agent.py --once --force-new")
+                    f"Run manually once: {recovery_cmd}")
                 return False
 
             if result.get("success"):
-                return self._capture_identity(result)
+                return self._capture_identity(result, "token")
 
-            log(f"Identity failed: {result}")
+            log(
+                "IDENTITY BLOCKED: strong resume failed and automatic name-based resume is disabled "
+                f"to prevent identity splits ({result.get('error', result)}). "
+                f"Run manually once: {recovery_cmd}"
+            )
             return False
         except Exception as e:
             log(f"Identity error: {e}")

@@ -380,6 +380,23 @@ class TestHandleIdentityV2:
         assert result.get("resumed_by_name") is True
         assert result.get("source") == "name_claim"
 
+    @pytest.mark.asyncio
+    async def test_identity_explicit_binding_skips_name_claim(self, patch_all_deps):
+        """Explicit session bindings should bypass name-claim resolution."""
+        from src.mcp_handlers.identity.handlers import handle_identity_v2
+
+        with patch("src.mcp_handlers.identity.handlers.resolve_by_name_claim", new_callable=AsyncMock) as mock_name_claim:
+            result = await handle_identity_v2(
+                arguments={
+                    "client_session_id": "agent-explicit123",
+                    "name": "ExistingBot",
+                },
+                session_key="agent-explicit123",
+            )
+
+        assert result["success"] is True
+        mock_name_claim.assert_not_awaited()
+
 
 # ============================================================================
 # resolve_by_name_claim (standalone)
@@ -848,6 +865,32 @@ class TestHandleIdentityAdapter:
         assert data["uuid"] == bound_uuid
         assert data.get("resumed") is True
         assert not data.get("resumed_by_name", False)
+
+    @pytest.mark.asyncio
+    async def test_identity_inner_name_claim_rejection_returns_clean_error(self, patch_identity_deps):
+        """Rejected inner identity results should surface as structured errors, not crashes."""
+        from src.mcp_handlers.identity.handlers import handle_identity_adapter
+
+        with patch("src.mcp_handlers.identity.handlers.resolve_session_identity", return_value={
+            "created": True,
+            "agent_uuid": str(uuid.uuid4()),
+            "agent_id": "Gpt_5_4_Codex_20260403",
+        }), patch("src.mcp_handlers.identity.handlers.handle_identity_v2", return_value={
+            "success": False,
+            "error": "trajectory_required",
+            "message": "Trajectory verification required to reclaim 'Vigil'.",
+            "hint": "Provide trajectory_signature for identity verification, or use force_new=true to create a new identity.",
+        }):
+            result = await handle_identity_adapter({
+                "client_session_id": "agent-vigil",
+                "name": "Vigil",
+                "resume": True,
+            })
+        data = parse_result(result)
+
+        assert data["success"] is False
+        assert "Trajectory verification required" in data["error"]
+        assert data["recovery"]["reason"] == "trajectory_required"
 
     @pytest.mark.asyncio
     async def test_identity_resumes_existing_agent(self, patch_identity_deps, mock_db, mock_redis, mock_raw_redis):

@@ -250,7 +250,8 @@ async def handle_identity_v2(
     # Resolve session to identity (lazy - doesn't persist yet)
     # Try name-based resolution first (PATH 2.5)
     name = arguments.get("name")
-    if name:
+    explicit_resume_binding = bool(arguments.get("client_session_id") or arguments.get("continuity_token"))
+    if name and not explicit_resume_binding:
         trajectory_sig = arguments.get("trajectory_signature")
         name_result = await resolve_by_name_claim(name, session_key, trajectory_signature=trajectory_sig)
         if name_result:
@@ -488,8 +489,26 @@ async def handle_identity_adapter(arguments: Dict[str, Any]) -> Sequence[TextCon
 
     # Call simplified handler with model_type for agent_id generation
     result = await handle_identity_v2(arguments, session_key, model_type=model_type)
-    agent_id = result.get("agent_id", result["agent_uuid"])
-    agent_uuid = result["agent_uuid"]
+    if not isinstance(result, dict):
+        return error_response("Identity resolution returned an invalid response", arguments=arguments)
+    if not result.get("success"):
+        recovery = None
+        if result.get("error") or result.get("hint"):
+            recovery = {}
+            if result.get("error"):
+                recovery["reason"] = result["error"]
+            if result.get("hint"):
+                recovery["hint"] = result["hint"]
+        return error_response(
+            result.get("message") or result.get("error") or "Identity resolution failed",
+            recovery=recovery,
+            arguments=arguments,
+        )
+
+    agent_uuid = result.get("agent_uuid")
+    if not agent_uuid:
+        return error_response("Identity resolution returned no agent_uuid", arguments=arguments)
+    agent_id = result.get("agent_id", agent_uuid)
 
     # CRITICAL: Update request context so signature in response matches resolved identity
     try:
