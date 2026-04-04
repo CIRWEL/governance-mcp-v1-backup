@@ -261,6 +261,11 @@ class TestGetGovernanceMetrics:
             "coherence": 0.52, "risk_score": 0.3,
             "initialized": True, "status": "ok",
             "complexity": 0.5,
+            "ode": {"E": 0.65, "I": 0.55, "S": 0.25, "V": -0.01},
+            "phi": 0.12,
+            "regime": "EXPLORATION",
+            "lambda1": 0.08,
+            "verdict": "safe",
         }
         return m
 
@@ -283,6 +288,8 @@ class TestGetGovernanceMetrics:
         """Lite mode returns minimal metrics with status indicators."""
         meta = MagicMock()
         meta.purpose = "test purpose"
+        meta.public_agent_id = "Gpt_5_Codex_20260404"
+        meta.label = "Dogfood Agent"
         mock_mcp_server.agent_metadata = {"agent-1": meta}
         mock_mcp_server.get_or_create_monitor.return_value = mock_monitor
 
@@ -298,7 +305,10 @@ class TestGetGovernanceMetrics:
             result = await handle_get_governance_metrics({"lite": True})
 
             data = json.loads(result[0].text)
-            assert data["agent_id"] == "agent-1"
+            assert data["agent_id"] == "Gpt_5_Codex_20260404"
+            assert data["agent_uuid"] == "agent-1"
+            assert data["display_name"] == "Dogfood Agent"
+            assert data["primary_eisv_source"] == "ode_fallback"
             assert "status" in data
             assert "coherence" in data
             assert "risk_score" in data
@@ -308,7 +318,13 @@ class TestGetGovernanceMetrics:
     @pytest.mark.asyncio
     async def test_get_metrics_full_mode(self, mock_mcp_server, mock_monitor):
         """Full mode returns standardized metrics with interpretation."""
-        mock_mcp_server.agent_metadata = {"agent-1": MagicMock(purpose=None)}
+        mock_mcp_server.agent_metadata = {
+            "agent-1": MagicMock(
+                purpose=None,
+                public_agent_id="Gpt_5_Codex_20260404",
+                label="Dogfood Agent",
+            )
+        }
         mock_mcp_server.get_or_create_monitor.return_value = mock_monitor
 
         with patch("src.mcp_handlers.core.mcp_server", mock_mcp_server), \
@@ -325,6 +341,13 @@ class TestGetGovernanceMetrics:
             data = json.loads(result[0].text)
             # Full mode should have summary; reflection is now conditional
             assert "summary" in data
+            assert data["agent_id"] == "Gpt_5_Codex_20260404"
+            assert data["agent_uuid"] == "agent-1"
+            assert data["display_name"] == "Dogfood Agent"
+            assert data["primary_eisv_source"] == "ode_fallback"
+            assert data["primary_eisv"]["E"] == 0.7
+            assert data["ode_eisv"]["E"] == 0.65
+            assert "state_semantics" in data
 
     @pytest.mark.asyncio
     async def test_get_metrics_uninitialized_agent(self, mock_mcp_server):

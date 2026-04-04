@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from numbers import Real
 from typing import Any, Dict
 
 from config.governance_config import GovernanceConfig
@@ -12,6 +13,83 @@ from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
 from src.services.identity_continuity import get_identity_continuity_status
 
 logger = get_logger(__name__)
+
+
+def _resolve_agent_identity_view(agent_uuid: str, meta: Any) -> tuple[str, str | None]:
+    """Resolve the public-facing handle and display name for a UUID-bound agent."""
+    public_agent_id = (
+        getattr(meta, "public_agent_id", None)
+        or getattr(meta, "structured_id", None)
+        or agent_uuid
+    ) if meta else agent_uuid
+    display_name = (
+        getattr(meta, "label", None)
+        or getattr(meta, "display_name", None)
+    ) if meta else None
+    return public_agent_id, display_name
+
+
+def _build_eisv_semantics(metrics: Dict[str, Any], monitor: Any) -> Dict[str, Any]:
+    """Attach explicit primary/behavioral/ODE EISV views for read APIs."""
+    primary_eisv = {
+        "E": metrics.get("E"),
+        "I": metrics.get("I"),
+        "S": metrics.get("S"),
+        "V": metrics.get("V"),
+    }
+
+    ode_eisv = dict(metrics.get("ode") or {})
+    if not ode_eisv:
+        ode_eisv = {
+            "E": metrics.get("E"),
+            "I": metrics.get("I"),
+            "S": metrics.get("S"),
+            "V": metrics.get("V"),
+        }
+
+    behavioral_eisv = None
+    behavioral_confidence = 0.0
+    try:
+        beh = getattr(monitor, "_behavioral_state", None)
+        confidence_value = getattr(beh, "confidence", 0.0) if beh is not None else 0.0
+        if beh is not None and isinstance(confidence_value, Real):
+            behavioral_confidence = float(confidence_value or 0.0)
+            behavioral_eisv = {
+                "E": float(getattr(beh, "E")),
+                "I": float(getattr(beh, "I")),
+                "S": float(getattr(beh, "S")),
+                "V": float(getattr(beh, "V")),
+                "confidence": behavioral_confidence,
+            }
+    except Exception:
+        behavioral_eisv = None
+        behavioral_confidence = 0.0
+
+    primary_source = "behavioral" if behavioral_confidence >= 0.3 else "ode_fallback"
+    ode_diagnostics = {
+        "phi": metrics.get("phi"),
+        "verdict": metrics.get("verdict"),
+        "coherence": metrics.get("coherence"),
+        "regime": metrics.get("regime"),
+        "lambda1": metrics.get("lambda1"),
+        "status": metrics.get("status"),
+    }
+
+    return {
+        "eisv": primary_eisv,
+        "primary_eisv": primary_eisv,
+        "primary_eisv_source": primary_source,
+        "behavioral_eisv": behavioral_eisv,
+        "ode_eisv": ode_eisv,
+        "ode_diagnostics": ode_diagnostics,
+        "state_semantics": {
+            "flat_fields_mean": "primary_eisv",
+            "primary_eisv_role": "live state to read first",
+            "behavioral_eisv_role": "observation-first behavioral state",
+            "ode_eisv_role": "ODE fallback/control reference",
+            "ode_diagnostics_role": "thermostat/dynamics diagnostics",
+        },
+    }
 
 
 def _generate_contextual_reflection(metrics: dict, interpreted: dict) -> str | None:
@@ -69,6 +147,14 @@ async def get_governance_metrics_data(agent_id: str, arguments: Dict[str, Any], 
         pass
 
     meta = server.agent_metadata.get(agent_id)
+    public_agent_id, display_name = _resolve_agent_identity_view(agent_id, meta)
+    standardized_metrics["agent_id"] = public_agent_id
+    if public_agent_id != agent_id:
+        standardized_metrics["agent_uuid"] = agent_id
+    if display_name:
+        standardized_metrics["display_name"] = display_name
+    standardized_metrics.update(_build_eisv_semantics(metrics, monitor))
+
     if meta and getattr(meta, "purpose", None):
         standardized_metrics["purpose"] = meta.purpose
 
@@ -133,8 +219,8 @@ async def get_governance_metrics_data(agent_id: str, arguments: Dict[str, Any], 
     if verbosity == "standard":
         state = standardized_metrics.get("state", {})
         standard_metrics = {
-            "agent_id": agent_id,
-            "display_name": getattr(meta, "label", None) if meta else None,
+            "agent_id": public_agent_id,
+            "display_name": display_name,
             "E": metrics.get("E"),
             "I": metrics.get("I"),
             "S": metrics.get("S"),
@@ -142,11 +228,14 @@ async def get_governance_metrics_data(agent_id: str, arguments: Dict[str, Any], 
             "coherence": metrics.get("coherence"),
             "verdict": metrics.get("verdict", "uninitialized"),
             "risk_score": metrics.get("risk_score"),
+            "primary_eisv_source": standardized_metrics.get("primary_eisv_source"),
             "basin": state.get("basin"),
             "mode": state.get("mode"),
             "summary": standardized_metrics.get("summary"),
             "guidance": state.get("guidance"),
         }
+        if public_agent_id != agent_id:
+            standard_metrics["agent_uuid"] = agent_id
         if reflection:
             standard_metrics["reflection"] = reflection
         standard_metrics["_note"] = "Use verbosity='full' for diagnostics, 'minimal' for quick check"
@@ -194,10 +283,12 @@ async def get_governance_metrics_data(agent_id: str, arguments: Dict[str, Any], 
             void_display = 0.0 if void_raw == 0 else void_raw
 
         lite_metrics = {
-            "agent_id": agent_id,
+            "agent_id": public_agent_id,
+            "display_name": display_name,
             "status": status_display,
             "purpose": getattr(meta, "purpose", None),
             "summary": standardized_metrics.get("summary", "unknown"),
+            "primary_eisv_source": standardized_metrics.get("primary_eisv_source"),
             "E": {"value": metrics.get("E"), "range": "[0, 1]", "note": "Energy capacity"},
             "I": {"value": metrics.get("I"), "range": "[0, 1]", "note": "Information integrity"},
             "S": {"value": metrics.get("S"), "range": "[0, 1]", "ideal": "<0.2", "note": "Entropy (lower=better)"},
@@ -205,6 +296,8 @@ async def get_governance_metrics_data(agent_id: str, arguments: Dict[str, Any], 
             "coherence": {"value": coherence, "range": "[0, 1]", "status": coherence_status},
             "risk_score": {"value": risk_score, "threshold": 0.5, "status": risk_status},
         }
+        if public_agent_id != agent_id:
+            lite_metrics["agent_uuid"] = agent_id
         if "state" in standardized_metrics:
             lite_metrics["mode"] = standardized_metrics["state"].get("mode")
             lite_metrics["basin"] = standardized_metrics["state"].get("basin")

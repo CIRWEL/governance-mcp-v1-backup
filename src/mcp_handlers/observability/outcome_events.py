@@ -12,6 +12,7 @@ from ..utils import success_response, error_response
 from ..decorators import mcp_tool
 from src.logging_utils import get_logger
 from src.mcp_handlers.shared import lazy_mcp_server as mcp_server
+from src.services.runtime_queries import _build_eisv_semantics
 logger = get_logger(__name__)
 
 # Outcome types that are considered "bad" by default
@@ -24,7 +25,7 @@ VALID_OUTCOME_TYPES = BAD_OUTCOME_TYPES | GOOD_OUTCOME_TYPES | NEUTRAL_OUTCOME_T
 async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextContent]:
     """Record an outcome event paired with the agent's current EISV snapshot."""
     from src.db import get_db
-    from ..context import get_context_agent_id
+    from ..context import get_context_agent_id, get_context_client_session_id
 
     outcome_type = arguments.get("outcome_type")
     if not outcome_type:
@@ -63,7 +64,12 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
     if outcome_score is None:
         outcome_score = 0.0 if is_bad else 1.0
 
-    detail = arguments.get("detail") or {}
+    detail = dict(arguments.get("detail") or {})
+    session_id = (
+        arguments.get("session_id")
+        or arguments.get("client_session_id")
+        or get_context_client_session_id()
+    )
 
     # Fetch latest EISV snapshot for this agent (ODE state from DB)
     db = get_db()
@@ -79,8 +85,11 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
     eisv_regime = eisv["regime"] if eisv else None
 
     # Embed behavioral EISV (observation-first, per-agent) alongside ODE snapshot
+    monitor = None
     try:
-        monitor = mcp_server.monitors.get(agent_id) if hasattr(mcp_server, 'monitors') else None
+        monitors = getattr(mcp_server, "monitors", None)
+        if isinstance(monitors, dict):
+            monitor = monitors.get(agent_id)
         if monitor:
             bstate = getattr(monitor, '_behavioral_state', None)
             if bstate and bstate.confidence > 0:
@@ -94,13 +103,50 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
     except Exception:
         pass  # Fail-safe: ODE snapshot still recorded
 
+    snapshot = None
+    if eisv:
+        primary_e, primary_i, primary_s, primary_v = eisv_e, eisv_i, eisv_s, eisv_v
+        if monitor:
+            try:
+                primary_e, primary_i, primary_s, primary_v = monitor.get_primary_eisv()
+            except Exception:
+                pass
+        snapshot_metrics = {
+            "E": primary_e,
+            "I": primary_i,
+            "S": primary_s,
+            "V": primary_v,
+            "phi": eisv_phi,
+            "verdict": eisv_verdict,
+            "coherence": eisv_coherence,
+            "regime": eisv_regime,
+            "ode": {
+                "E": eisv_e,
+                "I": eisv_i,
+                "S": eisv_s,
+                "V": eisv_v,
+            },
+        }
+        snapshot = _build_eisv_semantics(snapshot_metrics, monitor)
+        detail["primary_eisv"] = snapshot.get("primary_eisv")
+        detail["primary_eisv_source"] = snapshot.get("primary_eisv_source")
+        detail["behavioral_eisv"] = snapshot.get("behavioral_eisv")
+        detail["ode_eisv"] = snapshot.get("ode_eisv")
+        detail["ode_diagnostics"] = snapshot.get("ode_diagnostics")
+        detail["state_semantics"] = snapshot.get("state_semantics")
+        detail["snapshot_source"] = "latest_agent_state"
+        detail["snapshot_missing"] = False
+    else:
+        detail["snapshot_source"] = "missing"
+        detail["snapshot_missing"] = True
+
     # Insert
     outcome_id = await db.record_outcome_event(
         agent_id=agent_id,
         outcome_type=outcome_type,
         is_bad=is_bad,
         outcome_score=outcome_score,
-        session_id=arguments.get("session_id"),
+        session_id=session_id,
         eisv_e=eisv_e,
         eisv_i=eisv_i,
         eisv_s=eisv_s,
@@ -159,16 +205,7 @@ async def handle_outcome_event(arguments: Dict[str, Any]) -> Sequence[TextConten
         "outcome_type": outcome_type,
         "is_bad": is_bad,
         "outcome_score": outcome_score,
-        "eisv_snapshot": {
-            "E": eisv_e,
-            "I": eisv_i,
-            "S": eisv_s,
-            "V": eisv_v,
-            "phi": eisv_phi,
-            "verdict": eisv_verdict,
-            "coherence": eisv_coherence,
-            "regime": eisv_regime,
-        } if eisv else None,
+        "eisv_snapshot": snapshot,
     })
 
 

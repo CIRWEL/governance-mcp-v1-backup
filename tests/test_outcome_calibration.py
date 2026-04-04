@@ -262,6 +262,50 @@ class TestExplicitOutcomeEventCalibration:
     """Test calibration recording from explicit outcome_event calls."""
 
     @pytest.mark.asyncio
+    async def test_outcome_event_persists_stable_session_and_split_snapshot(self):
+        """outcome_event should keep stable session linkage and attach split EISV semantics."""
+        mock_db = MagicMock()
+        mock_db.record_outcome_event = AsyncMock(return_value='oe-split')
+        mock_db.get_latest_eisv_by_agent_id = AsyncMock(return_value={
+            'E': 0.7, 'I': 0.75, 'S': 0.15, 'V': -0.03,
+            'phi': 0.1, 'verdict': 'safe', 'coherence': 0.48, 'regime': 'CONVERGENCE',
+        })
+
+        mock_monitor = MagicMock()
+        mock_monitor._behavioral_state = SimpleNamespace(
+            E=0.51, I=0.68, S=0.22, V=-0.11, confidence=0.45,
+        )
+        mock_monitor.get_primary_eisv.return_value = (0.51, 0.68, 0.22, -0.11)
+
+        with patch('src.db.get_db', return_value=mock_db), \
+             patch('src.mcp_handlers.observability.outcome_events.mcp_server') as mock_server, \
+             patch('src.mcp_handlers.context.get_context_agent_id', return_value='agent-split'), \
+             patch('src.mcp_handlers.context.get_context_client_session_id', return_value='agent-split-123'):
+
+            mock_server.monitors = {'agent-split': mock_monitor}
+
+            from src.mcp_handlers.observability.outcome_events import handle_outcome_event
+            result = await handle_outcome_event({
+                'outcome_type': 'task_completed',
+            })
+
+        parsed = parse_result(result)
+        assert parsed.get('outcome_id') == 'oe-split'
+        assert parsed['eisv_snapshot']['primary_eisv_source'] == 'behavioral'
+        assert parsed['eisv_snapshot']['primary_eisv']['E'] == 0.51
+        assert parsed['eisv_snapshot']['behavioral_eisv']['E'] == 0.51
+        assert parsed['eisv_snapshot']['ode_eisv']['E'] == 0.7
+        assert parsed['eisv_snapshot']['state_semantics']['flat_fields_mean'] == 'primary_eisv'
+
+        _, kwargs = mock_db.record_outcome_event.call_args
+        assert kwargs['session_id'] == 'agent-split-123'
+        assert kwargs['detail']['snapshot_source'] == 'latest_agent_state'
+        assert kwargs['detail']['snapshot_missing'] is False
+        assert kwargs['detail']['primary_eisv_source'] == 'behavioral'
+        assert kwargs['detail']['behavioral_eisv']['E'] == 0.51
+        assert kwargs['detail']['ode_eisv']['E'] == 0.7
+
+    @pytest.mark.asyncio
     async def test_records_calibration_with_explicit_confidence(self):
         """outcome_event with confidence param records calibration."""
         mock_db = MagicMock()

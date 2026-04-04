@@ -666,12 +666,16 @@ async def _perform_session_bind(
             await db.init()
         identity_record = await db.get_identity(agent_uuid)
         if identity_record:
+            client_info = {"agent_uuid": agent_uuid, "bound_via": source}
+            if display_agent_id and display_agent_id != agent_uuid:
+                client_info["public_agent_id"] = display_agent_id
+                client_info["agent_id"] = display_agent_id
             await db.create_session(
                 session_id=session_key,
                 identity_id=identity_record.identity_id,
                 expires_at=datetime.now() + timedelta(hours=GovernanceConfig.SESSION_TTL_HOURS),
                 client_type="mcp",
-                client_info={"agent_uuid": agent_uuid, "bound_via": source}
+                client_info=client_info,
             )
             bound_info["postgres"] = True
     except Exception as e:

@@ -1481,7 +1481,10 @@ class TestHandleOnboardV2:
             return None
 
         async def create_session(session_id, identity_id, expires_at, client_type="mcp", client_info=None):
-            sessions[session_id] = SimpleNamespace(agent_id=client_info.get("agent_uuid"))
+            sessions[session_id] = SimpleNamespace(
+                agent_id=client_info.get("agent_uuid"),
+                client_info=client_info,
+            )
 
         async def get_session(session_id):
             return sessions.get(session_id)
@@ -1507,9 +1510,12 @@ class TestHandleOnboardV2:
         onboard_data = parse_result(onboard_result)
         created_uuid = onboard_data["uuid"]
         stable_session_id = onboard_data["client_session_id"]
+        public_agent_id = onboard_data["agent_id"]
 
         assert stable_session_id in sessions
         assert sessions[stable_session_id].agent_id == created_uuid
+        assert sessions[stable_session_id].client_info["public_agent_id"] == public_agent_id
+        assert sessions[stable_session_id].client_info["agent_id"] == public_agent_id
 
         identity_result = await handle_identity_adapter({
             "client_session_id": stable_session_id,
