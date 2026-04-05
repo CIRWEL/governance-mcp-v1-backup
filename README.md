@@ -2,6 +2,8 @@
 
 ### Digital proprioception for AI agents.
 
+Status: live overview. For architecture truth and code-first authority ordering, see [docs/CANONICAL_SOURCES.md](docs/CANONICAL_SOURCES.md).
+
 [![Tests](https://github.com/CIRWEL/unitares/actions/workflows/tests.yml/badge.svg)](https://github.com/CIRWEL/unitares/actions/workflows/tests.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -40,7 +42,8 @@ dV/dt = κ(E - I) - δ·V             Void accumulates E-I mismatch, decays towa
 
 Behavioral EISV drives verdicts. The ODE runs in parallel for agents that benefit from its convergence properties.
 
-> [Architecture Overview](docs/UNIFIED_ARCHITECTURE.md) — How the components fit together
+> [Architecture Overview](docs/UNIFIED_ARCHITECTURE.md) — prose summary
+> [Canonical Sources](docs/CANONICAL_SOURCES.md) — which docs and runtime files are authoritative
 
 ---
 
@@ -77,7 +80,8 @@ Production snapshot from April 2026:
 | Agents created / active (7-day) | Four-figure total / dozens active |
 | Check-ins processed | Six figures |
 | Knowledge graph entries | Four figures |
-| EISV (Lumen, ODE) | E≈0.72, I≈0.75, S≈0.20, V≈-0.04 |
+| EISV (Lumen, behavioral) | E≈0.41, I≈0.83, S≈0.24, V≈-0.02 |
+| EISV (Lumen, ODE reference) | E≈0.72, I≈0.75, S≈0.20, V≈-0.04 |
 | V operating range | All active agents within [-0.1, 0.1] |
 | Test suite | Large multi-thousand test suite |
 
@@ -127,7 +131,7 @@ process_agent_update({
 }
 ```
 
-The `onboard()` response includes ready-to-use templates for your next calls — no guessing at parameter names. See [Getting Started](docs/guides/START_HERE.md) for the full walkthrough.
+The `onboard()` response includes ready-to-use templates for your next calls — no guessing at parameter names. See [Start Here](docs/guides/START_HERE.md) for the thin default workflow and links to canonical docs.
 
 ### Installation
 
@@ -195,7 +199,7 @@ Agents self-identify through the `onboard()` flow — no hardcoded agent name he
 
 **Security:** The server binds to `127.0.0.1` by default. For LAN/remote access, set `UNITARES_BIND_ALL_INTERFACES=1` and configure `UNITARES_MCP_ALLOWED_HOSTS` / `UNITARES_MCP_ALLOWED_ORIGINS` (comma-separated). See the [launchd plist](scripts/ops/) for a working example.
 
-> **For AI agents:** Start with `onboard()`, keep `client_session_id` from the response, then call `process_agent_update()` with `response_mode: "mirror"`, then `get_governance_metrics()`. If `continuity_token_supported=true`, prefer `continuity_token` for resume. Use `bind_session()` only when you intentionally bridge MCP and REST transports. See [docs/guides/START_HERE.md](docs/guides/START_HERE.md) and [docs/operations/OPERATOR_RUNBOOK.md](docs/operations/OPERATOR_RUNBOOK.md).
+> **For AI agents:** Start with `onboard()`, keep `client_session_id` from the response, then call `process_agent_update()` with `response_mode: "mirror"`, then `get_governance_metrics()`. If `continuity_token_supported=true`, prefer `continuity_token` for resume. Use `bind_session()` only when you intentionally bridge MCP and REST transports. See [docs/guides/START_HERE.md](docs/guides/START_HERE.md), [docs/CANONICAL_SOURCES.md](docs/CANONICAL_SOURCES.md), and [docs/operations/OPERATOR_RUNBOOK.md](docs/operations/OPERATOR_RUNBOOK.md).
 
 ---
 
@@ -263,11 +267,11 @@ These are unsolved problems. The system is honest about what it doesn't yet do w
 
 | Guide | Purpose |
 |-------|---------|
-| [Getting Started](docs/guides/START_HERE.md) | Complete setup and onboarding guide |
+| [Start Here](docs/guides/START_HERE.md) | Thin default workflow and doc map |
 | [Architecture](docs/UNIFIED_ARCHITECTURE.md) | System topology, EISV dynamics, database ownership |
 | [Troubleshooting](docs/guides/TROUBLESHOOTING.md) | Common issues |
 | [Dashboard](dashboard/README.md) | Web dashboard docs |
-| [Database Architecture](docs/database_architecture.md) | PostgreSQL + AGE |
+| [Database Architecture](docs/database_architecture.md) | Thin storage/backend reference |
 | [Changelog](CHANGELOG.md) | Release history |
 
 ## Contributing
